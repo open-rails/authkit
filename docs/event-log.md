@@ -104,7 +104,7 @@ CREATE TABLE app.account_resyncs (user_id uuid PRIMARY KEY, due_at timestamptz N
 CREATE INDEX account_resyncs_due_at_idx ON app.account_resyncs (due_at);
 ```
 
-Required `OnPurge` cleanup is separate. Each issuer's daily sweep (or overdue startup catch-up) runs
+Required `OnPurge` cleanup is separate. Each issuer's batch, scheduled at the deletion's `purge_at`, runs
 its required cleanup before hard deletion, while the subsequent `user.purged`
 event describes what committed. Reading the log never satisfies or delays
 that cleanup.

@@ -10,34 +10,33 @@ import (
 	"time"
 )
 
-const accountCleanupFleetIssuers = `-- name: AccountCleanupFleetIssuers :many
-SELECT issuer FROM account_delivery_fleets WHERE river_schema=$1
-ORDER BY issuer
+const accountCleanupNextDue = `-- name: AccountCleanupNextDue :one
+SELECT d.purge_at FROM account_deletions d
+WHERE d.state IN ('deleted', 'finalizing') AND d.purge_at > $1::timestamptz
+  AND ($2::text = ANY(d.recipients) OR EXISTS (
+    SELECT 1 FROM account_deletion_deliveries e
+    WHERE e.deletion_id = d.id AND e.issuer = $2::text AND e.stage = 'hard' AND e.completed_at IS NULL
+  ))
+ORDER BY d.purge_at
+LIMIT 1
 `
 
-// The daily dispatcher schedules each application only in its bound fleet.
-func (q *Queries) AccountCleanupFleetIssuers(ctx context.Context, riverSchema string) ([]string, error) {
-	rows, err := q.db.Query(ctx, accountCleanupFleetIssuers, riverSchema)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []string
-	for rows.Next() {
-		var issuer string
-		if err := rows.Scan(&issuer); err != nil {
-			return nil, err
-		}
-		items = append(items, issuer)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type AccountCleanupNextDueParams struct {
+	AfterAt time.Time
+	Issuer  string
+}
+
+// When the issuer's batch next has work after after_at: the earliest purge_at
+// of an open deletion it receives or owes cleanup for. No row: none.
+func (q *Queries) AccountCleanupNextDue(ctx context.Context, arg AccountCleanupNextDueParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, accountCleanupNextDue, arg.AfterAt, arg.Issuer)
+	var purge_at time.Time
+	err := row.Scan(&purge_at)
+	return purge_at, err
 }
 
 const accountCleanupsDue = `-- name: AccountCleanupsDue :many
-SELECT e.id FROM account_deletion_deliveries e
+SELECT e.id, d.purge_at FROM account_deletion_deliveries e
 JOIN account_deletions d ON d.id=e.deletion_id
 WHERE e.issuer=$1 AND e.stage='hard' AND e.completed_at IS NULL
   AND d.state='finalizing' AND d.purge_at<=$2::timestamptz
@@ -51,20 +50,25 @@ type AccountCleanupsDueParams struct {
 	AfterID int64
 }
 
+type AccountCleanupsDueRow struct {
+	ID      int64
+	PurgeAt time.Time
+}
+
 // Required domain cleanup for this issuer only, independent of event readers.
-func (q *Queries) AccountCleanupsDue(ctx context.Context, arg AccountCleanupsDueParams) ([]int64, error) {
+func (q *Queries) AccountCleanupsDue(ctx context.Context, arg AccountCleanupsDueParams) ([]AccountCleanupsDueRow, error) {
 	rows, err := q.db.Query(ctx, accountCleanupsDue, arg.Issuer, arg.DueAt, arg.AfterID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []int64
+	var items []AccountCleanupsDueRow
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var i AccountCleanupsDueRow
+		if err := rows.Scan(&i.ID, &i.PurgeAt); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -405,8 +409,8 @@ type AccountDeletionsDueRow struct {
 	State   string
 }
 
-// Failed accounts remain discoverable without a duplicate per-account timer.
-// Each issuer separately scans its pending cleanup receipts below. A final
+// Failed accounts remain discoverable without a per-account timer. Each
+// issuer separately scans its pending cleanup receipts below. A final
 // database purge is retried once every required receipt is complete.
 func (q *Queries) AccountDeletionsDue(ctx context.Context, arg AccountDeletionsDueParams) ([]AccountDeletionsDueRow, error) {
 	rows, err := q.db.Query(ctx, accountDeletionsDue,

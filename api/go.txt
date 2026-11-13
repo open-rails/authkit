@@ -448,7 +448,6 @@ pkg authkit, type ProvisioningClientCredentials struct, Scopes []string `yaml:"s
 pkg authkit, type ProvisioningClientCredentials struct, TokenURL string `yaml:"token_url"`
 pkg authkit, type ProvisioningConfig = config.ProvisioningConfig
 pkg authkit, type ProvisioningConfig struct
-pkg authkit, type ProvisioningConfig struct, Interval time.Duration `yaml:"interval"`
 pkg authkit, type ProvisioningConfig struct, ReconcileInterval time.Duration `yaml:"reconcile_interval"`
 pkg authkit, type ProvisioningConfig struct, Targets []config.ProvisioningTarget `yaml:"targets"`
 pkg authkit, type ProvisioningTarget = config.ProvisioningTarget

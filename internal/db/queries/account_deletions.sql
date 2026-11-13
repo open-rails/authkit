@@ -115,8 +115,8 @@ FROM unnest(sqlc.arg(issuers)::text[]) i
 WHERE NOT EXISTS (SELECT 1 FROM account_delivery_fleets f WHERE f.issuer = i);
 
 -- name: AccountDeletionsDue :many
--- Failed accounts remain discoverable without a duplicate per-account timer.
--- Each issuer separately scans its pending cleanup receipts below. A final
+-- Failed accounts remain discoverable without a per-account timer. Each
+-- issuer separately scans its pending cleanup receipts below. A final
 -- database purge is retried once every required receipt is complete.
 SELECT id, purge_at, state FROM account_deletions d
 WHERE d.state IN ('deleted', 'finalizing') AND d.purge_at <= sqlc.arg(due_at)::timestamptz
@@ -130,14 +130,21 @@ LIMIT sqlc.arg(batch_size)::bigint;
 
 -- name: AccountCleanupsDue :many
 -- Required domain cleanup for this issuer only, independent of event readers.
-SELECT e.id FROM account_deletion_deliveries e
+SELECT e.id, d.purge_at FROM account_deletion_deliveries e
 JOIN account_deletions d ON d.id=e.deletion_id
 WHERE e.issuer=sqlc.arg(issuer) AND e.stage='hard' AND e.completed_at IS NULL
   AND d.state='finalizing' AND d.purge_at<=sqlc.arg(due_at)::timestamptz
   AND e.id>sqlc.arg(after_id)::bigint
 ORDER BY e.id LIMIT 100;
 
--- name: AccountCleanupFleetIssuers :many
--- The daily dispatcher schedules each application only in its bound fleet.
-SELECT issuer FROM account_delivery_fleets WHERE river_schema=sqlc.arg(river_schema)
-ORDER BY issuer;
+-- name: AccountCleanupNextDue :one
+-- When the issuer's batch next has work after after_at: the earliest purge_at
+-- of an open deletion it receives or owes cleanup for. No row: none.
+SELECT d.purge_at FROM account_deletions d
+WHERE d.state IN ('deleted', 'finalizing') AND d.purge_at > sqlc.arg(after_at)::timestamptz
+  AND (sqlc.arg(issuer)::text = ANY(d.recipients) OR EXISTS (
+    SELECT 1 FROM account_deletion_deliveries e
+    WHERE e.deletion_id = d.id AND e.issuer = sqlc.arg(issuer)::text AND e.stage = 'hard' AND e.completed_at IS NULL
+  ))
+ORDER BY d.purge_at
+LIMIT 1;

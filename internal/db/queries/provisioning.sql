@@ -48,6 +48,13 @@ WHERE issuer = sqlc.arg(issuer) AND target = sqlc.arg(target) AND due_at <= sqlc
 ORDER BY due_at, id
 LIMIT sqlc.arg(max_rows);
 
+-- name: ProvisioningNextDue :one
+-- When the target's earliest pending change is due. No row: none pending.
+SELECT due_at FROM provisioning_changes
+WHERE issuer = sqlc.arg(issuer) AND target = sqlc.arg(target)
+ORDER BY due_at
+LIMIT 1;
+
 -- name: ProvisioningPendingThrough :many
 -- Each user's newest due change: what sending its state now covers.
 SELECT user_id, max(id)::bigint AS through

@@ -11,13 +11,19 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
 )
 
-const accountCleanupInterval = 24 * time.Hour
+// Failed cleanup is retried after as long as it has been overdue, from a
+// minute up to a day.
+const (
+	accountCleanupMinRetry = time.Minute
+	accountCleanupMaxRetry = 24 * time.Hour
+)
 
-// Account deletion deadlines live in account_deletions, not in one future
-// River row per account. Each issuer's daily job catches up after downtime too.
+// Account deletion deadlines live in account_deletions, not in one River job
+// per account. Each issuer has one batch job (a due job), due at the earliest
+// purge_at of the deletions it receives: the transaction that sets a purge_at
+// schedules it, and each run snoozes until the next one.
 type accountDeleteDueArgs struct {
 	Schema string `json:"schema"`
 	Issuer string `json:"issuer"`
@@ -31,19 +37,12 @@ func accountDeleteDueQueue(schema, issuer string) string {
 }
 
 func (a accountDeleteDueArgs) InsertOpts() river.InsertOpts {
-	queue := maintenanceQueue(a.Schema)
-	if a.Issuer != "" {
-		queue = accountDeleteDueQueue(a.Schema, a.Issuer)
-	}
-	return river.InsertOpts{
-		Queue: queue,
-		// Explicit hard-purge requests can follow a recent completed scan.
-		UniqueOpts: river.UniqueOpts{ByArgs: true, ByQueue: true, ByState: []rivertype.JobState{
-			rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning,
-			rivertype.JobStateRetryable, rivertype.JobStateScheduled,
-		}},
-	}
+	return river.InsertOpts{Queue: accountDeleteDueQueue(a.Schema, a.Issuer), UniqueOpts: dueUnique}
 }
+
+func (a accountDeleteDueArgs) predecessor() int64 { return a.After }
+
+func (a accountDeleteDueArgs) following(id int64) dueArgs { a.After = id; return a }
 
 type accountDeleteDueWorker struct {
 	river.WorkerDefaults[accountDeleteDueArgs]
@@ -55,96 +54,23 @@ func (w *accountDeleteDueWorker) Timeout(*river.Job[accountDeleteDueArgs]) time.
 }
 
 func (w *accountDeleteDueWorker) Work(ctx context.Context, job *river.Job[accountDeleteDueArgs]) error {
-	if job.Args.Schema != w.engine.dbSchema() {
-		return river.JobCancel(fmt.Errorf("authkit: account deletion sweep scope mismatch"))
+	s := w.engine
+	if job.Args.Schema != s.dbSchema() || job.Args.Issuer != s.cfg.Token.Issuer {
+		return river.JobCancel(fmt.Errorf("authkit: account cleanup routed to a different application"))
 	}
-	if job.Args.Issuer == "" {
-		return w.engine.scheduleAccountCleanups(ctx)
+	if err := awaitPredecessor(ctx, job.Args.After); err != nil {
+		return err
 	}
-	if job.Args.Issuer != w.engine.cfg.Token.Issuer {
-		return river.JobCancel(fmt.Errorf("authkit: account cleanup issuer mismatch"))
-	}
-	if job.Args.After != 0 {
-		previous, err := river.ClientFromContext[pgx.Tx](ctx).JobGet(ctx, job.Args.After)
-		if err != nil && !errors.Is(err, river.ErrNotFound) {
-			return err
-		}
-		if err == nil && previous.State == rivertype.JobStateRunning {
-			return river.JobSnooze(time.Second)
-		}
-	}
-	return w.engine.deleteDueAccounts(ctx)
-}
-
-// River runs periodic constructors only on its elected leader. Every replica
-// therefore registers the same dispatcher; it schedules one coalesced batch
-// per issuer in this River fleet, never one job per account or event.
-func (s *Engine) scheduleAccountCleanups(ctx context.Context) error {
-	issuers, err := s.q.AccountCleanupFleetIssuers(ctx, s.cfg.Database.RiverSchema)
+	next, err := s.deleteDueAccounts(ctx)
 	if err != nil {
 		return err
 	}
-	for _, issuer := range slices.Sorted(slices.Values(issuers)) {
-		if err := s.scheduleAccountCleanup(ctx, issuer); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.afterRun(ctx, job.Args, accountDeleteDueArgs{Schema: job.Args.Schema, Issuer: job.Args.Issuer}, next)
 }
 
-func (s *Engine) scheduleAccountCleanup(ctx context.Context, issuer string) error {
-	tx, err := s.pg.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	// Startup runs on every replica, including followers. Serialize this
-	// issuer's due check and insert so concurrent starts cannot create work
-	// between another replica's completed check and insert.
-	key := "authkit.account-cleanup." + s.cfg.Database.RiverSchema + "." + s.dbSchema() + "." + issuer
-	if err := db.New(tx).AdvisoryXactLock(ctx, key); err != nil {
-		return err
-	}
-	var recent bool
-	jobs := pgx.Identifier{s.cfg.Database.RiverSchema, "river_job"}.Sanitize()
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM `+jobs+`
-		WHERE kind='authkit_account_delete_due' AND args->>'schema'=$1 AND args->>'issuer'=$2 AND state <> 'cancelled'
-		AND (state IN ('available','pending','running','retryable','scheduled')
-			OR greatest(created_at,attempted_at) > statement_timestamp() - $3 * interval '1 second'))`,
-		s.dbSchema(), issuer, accountCleanupInterval.Seconds()).Scan(&recent); err != nil {
-		return err
-	}
-	if recent {
-		return nil
-	}
-	if err := s.insertAccountCleanup(ctx, tx, s.maintenance.producer, issuer); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
-
-func (s *Engine) insertAccountCleanup(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], issuer string) error {
-	args := accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: issuer}
-	for {
-		var result *rivertype.JobInsertResult
-		var err error
-		if tx == nil {
-			result, err = client.Insert(ctx, args, nil)
-		} else {
-			result, err = client.InsertTx(ctx, tx, args, nil)
-		}
-		if err != nil || !result.UniqueSkippedAsDuplicate || result.Job.State != rivertype.JobStateRunning {
-			return err
-		}
-		args.After = result.Job.ID
-	}
-}
-
-// An explicit hard-purge request should not wait for tomorrow's sweep. Its
-// transaction queues a bounded batch per issuer, never a job per account.
-// A running scan may have passed the new receipt, so retain one follow-up.
-func (s *Engine) scheduleAccountCleanupTx(ctx context.Context, tx pgx.Tx, issuers []string) error {
+// scheduleAccountCleanupTx makes each issuer's batch due by at in its own
+// fleet, committing with tx: a deletion's purge_at, or now.
+func (s *Engine) scheduleAccountCleanupTx(ctx context.Context, tx pgx.Tx, issuers []string, at time.Time) error {
 	for _, issuer := range slices.Sorted(slices.Values(issuers)) {
 		schema, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, issuer)
 		if err != nil {
@@ -154,36 +80,56 @@ func (s *Engine) scheduleAccountCleanupTx(ctx context.Context, tx pgx.Tx, issuer
 		if err != nil {
 			return err
 		}
-		if err := s.insertAccountCleanup(ctx, tx, client, issuer); err != nil {
+		if err := scheduleDue(ctx, tx, client, accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: issuer}, at); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Engine) deleteDueAccounts(ctx context.Context) error {
+// catchUpAccountCleanup schedules this issuer's batch at its earliest pending
+// work, which a deletion recorded by an earlier release has no job for.
+func (s *Engine) catchUpAccountCleanup(ctx context.Context) error {
+	at, err := s.q.AccountCleanupNextDue(ctx, db.AccountCleanupNextDueParams{Issuer: s.cfg.Token.Issuer})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error {
+		return scheduleDue(ctx, tx, s.maintenance.producer, accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer}, at)
+	})
+}
+
+// deleteDueAccounts finalizes the deletions due at the pass's cutoff, runs
+// this issuer's due cleanup, and returns when its batch is next due: the next
+// purge_at it receives, or sooner to retry a failure.
+func (s *Engine) deleteDueAccounts(ctx context.Context) (*time.Time, error) {
 	const batchSize = 100
 	// Fix the upper bound for this pass. Keyset pagination visits every due
 	// record once even when it fails; one blocked account cannot starve others.
 	dueAt, err := s.q.StatementTimestamp(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var failed *time.Time // the earliest purge_at this pass failed
 	cursor := db.AccountDeletionsDueParams{DueAt: dueAt, AfterPurgeAt: time.Time{}, AfterID: "00000000-0000-0000-0000-000000000000", BatchSize: batchSize}
 	for {
 		batch, err := s.q.AccountDeletionsDue(ctx, cursor)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, record := range batch {
 			if err := ctx.Err(); err != nil {
-				return err
+				return nil, err
 			}
 			// finalizeAccountDeletion locks authority, user and deletion rows and
 			// checks the current state again. Concurrent sweeps, restores and
 			// callback completions therefore cannot bypass the recovery window.
 			if err := s.finalizeAccountDeletion(ctx, record.ID, record.State == "finalizing"); err != nil {
-				slog.ErrorContext(ctx, "authkit: due account deletion will retry on next daily sweep", "deletion_id", record.ID, "error", err)
+				slog.ErrorContext(ctx, "authkit: due account deletion failed; will retry", "deletion_id", record.ID, "error", err)
+				failed = earliest(failed, record.PurgeAt)
 			}
 			cursor.AfterPurgeAt, cursor.AfterID = record.PurgeAt, record.ID
 		}
@@ -191,29 +137,50 @@ func (s *Engine) deleteDueAccounts(ctx context.Context) error {
 			break
 		}
 	}
-	return s.completeDueAccountCleanups(ctx, dueAt)
+	cleanupFailed, err := s.completeDueAccountCleanups(ctx, dueAt)
+	if err != nil {
+		return nil, err
+	}
+	if cleanupFailed != nil {
+		failed = earliest(failed, *cleanupFailed)
+	}
+	var next *time.Time
+	at, err := s.q.AccountCleanupNextDue(ctx, db.AccountCleanupNextDueParams{Issuer: s.cfg.Token.Issuer, AfterAt: dueAt})
+	switch {
+	case err == nil:
+		next = &at
+	case !errors.Is(err, pgx.ErrNoRows):
+		return nil, err
+	}
+	if failed != nil {
+		next = earliest(next, dueAt.Add(min(max(dueAt.Sub(*failed), accountCleanupMinRetry), accountCleanupMaxRetry)))
+	}
+	return next, nil
 }
 
-// Every issuer runs its own daily/startup pass. A missing application leaves
-// its receipts pending; another issuer can never mark that cleanup complete.
-func (s *Engine) completeDueAccountCleanups(ctx context.Context, dueAt time.Time) error {
+// Every issuer runs its own pass. A missing application leaves its receipts
+// pending; another issuer can never mark that cleanup complete. It returns
+// the earliest purge_at whose cleanup failed.
+func (s *Engine) completeDueAccountCleanups(ctx context.Context, dueAt time.Time) (*time.Time, error) {
 	var after int64
+	var failed *time.Time
 	for {
 		rows, err := s.q.AccountCleanupsDue(ctx, db.AccountCleanupsDueParams{Issuer: s.cfg.Token.Issuer, DueAt: dueAt, AfterID: after})
 		if err != nil {
-			return err
+			return nil, err
 		}
-		for _, id := range rows {
+		for _, row := range rows {
 			if err := ctx.Err(); err != nil {
-				return err
+				return nil, err
 			}
-			if err := s.runAccountCleanup(ctx, id); err != nil {
-				slog.ErrorContext(ctx, "authkit: account cleanup will retry on the next daily sweep", "cleanup_id", id, "error", err)
+			if err := s.runAccountCleanup(ctx, row.ID); err != nil {
+				slog.ErrorContext(ctx, "authkit: account cleanup failed; will retry", "cleanup_id", row.ID, "error", err)
+				failed = earliest(failed, row.PurgeAt)
 			}
-			after = id
+			after = row.ID
 		}
 		if len(rows) < 100 {
-			return nil
+			return failed, nil
 		}
 	}
 }

@@ -1,13 +1,14 @@
 package engine
 
-// SCIM provisioning (Config.Provisioning). The users triggers (migration
-// 0010) record a provisioning_changes row per target in every transaction
-// that changes what a SCIM User shows. Every Interval a River job per target
-// sends its pending users' current state in bulk requests and deletes the
-// rows the target accepted; a refused user is retried with backoff, an
-// unreachable target as a whole. A new target first queues every account,
-// and a periodic reconciliation lists the target's users and queues what
-// drifted.
+// SCIM provisioning (Config.Provisioning). The users triggers (migrations
+// 0010, 0029) record a provisioning_changes row per target in every
+// transaction that changes what a SCIM User shows, and NOTIFY; a listener
+// queues the target's run (a due job), which sends its pending users' current
+// state in bulk requests and deletes the rows the target accepted. A refused
+// user is retried with backoff, an unreachable target as a whole, each run at
+// the instant it is due. A new target first queues every account, and a
+// reconciliation every ReconcileInterval lists the target's users and queues
+// what drifted.
 
 import (
 	"bytes"
@@ -24,7 +25,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
@@ -32,13 +32,14 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/scim"
-	riverhelpers "github.com/open-rails/helpers/river"
 )
 
 const (
 	// provisioningRunBudget bounds one run's sending; the next run goes on.
 	provisioningRunBudget = 4 * time.Minute
-	// provisioningMaxBackoff caps a retry's wait (or Interval, when longer).
+	// A retry waits provisioningMinBackoff, doubling up to
+	// provisioningMaxBackoff.
+	provisioningMinBackoff = time.Second
 	provisioningMaxBackoff = time.Hour
 	// provisioningWindow is how many outbox rows one batch reads.
 	provisioningWindow = 1000
@@ -182,29 +183,39 @@ func (w *responseRecorder) Write(b []byte) (int, error) {
 	return w.body.Write(b)
 }
 
-// provisioningBackoff is the wait after failures: Interval, doubling, up to
-// an hour (or Interval when longer).
-func (s *Engine) provisioningBackoff(failures int) time.Duration {
-	interval := s.cfg.Provisioning.Interval
-	ceiling := max(interval, provisioningMaxBackoff)
-	return min(interval<<min(max(failures-1, 0), 20), ceiling)
+// provisioningBackoff is the wait after failures.
+func provisioningBackoff(failures int) time.Duration {
+	return min(provisioningMinBackoff<<min(max(failures-1, 0), 20), provisioningMaxBackoff)
 }
 
 type provisioningArgs struct {
 	Schema string `json:"schema"`
 	Issuer string `json:"issuer"`
 	Target string `json:"target"`
+	After  int64  `json:"after,omitempty"`
 }
 
 func (provisioningArgs) Kind() string { return "authkit_provisioning" }
+
+func (a provisioningArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: provisioningQueue(a.Schema, a.Issuer), UniqueOpts: dueUnique}
+}
+
+func (a provisioningArgs) predecessor() int64 { return a.After }
+
+func (a provisioningArgs) following(id int64) dueArgs { a.After = id; return a }
+
+func (s *Engine) provisioningArgs(t *provisioningTarget) provisioningArgs {
+	return provisioningArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer, Target: t.name}
+}
 
 func provisioningQueue(schema, issuer string) string {
 	digest := sha256.Sum256([]byte(schema + "\x00" + issuer))
 	return "authkit_provisioning-" + hex.EncodeToString(digest[:20])
 }
 
-// registerProvisioning adds the worker, its queue and one periodic job per
-// target. A target has at most one job waiting or running.
+// registerProvisioning adds the worker and its queue. A target's runs are
+// due jobs: the listener and each run schedule them.
 func (s *Engine) registerProvisioning(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(cfg.Workers, &provisioningWorker{engine: s}); err != nil {
 		return err
@@ -218,20 +229,6 @@ func (s *Engine) registerProvisioning(cfg *river.Config) error {
 	}
 	if _, ok := cfg.Queues[queue]; !ok {
 		cfg.Queues[queue] = river.QueueConfig{MaxWorkers: len(s.cfg.Provisioning.Targets)}
-	}
-	unique := river.UniqueOpts{ByArgs: true, ByState: []rivertype.JobState{
-		rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning,
-		rivertype.JobStateRetryable, rivertype.JobStateScheduled,
-	}}
-	for _, t := range s.cfg.Provisioning.Targets {
-		args := provisioningArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer, Target: t.Name}
-		digest := sha256.Sum256([]byte(args.Schema + "\x00" + args.Issuer + "\x00" + args.Target))
-		cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(
-			cfg, s.cfg.Provisioning.Interval,
-			func() (river.JobArgs, *river.InsertOpts) {
-				return args, &river.InsertOpts{Queue: queue, UniqueOpts: unique}
-			}, &river.PeriodicJobOpts{ID: "authkit_provisioning_" + hex.EncodeToString(digest[:16]), RunOnStart: true},
-		))
 	}
 	return nil
 }
@@ -250,11 +247,58 @@ func (w *provisioningWorker) Work(ctx context.Context, job *river.Job[provisioni
 	if job.Args.Schema != s.dbSchema() || job.Args.Issuer != s.cfg.Token.Issuer {
 		return river.JobCancel(errors.New("authkit: provisioning job routed to a different application"))
 	}
+	if err := awaitPredecessor(ctx, job.Args.After); err != nil {
+		return err
+	}
 	t := s.provisioningTarget(job.Args.Target)
 	if t == nil || t.invalid != nil {
 		return nil // configured on another build of this issuer, or disabled
 	}
-	return s.runProvisioning(ctx, t)
+	if err := s.runProvisioning(ctx, t); err != nil {
+		return err
+	}
+	next, err := s.provisioningNextRun(ctx, t)
+	if err != nil {
+		return err
+	}
+	return s.afterRun(ctx, job.Args, s.provisioningArgs(t), next)
+}
+
+// provisioningNextRun is when t next has work: its earliest change's due_at,
+// now while its initial sync or a reconciliation is unfinished, and its next
+// reconciliation, none before a backoff's retry_at. Nil: none.
+func (s *Engine) provisioningNextRun(ctx context.Context, t *provisioningTarget) (*time.Time, error) {
+	key := db.ProvisioningTargetParams{Issuer: s.cfg.Token.Issuer, Name: t.name}
+	row, err := s.q.ProvisioningTarget(ctx, key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil // pruned
+	}
+	if err != nil {
+		return nil, err
+	}
+	var next *time.Time
+	due, err := s.q.ProvisioningNextDue(ctx, db.ProvisioningNextDueParams{Issuer: key.Issuer, Target: key.Name})
+	switch {
+	case err == nil:
+		next = &due
+	case !errors.Is(err, pgx.ErrNoRows):
+		return nil, err
+	}
+	now := s.nowTime()
+	if row.SyncedAt == nil {
+		next = earliest(next, now)
+	}
+	if interval := s.cfg.Provisioning.ReconcileInterval; interval > 0 {
+		if row.ReconcileStartedAt != nil || row.ReconciledAt == nil {
+			next = earliest(next, now)
+		} else {
+			next = earliest(next, row.ReconciledAt.Add(interval))
+		}
+	}
+	if next != nil && row.RetryAt != nil && next.Before(*row.RetryAt) {
+		next = row.RetryAt
+	}
+	return next, nil
 }
 
 // runProvisioning is one run for t: the initial sync's queueing, every due
@@ -316,7 +360,7 @@ func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) err
 // provisioningFailed records that t could not be reached or refused a whole
 // request; the next run waits out the backoff.
 func (s *Engine) provisioningFailed(ctx context.Context, t *provisioningTarget, row db.ProvisioningTarget, cause error) error {
-	retry := s.nowTime().Add(s.provisioningBackoff(int(row.Failures) + 1))
+	retry := s.nowTime().Add(provisioningBackoff(int(row.Failures) + 1))
 	slog.WarnContext(ctx, "authkit: provisioning target unavailable; will retry", "target", t.name, "attempt", row.Failures+1, "retry_at", retry, "error", cause)
 	msg := cause.Error()
 	return s.q.ProvisioningTargetFailed(ctx, db.ProvisioningTargetFailedParams{

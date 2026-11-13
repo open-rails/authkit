@@ -26,9 +26,9 @@ func selfDeleted(d db.AccountDeletion) bool {
 	return d.DeletedBy != nil && *d.DeletedBy == d.UserID
 }
 
-// createAccountDeletion starts the recovery window. deletedBy is the user who
-// deleted the account (nil for the system); only a self-deletion can be
-// undone by signing in.
+// createAccountDeletion starts the recovery window and schedules each
+// recipient's batch at its end. deletedBy is the user who deleted the account
+// (nil for the system); only a self-deletion can be undone by signing in.
 func (s *Engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], userID string, deletedBy *string) error {
 	issuers := s.accountIssuers()
 	if len(issuers) == 0 {
@@ -47,8 +47,11 @@ func (s *Engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *r
 	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
 		return err
 	}
-	_, err := s.qtx(tx).AccountDeletionInsert(ctx, db.AccountDeletionInsertParams{UserID: userID, Recipients: issuers, DeletedBy: deletedBy})
-	return err
+	deletion, err := s.qtx(tx).AccountDeletionInsert(ctx, db.AccountDeletionInsertParams{UserID: userID, Recipients: issuers, DeletedBy: deletedBy})
+	if err != nil {
+		return err
+	}
+	return s.scheduleAccountCleanupTx(ctx, tx, deletion.Recipients, deletion.PurgeAt)
 }
 
 func (s *Engine) finalizeAccountDeletion(ctx context.Context, id string, purge bool) error {
