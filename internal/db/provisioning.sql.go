@@ -96,6 +96,26 @@ func (q *Queries) ProvisioningEnqueue(ctx context.Context, arg ProvisioningEnque
 	return err
 }
 
+const provisioningNextDue = `-- name: ProvisioningNextDue :one
+SELECT due_at FROM provisioning_changes
+WHERE issuer = $1 AND target = $2
+ORDER BY due_at
+LIMIT 1
+`
+
+type ProvisioningNextDueParams struct {
+	Issuer string
+	Target string
+}
+
+// When the target's earliest pending change is due. No row: none pending.
+func (q *Queries) ProvisioningNextDue(ctx context.Context, arg ProvisioningNextDueParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, provisioningNextDue, arg.Issuer, arg.Target)
+	var due_at time.Time
+	err := row.Scan(&due_at)
+	return due_at, err
+}
+
 const provisioningPendingThrough = `-- name: ProvisioningPendingThrough :many
 SELECT user_id, max(id)::bigint AS through
 FROM provisioning_changes

@@ -83,11 +83,12 @@
   "AK-J17-C05": "owner changes and redacted reads",
   "AK-J25-C01": "ban/unban and self/peer/superior constraints",
   "AK-J25-C02": "soft delete/read tombstone/authorized restore",
-  "AK-J25-C03": "before/at/after purge deadline and startup catch-up",
+  "AK-J25-C03": "before/at/after purge deadline and startup catch-up; the next pass comes at the next deadline",
   "AK-J25-C04": "concurrent restore versus finalization",
   "AK-J25-C05": "cleanup callback fails/retries with one-slot pool",
   "AK-J25-C06": "duplicate/late jobs and terminal receipts",
   "AK-J25-C07": "banned/deleted user-owned credential families refused; unrelated group keys survive",
+  "AK-J25-C08": "an account's purge runs at its purge_at and never before, a restore before it leaves the run nothing, and no batch job exists while no deletion is pending",
   "AK-J26-C01": "commit/rollback event visibility and ordering",
   "AK-J26-C02": "filtered incremental replay across page boundaries",
   "AK-J26-C03": "embedded versus RemoteEventReader results",
@@ -160,5 +161,9 @@
   "AK-J40-C01": "one failed sender health check keeps the channel open and is re-checked quickly; a second failure in a row closes it, and a closed channel is checked at the normal interval until a check passes",
   "AK-J40-C02": "a failed real send brings one health check forward and never decides health; a burst of failed sends keeps one request, and a successful send does not clear a failed check",
   "AK-J40-C03": "an unproven sign-in still gets its code after one failed sender check and is refused with verification_unavailable only after two in a row",
-  "AK-J40-C04": "a send its caller abandons, or that hits AuthKit's send timeout, brings no health check forward"
+  "AK-J40-C04": "a send its caller abandons, or that hits AuthKit's send timeout, brings no health check forward",
+  "AK-J41-C01": "a provisioning change reaches its target within seconds of its commit, and an idle target runs no job until its next reconciliation",
+  "AK-J41-C02": "an unreachable target is retried at its retry_at, doubling, and a change during the backoff waits for it",
+  "AK-J41-C03": "a target's reconciliation runs at its interval and nothing runs between",
+  "AK-J41-C04": "a change written while the provisioning listener is disconnected reaches the target when it reconnects"
 }

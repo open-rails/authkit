@@ -22,18 +22,51 @@ import (
 	"github.com/riverqueue/river/rivertype"
 )
 
-// cutoffBarrier pauses the real deletion scan at the PostgreSQL driver boundary.
-// It changes no query or result. The test can then age only its owned timestamp
-// fixtures relative to the exact cutoff the worker actually obtained from PG.
-// A wall-clock sample before starting the worker cannot exercise equality.
+// cutoffBarrier pauses the real deletion scans at the PostgreSQL driver
+// boundary, each until released. It changes no query or result. The test can
+// then age only its owned timestamp fixtures relative to the exact cutoff the
+// worker actually obtained from PG. A wall-clock sample before starting the
+// worker cannot exercise equality.
 type cutoffBarrier struct {
-	arrived chan time.Time
-	release chan struct{}
-	claimed atomic.Bool
+	arrived  chan time.Time
+	releases []chan struct{}
+	once     []sync.Once
+	scans    atomic.Int32
+}
+
+func newCutoffBarrier(t *testing.T, pauses int) *cutoffBarrier {
+	b := &cutoffBarrier{arrived: make(chan time.Time, pauses), releases: make([]chan struct{}, pauses), once: make([]sync.Once, pauses)}
+	for i := range b.releases {
+		b.releases[i] = make(chan struct{})
+	}
+	t.Cleanup(func() {
+		for i := range b.releases {
+			b.release(i)
+		}
+	})
+	return b
+}
+
+func (b *cutoffBarrier) release(scan int) { b.once[scan].Do(func() { close(b.releases[scan]) }) }
+
+// cutoff is the next paused scan's cutoff.
+func (b *cutoffBarrier) cutoff(t *testing.T) time.Time {
+	t.Helper()
+	select {
+	case at := <-b.arrived:
+		return at
+	case <-time.After(10 * time.Second):
+		t.Fatal("real deletion sweep did not reach its database cutoff")
+		return time.Time{}
+	}
 }
 
 func (b *cutoffBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if !strings.HasPrefix(data.SQL, "-- name: AccountDeletionsDue :many") || !b.claimed.CompareAndSwap(false, true) {
+	if !strings.HasPrefix(data.SQL, "-- name: AccountDeletionsDue :many") {
+		return ctx
+	}
+	scan := int(b.scans.Add(1)) - 1
+	if scan >= len(b.releases) {
 		return ctx
 	}
 	select {
@@ -42,7 +75,7 @@ func (b *cutoffBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data p
 		return ctx
 	}
 	select {
-	case <-b.release:
+	case <-b.releases[scan]:
 	case <-ctx.Done():
 	}
 	return ctx
@@ -63,10 +96,14 @@ func (f *fixture) startFleet(t *testing.T) *river.Client[pgx.Tx] {
 	noError(t, f.auth.Start(context.Background(), authkit.WithRiverClient(fleet)))
 	return fleet
 }
+
+// retrySweep runs the owned job of kind now and waits for that run: a due
+// job's scheduled next run when it has one, else its latest completed run.
 func (f *fixture) retrySweep(t *testing.T, fleet *river.Client[pgx.Tx], kind, issuer string) {
 	t.Helper()
 	var selected *rivertype.JobRow
-	eventually(t, "completed owned sweep", func() bool {
+	eventually(t, "settled owned sweep", func() bool {
+		selected = nil
 		page, err := fleet.JobList(t.Context(), river.NewJobListParams().Kinds(kind).First(100))
 		noError(t, err)
 		for _, job := range page.Jobs {
@@ -75,18 +112,23 @@ func (f *fixture) retrySweep(t *testing.T, fleet *river.Client[pgx.Tx], kind, is
 				Issuer string `json:"issuer"`
 			}
 			decode(t, job.EncodedArgs, &args)
-			if args.Schema == f.schema && args.Issuer == issuer {
-				if job.State == rivertype.JobStateAvailable || job.State == rivertype.JobStatePending || job.State == rivertype.JobStateRunning || job.State == rivertype.JobStateRetryable || job.State == rivertype.JobStateScheduled {
-					return false
-				}
-				if job.State == rivertype.JobStateCompleted && (selected == nil || job.ID > selected.ID) {
+			if args.Schema != f.schema || args.Issuer != issuer {
+				continue
+			}
+			switch job.State {
+			case rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning:
+				return false
+			case rivertype.JobStateScheduled, rivertype.JobStateRetryable:
+				selected = job
+			case rivertype.JobStateCompleted:
+				if selected == nil || selected.State == rivertype.JobStateCompleted && job.ID > selected.ID {
 					selected = job
 				}
 			}
 		}
 		return selected != nil
 	})
-	previous := selected.Attempt
+	previous := selected.AttemptedAt
 	_, err := fleet.JobRetry(t.Context(), selected.ID)
 	noError(t, err)
 	eventually(t, "owned sweep retry completed", func() bool {
@@ -95,7 +137,8 @@ func (f *fixture) retrySweep(t *testing.T, fleet *river.Client[pgx.Tx], kind, is
 		if job.State == rivertype.JobStateDiscarded || job.State == rivertype.JobStateCancelled {
 			t.Fatalf("sweep did not execute: %s %v", job.State, job.Errors)
 		}
-		return job.State == rivertype.JobStateCompleted && job.Attempt > previous
+		ran := job.AttemptedAt != nil && (previous == nil || job.AttemptedAt.After(*previous))
+		return ran && (job.State == rivertype.JobStateCompleted || job.State == rivertype.JobStateScheduled)
 	})
 }
 func goodBatch(t *testing.T, rows []iam.OpResult, err error) {
@@ -193,9 +236,7 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 	t.Run("AK-J25-C03_due_boundary_and_startup_catchup_respect_scan_cutoff", func(t *testing.T) {
 		var mu sync.Mutex
 		seen := map[string]iam.UserDeletion{}
-		barrier := &cutoffBarrier{arrived: make(chan time.Time, 1), release: make(chan struct{})}
-		var release sync.Once
-		t.Cleanup(func() { release.Do(func() { close(barrier.release) }) })
+		barrier := newCutoffBarrier(t, 2)
 		f := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) {
 			cfg := d.Postgres.Config()
 			cfg.ConnConfig.Tracer = barrier
@@ -218,12 +259,7 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 			t.Fatalf("due fixture rejected: %+v", imported)
 		}
 		f.startFleet(t)
-		var anchor time.Time
-		select {
-		case anchor = <-barrier.arrived:
-		case <-time.After(10 * time.Second):
-			t.Fatal("real deletion sweep did not reach its database cutoff")
-		}
+		anchor := barrier.cutoff(t)
 		// Only these imported fixture timestamps are adjusted. Lifecycle state,
 		// recipients, receipts and all purge effects still come from AuthKit.
 		tx, err := f.pool.Begin(t.Context())
@@ -238,18 +274,29 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 			noError(t, err)
 		}
 		noError(t, tx.Commit(t.Context()))
-		release.Do(func() { close(barrier.release) })
+		barrier.release(0)
 		f.purged(t, imported.Rows[1].UserID)
 		f.purged(t, imported.Rows[2].UserID)
+		// The next pass comes for the account past the cutoff, at its deadline.
+		if next := barrier.cutoff(t); next.Before(anchor.Add(time.Microsecond)) {
+			t.Fatalf("next pass's cutoff %s is before its deadline", next)
+		}
 		still, err := f.auth.User(t.Context(), iam.UserByID(imported.Rows[0].UserID), authkit.IncludeDeleted())
 		noError(t, err)
 		if still.DeletedAt == nil {
 			t.Fatal("account beyond the fixed scan cutoff was purged")
 		}
 		mu.Lock()
-		defer mu.Unlock()
 		if len(seen) != 2 {
 			t.Fatalf("cleanup targeted%d accounts", len(seen))
+		}
+		mu.Unlock()
+		barrier.release(1)
+		f.purged(t, imported.Rows[0].UserID)
+		mu.Lock()
+		defer mu.Unlock()
+		if len(seen) != 3 || !seen[imported.Rows[0].UserID].PurgeAt.Equal(anchor.Add(time.Microsecond)) {
+			t.Fatalf("next pass purged%d accounts", len(seen))
 		}
 		for _, record := range seen {
 			if record.PurgeAt.Sub(record.DeletedAt) != 30*24*time.Hour || record.TenantID != f.tenant {
@@ -392,6 +439,61 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 		f.call(t, "POST", "/passwordless/confirm", "", map[string]string{"identifier": u.Email, "code": proof.Code}).want(t, http.StatusUnauthorized, "invalid_code")
 		_, err = f.authenticate(t, key.Secret)
 		noError(t, err)
+	})
+	t.Run("AK-J25-C08_purge_runs_at_purge_at_never_before_and_a_restore_prevents_it", func(t *testing.T) {
+		var mu sync.Mutex
+		called := map[string]time.Time{}
+		f := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) {
+			d.OnPurge = func(_ context.Context, deletion iam.UserDeletion) error {
+				mu.Lock()
+				called[deletion.UserID] = time.Now()
+				mu.Unlock()
+				return nil
+			}
+		}))
+		const kind = "authkit_account_delete_due"
+		fleet, counter := f.startCountedFleet(t)
+		if jobs := f.ownedJobs(t, fleet, kind); len(jobs) != 0 {
+			t.Fatalf("%d batch jobs with no deletion pending", len(jobs))
+		}
+		// Imported deletions whose 30 days end a few seconds from now.
+		const window = 4 * time.Second
+		created := time.Now().Add(-60 * 24 * time.Hour)
+		deleted := time.Now().Add(window - 30*24*time.Hour).Truncate(time.Microsecond)
+		purgeAt := deleted.Add(30 * 24 * time.Hour)
+		imported, err := f.auth.ImportUsers(t.Context(), []iam.ImportUser{{Username: "duesoon", CreatedAt: &created, DeletedAt: &deleted}, {Username: "restoredsoon", CreatedAt: &created, DeletedAt: &deleted}}, iam.ImportOptions{})
+		noError(t, err)
+		if imported.Inserted != 2 {
+			t.Fatalf("due fixture rejected: %+v", imported)
+		}
+		due, restored := imported.Rows[0].UserID, imported.Rows[1].UserID
+		jobs := outstanding(f.ownedJobs(t, fleet, kind))
+		if len(jobs) != 1 || jobs[0].State != rivertype.JobStateScheduled || !jobs[0].ScheduledAt.Equal(purgeAt) {
+			t.Fatalf("deletions scheduled %d batches, want one at %s", len(jobs), purgeAt)
+		}
+		rows, err := f.auth.RestoreUsers(t.Context(), iam.SystemIdentity(), []string{restored})
+		goodBatch(t, rows, err)
+		for time.Now().Before(purgeAt) {
+			if _, err := f.auth.User(t.Context(), iam.UserByID(due), authkit.IncludeDeleted()); err != nil {
+				t.Fatalf("account gone %s before its purge_at: %v", time.Until(purgeAt), err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		f.purged(t, due)
+		mu.Lock()
+		at, ok := called[due]
+		_, restoredPurged := called[restored]
+		mu.Unlock()
+		if !ok || at.Before(purgeAt) || at.Sub(purgeAt) > riverLatency+2*time.Second {
+			t.Fatalf("purge callback %s after purge_at", at.Sub(purgeAt))
+		}
+		if _, err := f.auth.User(t.Context(), iam.UserByID(restored)); err != nil || restoredPurged {
+			t.Fatalf("restored account purged: %v", err)
+		}
+		eventually(t, "the batch done with nothing left", func() bool {
+			return len(outstanding(f.ownedJobs(t, fleet, kind))) == 0 && counter.count(kind) == 1
+		})
+		t.Logf("purged %s after purge_at by the batch's one run; the restored account kept", at.Sub(purgeAt).Round(time.Millisecond))
 	})
 }
 

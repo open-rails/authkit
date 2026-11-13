@@ -63,19 +63,16 @@ func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *db
 	return nil
 }
 
-// sweepDeletionsNow queues today's sweep early, so someone past their date
-// signs up fresh on their next try rather than up to a day later. Its own
-// transaction: the caller's rolls back, and the sweep needs its account lock.
+// sweepDeletionsNow queues this issuer's batch now, for a deletion past its
+// date that its batch has not purged yet (one failing, or a fleet that was
+// down). Its own transaction: the caller's rolls back, and the batch needs
+// its account lock.
 func (s *Engine) sweepDeletionsNow(ctx context.Context) {
-	tx, err := s.pg.Begin(ctx)
-	if err == nil {
-		defer tx.Rollback(ctx)
-		if err = s.scheduleAccountCleanupTx(ctx, tx, []string{s.cfg.Token.Issuer}); err == nil {
-			err = tx.Commit(ctx)
-		}
-	}
+	err := pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error {
+		return s.scheduleAccountCleanupTx(ctx, tx, []string{s.cfg.Token.Issuer}, time.Now())
+	})
 	if err != nil {
-		slog.WarnContext(ctx, "authkit: account sweep stays on its daily schedule", "error", err)
+		slog.WarnContext(ctx, "authkit: account batch not queued now; it runs at its own time", "error", err)
 	}
 }
 

@@ -707,7 +707,7 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string, opts ...ops.Optio
 			}
 			// An explicit host purge is due immediately. Check ownership even
 			// when the account was already soft-deleted before starting any
-			// irreversible callback, just as the daily sweep does.
+			// irreversible callback, just as the batch does.
 			if err := s.requireOwnersAfterAccountPurge(ctx, at.st, id); err != nil {
 				return err
 			}
@@ -717,7 +717,7 @@ func (s *Engine) PurgeUsers(ctx context.Context, ids []string, opts ...ops.Optio
 			if err := s.recordAccountCleanup(ctx, at.tx, client, userDeletion(deletion), deletion.Recipients); err != nil {
 				return err
 			}
-			return s.scheduleAccountCleanupTx(ctx, at.tx, deletion.Recipients)
+			return s.scheduleAccountCleanupTx(ctx, at.tx, deletion.Recipients, deletion.PurgeAt)
 		})
 		if err == nil {
 			s.logRevokedSessions(ctx, id, revoked, string(authflow.SessionRevokeReasonSoftDeleted))

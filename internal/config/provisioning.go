@@ -16,20 +16,18 @@ import (
 // ProvisioningConfig pushes the accounts to SCIM 2.0 service providers
 // (RFC 7643, RFC 7644): each target receives every account and keeps it
 // current. A change to what a SCIM User shows (email, username, display
-// name, deletion, ban) is recorded in the change's transaction, and every
-// Interval a River job sends each target its pending users' latest state in
-// SCIM bulk requests. It needs Deps.Postgres and Start.
+// name, deletion, ban) is recorded in the change's transaction, which wakes
+// a River job that sends the target its pending users' latest state in SCIM
+// bulk requests. It needs Deps.Postgres and Start.
 type ProvisioningConfig struct {
 	// Targets are the service providers. A target removed from the list is
 	// forgotten, with its pending changes, when this issuer's River fleet
 	// starts.
 	Targets []ProvisioningTarget `yaml:"targets"`
-	// Interval is how often the pending changes are sent; 0 defaults to five
-	// minutes.
-	Interval time.Duration `yaml:"interval"`
 	// ReconcileInterval is how often each target's users are listed and
 	// compared with the accounts, repairing what drifted; 0 defaults to a
-	// day, and a negative value turns reconciliation off.
+	// day, under a second is a second, and a negative value turns
+	// reconciliation off.
 	ReconcileInterval time.Duration `yaml:"reconcile_interval"`
 }
 
@@ -76,12 +74,8 @@ type ProvisioningClientCredentials struct {
 	Resource string   `yaml:"resource"`
 }
 
-// DefaultProvisioningInterval and DefaultProvisioningReconcileInterval are
-// ProvisioningConfig's defaults.
-const (
-	DefaultProvisioningInterval          = 5 * time.Minute
-	DefaultProvisioningReconcileInterval = 24 * time.Hour
-)
+// DefaultProvisioningReconcileInterval is ProvisioningConfig's default.
+const DefaultProvisioningReconcileInterval = 24 * time.Hour
 
 var provisioningTargetName = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
 
@@ -95,19 +89,12 @@ func normalizeProvisioning(p *ProvisioningConfig, d Deps, degrade func(error)) e
 	if d.Postgres == nil {
 		return errors.New("authkit: Provisioning needs Deps.Postgres")
 	}
-	if p.Interval == 0 {
-		p.Interval = DefaultProvisioningInterval
-	}
-	if p.Interval < time.Second {
-		degrade(fmt.Errorf("authkit: Provisioning.Interval %s is under one second; using %s", p.Interval, DefaultProvisioningInterval))
-		p.Interval = DefaultProvisioningInterval
-	}
 	switch {
 	case p.ReconcileInterval == 0:
-		p.ReconcileInterval = max(DefaultProvisioningReconcileInterval, p.Interval)
-	case p.ReconcileInterval > 0 && p.ReconcileInterval < p.Interval:
-		degrade(fmt.Errorf("authkit: Provisioning.ReconcileInterval %s is under Provisioning.Interval; using %s", p.ReconcileInterval, p.Interval))
-		p.ReconcileInterval = p.Interval
+		p.ReconcileInterval = DefaultProvisioningReconcileInterval
+	case p.ReconcileInterval > 0 && p.ReconcileInterval < time.Second:
+		degrade(fmt.Errorf("authkit: Provisioning.ReconcileInterval %s is under one second; using one second", p.ReconcileInterval))
+		p.ReconcileInterval = time.Second
 	}
 	targets := make([]ProvisioningTarget, 0, len(p.Targets))
 	for i, t := range p.Targets {

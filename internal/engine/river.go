@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,10 @@ type riverMaintenance struct {
 	started    bool
 	failed     bool
 	closed     bool
+	// stopListen ends the provisioning listener Start began; listened closes
+	// once it has.
+	stopListen context.CancelFunc
+	listened   chan struct{}
 }
 
 // riverPoolConns sizes the pool of the River client Start builds: a fetcher per
@@ -178,12 +183,6 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if _, ok := cfg.Queues[sweepQueue]; !ok {
 		cfg.Queues[sweepQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
-	cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(
-		cfg, accountCleanupInterval,
-		func() (river.JobArgs, *river.InsertOpts) {
-			return accountDeleteDueArgs{Schema: s.dbSchema()}, nil
-		}, &river.PeriodicJobOpts{ID: "authkit_account_delete_due_" + s.dbSchema(), RunOnStart: true},
-	))
 	interval := s.cfg.CleanupInterval
 	cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(
 		cfg, interval,
@@ -202,7 +201,8 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 // and starts AuthKit's own River client in RiverSchema; with one it requires
 // the fleet RiverJobs is bound to and leaves its start to the host. It runs no
 // DDL. A client without PostgreSQL (for example verify-only tests) has no jobs.
-// Each issuer runs its own required account-cleanup batches.
+// Each issuer runs its own required account-cleanup batches, and listens for
+// its provisioning targets' changes until Close.
 func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	m := s.maintenance
 	if m == nil {
@@ -235,9 +235,7 @@ func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	if err := s.pruneProvisioningTargets(ctx); err != nil {
 		return fmt.Errorf("authkit: provisioning targets: %w", err)
 	}
-	// A non-leader still catches up when its own daily scan is overdue, even
-	// when another issuer owns periodic scheduling in this shared River schema.
-	if err := s.scheduleAccountCleanup(ctx, s.cfg.Token.Issuer); err != nil {
+	if err := s.catchUpAccountCleanup(ctx); err != nil {
 		return fmt.Errorf("authkit: schedule account cleanup: %w", err)
 	}
 	if fleet == nil {
@@ -245,8 +243,29 @@ func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 			return err
 		}
 	}
+	s.startProvisioningListener()
 	s.startSenderHealth()
 	return nil
+}
+
+// startProvisioningListener runs listenProvisioning until Close, when this
+// issuer has a usable target.
+func (s *Engine) startProvisioningListener() {
+	if !slices.ContainsFunc(s.provisioning, func(t *provisioningTarget) bool { return t.invalid == nil }) {
+		return
+	}
+	m := s.maintenance
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.stopListen, m.listened = cancel, make(chan struct{})
+	go func() {
+		defer close(m.listened)
+		s.listenProvisioning(ctx)
+	}()
 }
 
 // startOwnRiver composes RiverJobs into a client of AuthKit's own and starts
@@ -291,7 +310,12 @@ func (s *Engine) closeRiver(ctx context.Context) (*pgxpool.Pool, error) {
 	}
 	m.closed = true
 	client, pool, own := m.client, m.pool, m.own
+	stopListen, listened := m.stopListen, m.listened
 	m.mu.Unlock()
+	if stopListen != nil {
+		stopListen()
+		<-listened
+	}
 	// Active lifecycle workers may still read the binding as cancellation
 	// propagates. Never wait for their shutdown while holding that mutex.
 	if own {

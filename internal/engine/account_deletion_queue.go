@@ -30,8 +30,8 @@ func (s *Engine) deletionRiver() (*river.Client[pgx.Tx], error) {
 }
 
 // recordAccountCleanup preserves the required per-issuer domain obligations.
-// Daily/startup sweeps read these receipts directly; no per-account River job
-// or remote-fleet insertion is needed.
+// Each issuer's batch reads these receipts directly; no per-account River job
+// is needed.
 func (s *Engine) recordAccountCleanup(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], deletion iam.UserDeletion, issuers []string) error {
 	if err := s.requireAccountProducerOn(ctx, tx, client); err != nil {
 		return err
@@ -195,10 +195,10 @@ func (s *Engine) runAccountCleanup(ctx context.Context, id int64) error {
 		return err
 	}
 	if ready {
-		// The receipt is durable before the account goes. A failed purge remains
-		// visible to the daily sweep; do not replay the successful host callback.
+		// The receipt is durable before the account goes: a failed purge is
+		// retried by the batch, never the host callback that succeeded.
 		if err := s.finalizeAccountDeletion(ctx, deletion.ID, true); err != nil {
-			slog.ErrorContext(ctx, "authkit: account purge deferred to daily sweep", "deletion_id", deletion.ID, "error", err)
+			return fmt.Errorf("authkit: account purge after cleanup: %w", err)
 		}
 	}
 	return nil

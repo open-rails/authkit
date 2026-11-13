@@ -414,10 +414,9 @@ func (r *provisioningRun) apply(ctx context.Context, asOf time.Time, results []p
 				msg := fmt.Sprintf("user %s: %v", op.userID, cause)
 				r.lastError = msg
 				slog.WarnContext(ctx, "authkit: provisioning target refused a user; will retry", "target", name, "user_id", op.userID, "error", cause)
-				interval := s.cfg.Provisioning.Interval
 				if err := q.ProvisioningRetry(ctx, db.ProvisioningRetryParams{
 					Issuer: issuer, Target: name, UserID: op.userID, Through: op.through, AsOf: asOf, LastError: &msg,
-					BaseSeconds: interval.Seconds(), MaxSeconds: max(interval, provisioningMaxBackoff).Seconds(),
+					BaseSeconds: provisioningMinBackoff.Seconds(), MaxSeconds: provisioningMaxBackoff.Seconds(),
 				}); err != nil {
 					return err
 				}
