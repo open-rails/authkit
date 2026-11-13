@@ -9,7 +9,7 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -38,7 +38,7 @@ type dueArgs interface {
 // scheduleDue makes args' job run by at, committing with tx. A later one is
 // moved up; a running one gets a follow-up, since it may have read before tx.
 func scheduleDue(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], args dueArgs, at time.Time) error {
-	for range 4 {
+	for range 8 {
 		opts := args.InsertOpts()
 		if at.After(time.Now()) {
 			opts.ScheduledAt = at // River holds any ScheduledAt for its scheduler, even a past one
@@ -51,6 +51,7 @@ func scheduleDue(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], a
 		case job.State == rivertype.JobStateRunning:
 			args = args.following(job.ID)
 		case job.State != rivertype.JobStateAvailable && job.ScheduledAt.After(at):
+			// An available one (a snooze of up to River's 5 s) is soon enough.
 			if _, err := client.JobDeleteTx(ctx, tx, job.ID); err != nil && !errors.Is(err, rivertype.ErrJobRunning) && !errors.Is(err, rivertype.ErrNotFound) {
 				return err
 			}
@@ -58,7 +59,10 @@ func scheduleDue(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], a
 			return nil
 		}
 	}
-	return fmt.Errorf("authkit: %s: too many runs in flight", args.Kind())
+	// Never fail the caller's change: the work is in the database, where the
+	// runs in flight read their next instant.
+	slog.WarnContext(ctx, "authkit: due job not scheduled; runs in flight take it", "kind", args.Kind())
+	return nil
 }
 
 // awaitPredecessor holds a follow-up while the job it follows still runs: a
