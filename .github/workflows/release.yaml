@@ -29,6 +29,17 @@ jobs:
       run:
         working-directory: auth-ui
     steps:
+      # Releases are commits of master: nothing is published from another branch.
+      - name: Require a tag on master
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/master...$TAG" --jq .status)"
+          case "$status" in
+            identical|behind) echo "$TAG is on master" ;;
+            *) echo "::error::$TAG is not a commit of master ($status); release only from master"; exit 1 ;;
+          esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.TAG }}

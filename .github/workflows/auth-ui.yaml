@@ -2,7 +2,12 @@ name: auth-ui
 
 # Reused by the main suite selector; manual UI qualification remains available.
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      light:
+        description: Contract, typecheck and lint only (a PR into an RC)
+        type: boolean
+        default: false
   workflow_dispatch: {}
 
 permissions:
@@ -44,11 +49,13 @@ jobs:
       - run: pnpm contract:check
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm exec playwright install --with-deps chromium
+      - if: ${{ !inputs.light }}
+        run: pnpm exec playwright install --with-deps chromium
       # Builds the SDK once, exercises actual HTTP/browser flows, then verifies
       # all six browser scenario IDs and all77 selected public client methods.
-      - run: pnpm test
-      - if: failure()
+      - if: ${{ !inputs.light }}
+        run: pnpm test
+      - if: ${{ failure() && !inputs.light }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: auth-ui-playwright

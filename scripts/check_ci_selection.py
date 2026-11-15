@@ -34,15 +34,38 @@ with tempfile.TemporaryDirectory(prefix="authkit-ci-selection-") as directory:
         git("add", ".")
         git("commit", "--quiet", "-m", name)
         result = select("--base", base, "--head", "HEAD")
-        want = dict(zip(("root", "ui", "workflow"), expected)) | {"security": True}
+        want = dict(zip(("root", "ui", "workflow"), expected)) | {"security": True, "light": False, "kind": "selected"}
         if result != want:
             raise SystemExit(f"{name}: {result}; expected {want}")
     # A rename crossing an isolated UI boundary is deliberately pessimistic.
     base = git("rev-parse", "HEAD")
     git("mv", "auth-ui/src/components/Probe.tsx", "unknown-ui-source.tsx")
     git("commit", "--quiet", "-m", "cross-boundary rename")
-    if select("--base", base, "--head", "HEAD") != {"root": True, "ui": True, "workflow": False, "security": True}:
+    if select("--base", base, "--head", "HEAD") != {"root": True, "ui": True, "workflow": False, "security": True, "light": False, "kind": "selected"}:
         raise SystemExit("cross-boundary rename skipped a suite")
-    if not all(select("--full").values()):
+    heavy = {"root": True, "ui": True, "workflow": True, "security": True, "light": False}
+    if select("--full") != heavy | {"kind": "selected"}:
         raise SystemExit("explicit full selection skipped a suite")
-print("CI CLI selection: isolated changes, unknown/shared paths, rename, and explicit full selection passed")
+    # PR kinds, on the same Go-only diff: the branches decide, not the paths.
+    base = git("rev-parse", "HEAD")
+    (root / "critical/probe_test.go").write_text("changed\n")
+    git("commit", "--quiet", "-am", "kind fixture")
+    none = dict.fromkeys(("root", "ui", "workflow", "security", "light"), False)
+    for base_ref, head_ref, same_repo, want in [
+        ("rc/v1.53.0", "feat/x", "true", none | {"light": True, "kind": "light"}),
+        ("rc/v1.53.0", "feat/x", "false", none | {"light": True, "kind": "light"}),
+        ("master", "rc/v1.53.0", "true", heavy | {"kind": "full"}),
+        ("master", "release/v1.53.0", "true", none | {"root": True, "security": True, "kind": "selected"}),
+        ("master", "feat/x", "true", none | {"kind": "rejected"}),
+        ("master", "rc/v1.53.0", "false", none | {"kind": "rejected"}),
+        ("master", "rcx", "true", none | {"kind": "rejected"}),
+        ("release/v1.53.0", "feat/x", "true", none | {"root": True, "security": True, "kind": "selected"}),
+    ]:
+        refs = ("--base-ref", base_ref, "--head-ref", head_ref, "--same-repo", same_repo)
+        result = select("--base", base, "--head", "HEAD", *refs)
+        if result != want:
+            raise SystemExit(f"{head_ref} -> {base_ref}: {result}; expected {want}")
+        accepted = subprocess.run([sys.executable, str(selector), "--source-only", *refs], cwd=root, capture_output=True).returncode == 0
+        if accepted != (want["kind"] != "rejected"):
+            raise SystemExit(f"{head_ref} -> {base_ref}: source check disagrees with the selection")
+print("CI CLI selection: isolated changes, unknown/shared paths, rename, explicit full selection and PR kinds passed")
