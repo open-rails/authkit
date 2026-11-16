@@ -5,7 +5,7 @@
 Feature branch → open RC → master → release tag.
 
 - `master` is the release mainline. A release is a signed tag on a master commit; not every master commit is one.
-- A release candidate is `rc/<name>` (`rc/v1.53.0`, `rc/audit-2026-11`), cut from master. One is open at a time; [OPEN.md](../OPEN.md) names it and what it is for. Its branch is deleted once it merges to master.
+- A release candidate is `rc/<version>`, named for the version it will become (`rc/1.53.0`), cut from master. One is open at a time; [OPEN.md](../OPEN.md) names it and what it is for. Its branch is deleted once it merges to master.
 - Feature PRs target the open RC. Check OPEN.md first: an old `rc/*` is never promoted.
 - master takes PRs only from `rc/*` and `release/*` branches of this repository, documentation included. The `Source branch` check refuses any other head, and `CI Gate` fails with it.
 
