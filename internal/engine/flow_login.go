@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -22,7 +21,6 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/password"
-	"github.com/open-rails/authkit/internal/secret"
 )
 
 // stageErr prefixes an engine failure with the stage it happened in, for the
@@ -149,15 +147,10 @@ func (s *Engine) pendingResendAllowed(ctx context.Context, kind pendingChangeKin
 	return err == nil && n <= pendingResendsPerHour
 }
 
-var dummyPasswordHash = sync.OnceValue(func() string {
-	hash, _ := password.HashArgon2id(context.Background(), secret.Token(32))
-	return hash
-})
-
 // spendPasswordCheck costs what one password check costs, so a sign-in that
 // finds no account answers in the same time as one that does.
 func spendPasswordCheck(ctx context.Context, pw string) error {
-	if _, err := password.VerifyArgon2id(ctx, dummyPasswordHash(), pw); errors.Is(err, password.ErrBusy) {
+	if err := password.Spend(ctx, pw); errors.Is(err, password.ErrBusy) {
 		return err
 	}
 	return nil
