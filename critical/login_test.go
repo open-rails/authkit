@@ -3,7 +3,9 @@ package critical_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +166,81 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 			t.Fatalf("account with a proven phone was refused during the outage: %+v", out)
 		}
 		g.out.Last(t, iam.MessageNewDeviceCode, *phoneProven.Phone)
+	})
+	t.Run("AK-J04-C07_identifier_budget_spans_addresses_and_treats_missing_accounts_alike", func(t *testing.T) {
+		const window = 5 * time.Second
+		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.HTTP.DirectPeerIP = false
+			c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
+			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 2, Window: window}
+		}))
+		u, other := g.user(t), g.user(t)
+		phone, err := g.auth.CreateUser(t.Context(), iam.NewUser{Phone: "+12025550179", PhoneVerified: true, Username: "budgetphone", Password: authtest.Password})
+		noError(t, err)
+		// Each request comes from a new /64, so only the identifier budget can refuse it.
+		addresses := 0
+		login := func(identifier, password string) response {
+			addresses++
+			r, err := g.requestHeaders(t.Context(), "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": password},
+				http.Header{"X-Forwarded-For": {fmt.Sprintf("2001:db8:%x::1", addresses)}})
+			noError(t, err)
+			return r
+		}
+		want := map[string]any{"action": "password_login", "allowed": false, "reason": "limit_exceeded", "limit": 2.0, "remaining": 0.0, "window_seconds": window.Seconds(), "cooldown_seconds": nil}
+		refused := func(r response) {
+			t.Helper()
+			r.want(t, http.StatusTooManyRequests, "rate_limited")
+			if r.header.Get("Retry-After") == "" {
+				t.Fatal("identifier refusal omitted Retry-After")
+			}
+			var env iam.ErrorEnvelope
+			decode(t, r.body, &env)
+			delete(env.Error.Metadata, "retry_after_seconds")
+			delete(env.Error.Metadata, "next_allowed_at")
+			if !reflect.DeepEqual(env.Error.Metadata, want) {
+				t.Fatalf("identifier refusal = %v, want %v", env.Error.Metadata, want)
+			}
+		}
+
+		// Two spellings spend one budget; the owner's own password is refused once it is spent.
+		login(u.Email, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+		login(strings.ToUpper(u.Email), "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+		refused(login(" "+u.Email+" ", "wrong-password"))
+		refused(login(u.Email, u.Password))
+		sessions, err := g.auth.Sessions(t.Context(), u.ID)
+		noError(t, err)
+		if len(sessions) != 0 {
+			t.Fatal("a spent identifier budget still issued a session")
+		}
+		// Reset and code sign-in stay open to the owner, and other identifiers keep their own budget.
+		g.resetProof(t, u.Email)
+		code := g.passwordlessProof(t, u.Email, "code").Code
+		tokensFrom(t, g.call(t, "POST", "/passwordless/confirm", "", map[string]string{"identifier": u.Email, "code": code}), u.ID)
+		tokensFrom(t, login(other.Email, other.Password), other.ID)
+		refused(login(u.Email, u.Password))
+
+		// Every kind of identifier, with or without an account, is refused the same way.
+		for _, c := range []struct{ first, second, password string }{
+			{u.Username, strings.ToUpper(u.Username), u.Password},
+			{*phone.Phone, *phone.Phone, authtest.Password},
+			{"missing-person@example.com", "MISSING-PERSON@EXAMPLE.COM", ""},
+			{"missingperson", "MissingPerson", ""},
+			{"+12025550180", "+12025550180", ""},
+		} {
+			login(c.first, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+			login(c.second, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+			refused(login(c.first, "wrong-password"))
+			if c.password != "" {
+				refused(login(c.first, c.password))
+			}
+		}
+
+		var r response
+		eventually(t, "the spent identifier budget to recover", func() bool {
+			r = login(u.Email, u.Password)
+			return r.status != http.StatusTooManyRequests
+		})
+		tokensFrom(t, r, u.ID)
 	})
 }
 
