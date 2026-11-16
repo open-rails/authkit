@@ -259,7 +259,7 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 
 				// A spent budget frees itself as its window passes.
 				h := newFixture(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
-					c.HTTP.RateLimits["password_login_identifier"] = authkit.RateLimit{Limit: 1, Window: 3 * time.Second}
+					c.HTTP.RateLimits["password_login_identifier"] = authkit.RateLimit{Limit: 1, Window: 5 * time.Second}
 				})}, store.deps...)...)
 				v := h.user(t)
 				h.call(t, "POST", "/password/login", "", map[string]string{"identifier": v.Email, "password": "wrong-password"}).want(t, http.StatusUnauthorized, "invalid_credentials")
