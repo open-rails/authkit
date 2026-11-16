@@ -31,4 +31,4 @@ The existing setup-go/setup-node caches already restore and save in PR/manual co
 
 Release publication assigns the tag version, builds the UI package, packs it and validates export/type targets inside that tarball. It refuses a tag that is not a commit of master, and does not repeat the source suites already run before merge. Manual artifact republishing remains available. The Go release is the signed source tag.
 
-Rulesets require `CI Gate` on `master`, `rc/**` and `release/**` against an up-to-date base, and `Source branch` on `master`: after the base advances, refresh and rerun before merging. Missing selections and skipped selected suites fail the gate.
+Rulesets require `CI Gate` on `master`, `rc/**` and `release/**`, and `Source branch` on `master`. `master` and `release/**` also require an up-to-date base: after the base advances, refresh and rerun before merging. A PR into an RC need not be refreshed when the RC advances; the RC's PR into master tests the result. Missing selections and skipped selected suites fail the gate.
