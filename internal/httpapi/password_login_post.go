@@ -23,8 +23,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	// Spent before any lookup, so an identifier with no account is refused alike.
-	if s.rateLimitedByIdentifier(w, r, RLPasswordLogin, identifier) {
+	// Spent before any lookup, so an identifier with no account is refused
+	// alike; given back once the password proves right, so only failures count.
+	refund, refused := s.spendByIdentifier(w, r, RLPasswordLoginIdentifier, identifier)
+	if refused {
 		return
 	}
 
@@ -34,6 +36,9 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	if out.Kind != authflow.LoginRejected {
+		refund()
 	}
 	s.writeAuthResult(w, r, out, authExtras{})
 }

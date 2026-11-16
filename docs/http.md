@@ -41,7 +41,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 
 - `New` requires you to declare what sits in front of AuthKit: `HTTPConfig.TrustedProxies`, `CloudflareProxies` or `DirectPeerIP`, or `Deps.ClientIP`. Forwarded-address headers count only from the declared proxies.
 - Every route has a rate-limit bucket (`x-authkit-rate-limit` in the OpenAPI). Budgets are per client address; an IPv6 address counts per /64. Emailed and texted codes also have per-account and per-destination budgets.
-- Password sign-in also has a budget per identifier (email, username or phone, in any case): `password_login`, 20 an hour by default, spent before the account is looked up, so an identifier with no account is refused the same way. Every attempt counts, and once it is spent the right password is refused too. It frees itself as the window passes; password reset, codes, passkeys and provider sign-in do not count against it.
+- Password sign-in also has a failed-attempt budget per identifier (email, username or phone, in any case): `password_login_identifier`, 20 an hour by default, beside the route's per-address `password_login`. It is spent before the account is looked up, so an identifier with no account is refused the same way, and given back when the password proves right. Each identifier has its own budget, so an account's email, phone, username and forwarding former names each get one; a refusal never shows which identifiers share an account. Once it is spent the right password is refused too, until the window frees an attempt; a password reset does not lift it. Codes, passkeys and provider sign-in do not use it.
 - `DefaultRateLimits()` holds the defaults. `HTTPConfig.RateLimits` overrides buckets by name; an unknown name is an error.
 - Counters live in each process's memory. Set `Deps.Redis` when you run more than one replica, to share them.
 - If Redis fails, each process uses its own counters with the same limits until Redis answers again. Shared and local counter history is not transferred: a process can admit its local allowance after the shared budget was spent, and replicas have separate allowances during the outage. The fallback remains bounded, but it does not preserve a global budget across the transition. A request waits on Redis for at most 250ms, and AuthKit logs the fallback and the recovery once each.
@@ -50,7 +50,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 
 ## Sign-in limits
 
-`Config.SignIn` counts distinct accounts and devices over a rolling 24 hours. Rate limits count requests per address; these count who signs in where, which only AuthKit knows.
+`Config.SignIn` counts distinct accounts and devices over a rolling 24 hours. Rate limits count requests per address, and failed passwords per identifier; these count who signs in where, which only AuthKit knows.
 
 - **A device** is a browser's `__Host-authkit_device` cookie (`authkit_device` over plain HTTP): random, `HttpOnly`, `SameSite=Lax`, kept 400 days, granting nothing. Routes that sign in, and browser OIDC starts, set it when it is missing. A client without one is known by its address (per /64 for IPv6). A provider sign-in counts against the device that started it.
 - **`AccountsPerDevice`** (default 5; `AccountsPerAddress`, 20, without the cookie): distinct accounts that sign in or register from one device. Signing back into one of them is always allowed. The next account gets 429 `too_many_accounts`, and registration creates no account.

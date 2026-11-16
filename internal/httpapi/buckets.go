@@ -43,6 +43,9 @@ const (
 	RLSessionRevoke         = "session_revoke"
 	RLSessionRevokeAll      = "session_revoke_all"
 
+	// Password sign-in per identifier, beside the route's per-address bucket.
+	RLPasswordLoginIdentifier = "password_login_identifier"
+
 	RLPasswordResetRequest = "password_reset_request"
 	RLPasswordResetConfirm = "password_reset_confirm"
 	// #312: one bucket per contact flow, whichever channel the identifier names.
@@ -133,6 +136,8 @@ var buckets = map[string]ratelimit.Limit{
 	RLSolanaLink:            {Limit: 12, Window: time.Hour},
 	RLStepUpCode:            {Limit: 10, Window: 10 * time.Minute},
 	RLStepUpSignature:       {Limit: 20, Window: 10 * time.Minute},
+
+	RLPasswordLoginIdentifier: {Limit: 20, Window: time.Hour},
 
 	// They send an email or SMS. /register and /passwordless/start also check
 	// an account invitation when one is presented.

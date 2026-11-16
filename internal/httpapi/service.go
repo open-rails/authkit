@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/ratelimit"
+	"github.com/open-rails/authkit/internal/secret"
 
 	"github.com/open-rails/authkit/provider"
 )
@@ -48,19 +49,33 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 //
 // An empty identifier is a no-op (returns false).
 func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request, bucket, identifier string) bool {
+	_, refused := s.spendByIdentifier(w, r, bucket, identifier)
+	return refused
+}
+
+// spendByIdentifier is rateLimitedByIdentifier that also returns a refund of
+// the request it spent.
+func (s *Service) spendByIdentifier(w http.ResponseWriter, r *http.Request, bucket, identifier string) (refund func(), refused bool) {
 	identifier = strings.ToLower(strings.TrimSpace(identifier))
 	if identifier == "" {
-		return false
+		return func() {}, false
 	}
-	key := bucket + ":id:" + identifier
+	// Hashed, so no identifier's text or size reaches the store.
+	id := secret.Hash(identifier)
+	key := bucket + ":id:" + id
 	// Unbound pre-proof requests retain the stricter deployment-wide key.
 	// A trusted fixed or verified account scope separates independent tenants.
 	if s.svc != nil {
 		if scope, err := s.svc.AccountScope(r.Context()); err == nil {
-			key = bucket + ":tenant:" + scope.ID() + ":id:" + identifier
+			key = bucket + ":tenant:" + scope.ID() + ":id:" + id
 		}
 	}
-	return s.limited(w, r, bucket, key)
+	result := s.rl.Allow(r.Context(), bucket, key)
+	if !result.Allowed {
+		tooMany(w, availabilityFromRateLimit(bucket, result, time.Now()))
+		return nil, true
+	}
+	return func() { s.rl.Refund(r.Context(), bucket, key, result) }, false
 }
 
 // limited spends one request of key's budget in bucket; once it is spent it
