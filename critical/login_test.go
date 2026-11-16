@@ -176,7 +176,7 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		u := g.user(t)
 		// Ten times the default cost, so a few rounds of these keep the budget full past its one-second wait.
 		slow := &iam.PasswordHash{Hash: "$argon2id$v=19$m=65536,t=10,p=1$" + strings.Repeat("A", 22) + "$" + strings.Repeat("A", 43), Algo: iam.HashArgon2id}
-		rows := make([]iam.ImportUser, 6*max(2, runtime.GOMAXPROCS(0)))
+		rows := make([]iam.ImportUser, 12*max(2, runtime.GOMAXPROCS(0)))
 		for i := range rows {
 			rows[i] = iam.ImportUser{Username: fmt.Sprintf("slowhash%d", i), PasswordHash: slow}
 		}
@@ -197,7 +197,7 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 				}
 			})
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		r, err := wrong("missing-while-busy")
 		noError(t, err)
 		if r.status != http.StatusServiceUnavailable && r.status != http.StatusUnauthorized {
