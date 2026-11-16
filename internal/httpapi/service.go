@@ -60,7 +60,7 @@ func (s *Service) spendByIdentifier(w http.ResponseWriter, r *http.Request, buck
 	if identifier == "" {
 		return func() {}, false
 	}
-	// Hashed, so no identifier's text or size reaches the store.
+	// Hashed, so a key's size is fixed whatever the identifier.
 	id := secret.Hash(identifier)
 	key := bucket + ":id:" + id
 	// Unbound pre-proof requests retain the stricter deployment-wide key.

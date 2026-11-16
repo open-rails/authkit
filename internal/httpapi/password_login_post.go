@@ -24,7 +24,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// Spent before any lookup, so an identifier with no account is refused
-	// alike; given back once the password proves right, so only failures count.
+	// alike; given back only once an account's own password proves right.
 	refund, refused := s.spendByIdentifier(w, r, RLPasswordLoginIdentifier, identifier)
 	if refused {
 		return
@@ -37,7 +37,8 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		writeError(w, err)
 		return
 	}
-	if out.Kind != authflow.LoginRejected {
+	// A pending sign-up's password names no account, wherever it matched.
+	if out.Kind != authflow.LoginRejected && out.UserID != "" {
 		refund()
 	}
 	s.writeAuthResult(w, r, out, authExtras{})

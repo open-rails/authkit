@@ -176,12 +176,12 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 			{"redis", []authtest.Option{authtest.WithDeps(func(d *authkit.Deps) { d.Redis = realRedis(t) })}},
 		} {
 			t.Run(store.name, func(t *testing.T) {
-				g := newFixture(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
+				g := newFixture(t, append([]authtest.Option{proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
 					c.HTTP.DirectPeerIP = false
 					c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
 					c.HTTP.RateLimits["password_login_identifier"] = authkit.RateLimit{Limit: 2, Window: time.Hour}
 				})}, store.deps...)...)
-				u, other := g.user(t), g.user(t)
+				u, other, taken := g.user(t), g.user(t), g.user(t)
 				phone, err := g.auth.CreateUser(t.Context(), iam.NewUser{Phone: "+12025550179", PhoneVerified: true, Username: "budgetphone", Password: authtest.Password})
 				noError(t, err)
 				// Each request comes from a new /64, so only the identifier budget can refuse it.
@@ -229,6 +229,23 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 					if c.password != "" {
 						refused(login(c.first, c.password))
 					}
+				}
+
+				// A pending sign-up's password proves no account, so signing in with it
+				// counts, whether or not an account holds the address.
+				const pending = "Pending-guess-password-6"
+				for i, address := range []string{taken.Email, "pending-person@example.com"} {
+					g.call(t, "POST", "/register", "", map[string]string{"identifier": address, "username": fmt.Sprintf("pendingguess%d", i), "password": pending}).want(t, http.StatusAccepted, "")
+					for range 2 {
+						r := login(address, pending)
+						r.want(t, http.StatusOK, "")
+						var out signInResult
+						decode(t, r.body, &out)
+						if out.Status != "verification_required" || out.Tokens != nil {
+							t.Fatalf("pending password for %s answered %s", address, r.body)
+						}
+					}
+					refused(login(address, pending))
 				}
 
 				// While the email is refused, a reset works but does not lift it, a code
