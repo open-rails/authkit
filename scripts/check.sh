@@ -1,32 +1,35 @@
 #!/usr/bin/env bash
-# One local/CI entrypoint: real workflows, contract checks, or both.
+# One local/CI entrypoint: real workflows, contract checks, both, or the
+# service-free light checks a PR into an RC runs.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mode=${1:-all}
-case "$mode" in all|workflows|contracts) ;; *) echo 'usage: scripts/check.sh [all|workflows|contracts]' >&2; exit 2 ;; esac
-
-if [[ -z "${AUTHKIT_TEST_DATABASE_URL:-}" ]]; then
-  docker compose up -d --wait postgres redis
-  export AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable'
-fi
-export AUTHKIT_TEST_REDIS_URL=${AUTHKIT_TEST_REDIS_URL:-redis://127.0.0.1:36379/0}
-export AUTHKIT_TEST_REQUIRE_DB=1
-export NOTIFY_TEST_DATABASE_URL="$AUTHKIT_TEST_DATABASE_URL"
-# AuthKit's SQL is schema-neutral; sqlc's live PREPARE checks must resolve it
-# against the same default namespace used by the integration pool.
-if [[ "$AUTHKIT_TEST_DATABASE_URL" == *\?* ]]; then
-  sqlc_sep='&'
-else
-  sqlc_sep='?'
-fi
-export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}${sqlc_sep}options=-csearch_path%3Dprofiles%2Cpublic"
+case "$mode" in all|workflows|contracts|light) ;; *) echo 'usage: scripts/check.sh [all|workflows|contracts|light]' >&2; exit 2 ;; esac
 export GOMAXPROCS=${GOMAXPROCS:-2}
 export GOWORK=off
-go run ./internal/cmd/migrate \
-	-dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles \
- -legacy-tenant-id 00000000-0000-4000-8000-000000000001
 
-if [[ "$mode" != contracts ]]; then
+if [[ "$mode" != light ]]; then
+  if [[ -z "${AUTHKIT_TEST_DATABASE_URL:-}" ]]; then
+    docker compose up -d --wait postgres redis
+    export AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable'
+  fi
+  export AUTHKIT_TEST_REDIS_URL=${AUTHKIT_TEST_REDIS_URL:-redis://127.0.0.1:36379/0}
+  export AUTHKIT_TEST_REQUIRE_DB=1
+  export NOTIFY_TEST_DATABASE_URL="$AUTHKIT_TEST_DATABASE_URL"
+  # AuthKit's SQL is schema-neutral; sqlc's live PREPARE checks must resolve it
+  # against the same default namespace used by the integration pool.
+  if [[ "$AUTHKIT_TEST_DATABASE_URL" == *\?* ]]; then
+    sqlc_sep='&'
+  else
+    sqlc_sep='?'
+  fi
+  export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}${sqlc_sep}options=-csearch_path%3Dprofiles%2Cpublic"
+  go run ./internal/cmd/migrate \
+    -dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles \
+    -legacy-tenant-id 00000000-0000-4000-8000-000000000001
+fi
+
+if [[ "$mode" == all || "$mode" == workflows ]]; then
   mkdir -p .reports
   go test -race -count=1 -p 1 -json ./critical ./notify/... \
     | tee .reports/go-test.json | jq -rj 'select(.Output != null) | .Output'
@@ -38,10 +41,15 @@ if [[ "$mode" != workflows ]]; then
   # auth-ui's e2e server builds AuthKit from this checkout: its module must
   # follow the root's requirements.
   (cd auth-ui/e2e/server && go mod tidy -diff)
-  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate -f internal/db/sqlc.yaml
-  go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet -f internal/db/sqlc.yaml
-  git diff --exit-code -- internal/db
-  test -z "$(git ls-files --others --exclude-standard -- internal/db)"
+  if [[ "$mode" == light ]]; then
+    (cd auth-ui/e2e/server && go build ./...)
+  else
+    # sqlc prepares every query against PostgreSQL.
+    go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate -f internal/db/sqlc.yaml
+    go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet -f internal/db/sqlc.yaml
+    git diff --exit-code -- internal/db
+    test -z "$(git ls-files --others --exclude-standard -- internal/db)"
+  fi
 
   # Released migrations are immutable and new ones are numbered after them.
   migrations=internal/migrations/postgres

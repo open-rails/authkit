@@ -1,9 +1,13 @@
 name: Validate
 
-# One conservative suite selection on the tested PR merge; no duplicate master run.
+# Suites follow the PR kind, on the tested PR merge; no duplicate master run.
+#   into rc/**           light checks only
+#   rc/* into master     every suite
+#   release/* into master, or into release/**   conservative selection by path
+#   anything else into master   refused
 on:
   pull_request:
-    branches: [master, "release/**"]
+    branches: [master, "rc/**", "release/**"]
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch: {}
 
@@ -21,6 +25,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source:
+    name: ${{ (github.event.pull_request.draft || github.event.pull_request.base.ref != 'master') && 'Source branch (not checked)' || 'Source branch' }}
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.event.pull_request.base.ref == 'master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: master takes rc/* and release/* only
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: python3 scripts/ci_suites.py --source-only --base-ref "$PR_BASE_REF" --head-ref "$PR_HEAD_REF" --same-repo "$PR_SAME_REPO"
+
   changes:
     name: Suite selection
     if: github.event.pull_request.draft != true
@@ -31,6 +52,8 @@ jobs:
       ui: ${{ steps.suites.outputs.ui }}
       workflow: ${{ steps.suites.outputs.workflow }}
       security: ${{ steps.suites.outputs.security }}
+      light: ${{ steps.suites.outputs.light }}
+      kind: ${{ steps.suites.outputs.kind }}
       base_ref: ${{ steps.source.outputs.base_ref }}
       base_sha: ${{ steps.source.outputs.base_sha }}
     steps:
@@ -81,11 +104,16 @@ jobs:
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             python3 scripts/ci_suites.py --full --github-output "$GITHUB_OUTPUT"
           else
-            python3 scripts/ci_suites.py --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" --github-output "$GITHUB_OUTPUT"
+            python3 scripts/ci_suites.py --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" \
+              --base-ref "$PR_BASE_REF" --head-ref "$PR_HEAD_REF" --same-repo "$PR_SAME_REPO" \
+              --github-output "$GITHUB_OUTPUT"
           fi
 
   workflow-lint:
@@ -107,6 +135,27 @@ jobs:
           printf '%s  %s\n' 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check --status
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color -shellcheck= -pyflakes=
+
+  # A PR into an RC: every module compiles and vets, released migrations are
+  # untouched. No services; the suites run once, on the RC's PR into master.
+  light:
+    name: Light checks
+    needs: changes
+    if: needs.changes.outputs.light == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # Release tags: released migrations are compared with the last one.
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.26.11'
+          cache: true
+      - run: scripts/check.sh light
 
   workflows:
     needs: changes
@@ -208,12 +257,14 @@ jobs:
 
   auth-ui:
     needs: changes
-    if: needs.changes.outputs.ui == 'true'
+    if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.light == 'true'
     uses: ./.github/workflows/auth-ui.yaml
+    with:
+      light: ${{ needs.changes.outputs.light == 'true' }}
 
   gate:
     name: ${{ github.event.pull_request.draft && 'Draft PR (CI not requested)' || 'CI Gate' }}
-    needs: [changes, workflow-lint, workflows, contracts, security, auth-ui]
+    needs: [source, changes, workflow-lint, light, workflows, contracts, security, auth-ui]
     if: always() && github.event.pull_request.draft != true
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -232,13 +283,26 @@ jobs:
           if result['changes']['result'] != 'success':
               raise SystemExit('suite selection failed or did not run')
           plan = result['changes']['outputs']
-          for flag in ('root', 'ui', 'workflow', 'security'):
+          for flag in ('root', 'ui', 'workflow', 'security', 'light'):
               if plan.get(flag) not in ('true', 'false'):
                   raise SystemExit(f'missing or invalid suite selection: {flag}')
-          required = {'workflows': 'root', 'contracts': 'root', 'security': 'security',
-                      'auth-ui': 'ui', 'workflow-lint': 'workflow'}
-          for job, flag in required.items():
-              expected = 'success' if plan[flag] == 'true' else 'skipped'
+          pr = os.environ['GITHUB_EVENT_NAME'] == 'pull_request'
+          into_master = pr and os.environ['PR_BASE_REF'] == 'master'
+          kind = plan.get('kind')
+          if kind not in ('light', 'full', 'selected', 'rejected'):
+              raise SystemExit('missing or invalid PR kind')
+          if kind == 'rejected' or result['source']['result'] != ('success' if into_master else 'skipped'):
+              raise SystemExit('master takes pull requests only from rc/* and release/* branches; target the open RC named in OPEN.md')
+          if pr and not into_master:
+              expected = 'light' if os.environ['PR_BASE_REF'].startswith('rc/') else 'selected'
+              if kind != expected:
+                  raise SystemExit(f'PR kind {kind}; expected {expected} for this base')
+          if kind == 'full' and any(plan[flag] != 'true' for flag in ('root', 'ui', 'workflow', 'security')):
+              raise SystemExit('an RC into master runs every suite')
+          required = {'workflows': ('root',), 'contracts': ('root',), 'security': ('security',),
+                      'auth-ui': ('ui', 'light'), 'workflow-lint': ('workflow',), 'light': ('light',)}
+          for job, flags in required.items():
+              expected = 'success' if any(plan[flag] == 'true' for flag in flags) else 'skipped'
               actual = result[job]['result']
               if actual != expected:
                   raise SystemExit(f'{job}: {actual}; expected {expected}')
