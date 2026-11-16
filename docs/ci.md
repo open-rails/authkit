@@ -32,3 +32,13 @@ The existing setup-go/setup-node caches already restore and save in PR/manual co
 Release publication assigns the tag version, builds the UI package, packs it and validates export/type targets inside that tarball. It refuses a tag that is not a commit of master, and does not repeat the source suites already run before merge. Manual artifact republishing remains available. The Go release is the signed source tag.
 
 Rulesets require `CI Gate` on `master`, `rc/**` and `release/**`, and `Source branch` on `master`. `master` and `release/**` also require an up-to-date base: after the base advances, refresh and rerun before merging. A PR into an RC need not be refreshed when the RC advances; the RC's PR into master tests the result. Missing selections and skipped selected suites fail the gate.
+
+## Dependencies
+
+No bot opens pull requests. `Required Security` in the RC → master run refuses a candidate with a fixable vulnerability: govulncheck fails on a known vulnerability the code reaches, Trivy on a high or critical one that has a fix. Updates are made deliberately, in one batch per release candidate: both Go modules (the root and `auth-ui/e2e/server`) in step, GitHub Actions pinned by commit SHA.
+
+With Dependabot alerts enabled in the repository's settings (alerts open no pull request), GitHub's advisory feed lists what is vulnerable between runs:
+
+```sh
+gh api 'repos/open-rails/authkit/dependabot/alerts?state=open' --jq '.[] | "\(.security_advisory.severity) \(.dependency.package.name) \(.dependency.manifest_path) fixed in \(.security_vulnerability.first_patched_version.identifier // "-")"'
+```
