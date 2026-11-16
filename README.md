@@ -445,4 +445,6 @@ A service whose callers sign in elsewhere sets `Config.Resource`: `auth.Authenti
 
 More: [resource server](docs/resource-server.md), [keys](docs/keys.md), [tokens](docs/tokens.md), [SCIM provisioning and user info](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
 
+Contributing: changes go to the open release candidate named in [OPEN.md](OPEN.md), not to master ([branches and CI](docs/ci.md)).
+
 See [the retained event log](docs/event-log.md) for native and HTTP readers, independent cursors, and migration from removed `OnEvent` callbacks.
