@@ -52,12 +52,12 @@ with tempfile.TemporaryDirectory(prefix="authkit-ci-selection-") as directory:
     git("commit", "--quiet", "-am", "kind fixture")
     none = dict.fromkeys(("root", "ui", "workflow", "security", "light"), False)
     for base_ref, head_ref, same_repo, want in [
-        ("rc/v1.53.0", "feat/x", "true", none | {"light": True, "kind": "light"}),
-        ("rc/v1.53.0", "feat/x", "false", none | {"light": True, "kind": "light"}),
-        ("master", "rc/v1.53.0", "true", heavy | {"kind": "full"}),
+        ("rc/1.53.0", "feat/x", "true", none | {"light": True, "kind": "light"}),
+        ("rc/1.53.0", "feat/x", "false", none | {"light": True, "kind": "light"}),
+        ("master", "rc/1.53.0", "true", heavy | {"kind": "full"}),
         ("master", "release/v1.53.0", "true", none | {"root": True, "security": True, "kind": "selected"}),
         ("master", "feat/x", "true", none | {"kind": "rejected"}),
-        ("master", "rc/v1.53.0", "false", none | {"kind": "rejected"}),
+        ("master", "rc/1.53.0", "false", none | {"kind": "rejected"}),
         ("master", "rcx", "true", none | {"kind": "rejected"}),
         ("release/v1.53.0", "feat/x", "true", none | {"root": True, "security": True, "kind": "selected"}),
     ]:
