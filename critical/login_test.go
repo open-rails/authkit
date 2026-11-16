@@ -165,6 +165,44 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		}
 		g.out.Last(t, iam.MessageNewDeviceCode, *phoneProven.Phone)
 	})
+	t.Run("AK-J04-C08_account_state_shows_only_after_the_password_is_proved", func(t *testing.T) {
+		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 1000, Window: time.Hour}
+		}))
+		banned, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "banned-state@example.com", Phone: "+12025550181", Username: "bannedstate", Password: authtest.Password, EmailVerified: true, PhoneVerified: true})
+		noError(t, err)
+		noPassword, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "no-password-state@example.com", Phone: "+12025550182", Username: "nopasswordstate", EmailVerified: true, PhoneVerified: true})
+		noError(t, err)
+		login := func(identifier, password string) response {
+			return g.call(t, "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": password})
+		}
+		for _, u := range []iam.User{banned, noPassword} {
+			noError(t, g.auth.Ban(t.Context(), iam.SystemIdentity(), u.ID, iam.Ban{}))
+			for _, identifier := range []string{*u.Email, u.Username, *u.Phone} {
+				login(identifier, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+			}
+		}
+		for _, identifier := range []string{*banned.Email, banned.Username, *banned.Phone} {
+			login(identifier, authtest.Password).want(t, http.StatusUnauthorized, "user_banned")
+		}
+		// A refusal that skips the password check answers many times sooner than a missing account.
+		identifiers := []string{"missing-state@example.com", *banned.Email, *noPassword.Email}
+		fastest := map[string]time.Duration{}
+		for range 5 {
+			for _, identifier := range identifiers {
+				start := time.Now()
+				login(identifier, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+				if took := time.Since(start); fastest[identifier] == 0 || took < fastest[identifier] {
+					fastest[identifier] = took
+				}
+			}
+		}
+		for _, identifier := range identifiers[1:] {
+			if fastest[identifier] < fastest[identifiers[0]]/4 {
+				t.Fatalf("wrong password for %s answered in %s, for a missing account in %s", identifier, fastest[identifier], fastest[identifiers[0]])
+			}
+		}
+	})
 }
 
 func TestCriticalUnprovenPasswordSignIn(t *testing.T) {

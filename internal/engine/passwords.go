@@ -11,30 +11,40 @@ import (
 )
 
 // authenticatePassword is the credential half of a password login once the
-// user row is resolved: the account gate, then the stored hash (with the
-// bcrypt import rehash to Argon2id), with its credential version captured before
-// checking the hash. It mints
-// nothing — PasswordLogin issues the session from its outcome.
+// user row is resolved: the stored hash (with the bcrypt import rehash to
+// Argon2id), with its credential version captured before checking the hash,
+// then the account gate, so only the account's own password shows its state.
+// It mints nothing — PasswordLogin issues the session from its outcome.
 func (s *Engine) authenticatePassword(ctx context.Context, u *db.User, pass string) (int64, error) {
-	if s.pg == nil {
+	if s.pg == nil || u == nil {
 		return 0, jwt.ErrTokenUnverifiable
-	}
-	if err := s.ensureLoginProofAccess(ctx, u); err != nil {
-		return 0, err
 	}
 	version, err := s.q.UserCredentialVersion(ctx, u.ID)
 	if err != nil {
 		return 0, err
 	}
-	hash, algo, err := s.getPasswordHash(ctx, u.ID)
+	hash, algo, err := s.verifyStoredPassword(ctx, u.ID, pass)
 	if err != nil {
-		return 0, errOrUnauthorized(err)
+		return 0, err
 	}
-	if err := verifyPasswordHash(ctx, hash, algo, pass); err != nil {
+	if err := s.ensureLoginProofAccess(ctx, u); err != nil {
 		return 0, err
 	}
 	s.rehashPassword(ctx, u.ID, hash, algo, pass)
 	return version.CredentialVersion, nil
+}
+
+// verifyStoredPassword checks pass against the account's stored hash. An
+// account with none costs one check, as a wrong password does.
+func (s *Engine) verifyStoredPassword(ctx context.Context, userID, pass string) (hash, algo string, err error) {
+	hash, algo, err = s.getPasswordHash(ctx, userID)
+	if err != nil {
+		if busy := spendPasswordCheck(ctx, pass); busy != nil {
+			return "", "", busy
+		}
+		return "", "", errOrUnauthorized(err)
+	}
+	return hash, algo, verifyPasswordHash(ctx, hash, algo, pass)
 }
 
 func errOrUnauthorized(err error) error {
@@ -53,11 +63,8 @@ func (s *Engine) CheckUserPassword(ctx context.Context, userID, pass string) err
 	if s.pg == nil || strings.TrimSpace(userID) == "" {
 		return errOrUnauthorized(nil)
 	}
-	hash, algo, err := s.getPasswordHash(ctx, userID)
+	hash, algo, err := s.verifyStoredPassword(ctx, userID, pass)
 	if err != nil {
-		return errOrUnauthorized(err)
-	}
-	if err := verifyPasswordHash(ctx, hash, algo, pass); err != nil {
 		return err
 	}
 	s.rehashPassword(ctx, userID, hash, algo, pass)
