@@ -22,6 +22,8 @@
   "AK-J04-C05": "per-IP and per-identifier throttling",
   "AK-J04-C06": "unproven sign-in refused while no channel can send its code",
   "AK-J04-C07": "per-identifier password budget across addresses, alike for missing accounts",
+  "AK-J04-C08": "wrong password answers alike and as slowly for banned, passwordless and missing accounts",
+  "AK-J04-C09": "missing account still costs a password check after the hash budget was full",
   "AK-J05-C01": "refresh rotation and concurrent callers",
   "AK-J05-C02": "revoked current/other/all sessions",
   "AK-J05-C03": "ban/password change invalidation",
