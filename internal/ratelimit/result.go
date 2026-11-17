@@ -15,6 +15,8 @@ const (
 // lifts a budget.
 type Limiter interface {
 	Allow(ctx context.Context, bucket, key string) Result
+	// Refund gives back the request an allowed Result spent.
+	Refund(ctx context.Context, bucket, key string, spent Result)
 }
 
 // Result is one decision. A refusal always carries a positive RetryAfter.
@@ -26,4 +28,6 @@ type Result struct {
 	Remaining  int
 	Window     time.Duration
 	Cooldown   time.Duration
+	// Entry is the request an allowed Result recorded, for Refund.
+	Entry string
 }

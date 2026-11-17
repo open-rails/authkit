@@ -6,6 +6,8 @@ package memorylimiter
 import (
 	"context"
 	"maps"
+	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -122,6 +124,22 @@ func (l *Limiter) Allow(_ context.Context, bucket, key string) ratelimit.Result 
 		Remaining: ratelimit.Remaining(lim.Limit, int64(len(ts))),
 		Window:    lim.Window,
 		Cooldown:  lim.Cooldown,
+		Entry:     strconv.FormatInt(nowMs, 10),
+	}
+}
+
+// Refund removes the request spent recorded, if it is still in the window.
+func (l *Limiter) Refund(_ context.Context, bucket, key string, spent ratelimit.Result) {
+	at, err := strconv.ParseInt(spent.Entry, 10, 64)
+	if !spent.Allowed || err != nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if b := l.buckets[key+":"+bucket]; b != nil {
+		if i := slices.Index(b.timestamps, at); i >= 0 {
+			b.timestamps = slices.Delete(b.timestamps, i, i+1)
+		}
 	}
 }
 

@@ -18,11 +18,15 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	// Passwords are high-entropy secrets: the route's per-IP bucket is the only
-	// limit, so no stranger can lock an account out.
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" {
 		fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	// Spent before any lookup, so an identifier with no account is refused
+	// alike; given back only once an account's own password proves right.
+	refund, refused := s.spendByIdentifier(w, r, RLPasswordLoginIdentifier, identifier)
+	if refused {
 		return
 	}
 
@@ -32,6 +36,10 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	// A pending sign-up's password names no account, wherever it matched.
+	if out.Kind != authflow.LoginRejected && out.UserID != "" {
+		refund()
 	}
 	s.writeAuthResult(w, r, out, authExtras{})
 }
