@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -311,6 +314,61 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 			if fastest[identifier] < fastest[identifiers[0]]/4 {
 				t.Fatalf("wrong password for %s answered in %s, for a missing account in %s", identifier, fastest[identifier], fastest[identifiers[0]])
 			}
+		}
+	})
+	t.Run("AK-J04-C09_missing_account_costs_a_password_check_after_the_hash_budget_was_full", func(t *testing.T) {
+		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 100000, Window: time.Hour}
+		}))
+		u := g.user(t)
+		// Ten times the default cost, so a few rounds of these keep the budget full past its one-second wait.
+		slow := &iam.PasswordHash{Hash: "$argon2id$v=19$m=65536,t=10,p=1$" + strings.Repeat("A", 22) + "$" + strings.Repeat("A", 43), Algo: iam.HashArgon2id}
+		rows := make([]iam.ImportUser, 12*max(2, runtime.GOMAXPROCS(0)))
+		for i := range rows {
+			rows[i] = iam.ImportUser{Username: fmt.Sprintf("slowhash%d", i), PasswordHash: slow}
+		}
+		result, err := g.auth.ImportUsers(t.Context(), rows, iam.ImportOptions{})
+		noError(t, err)
+		if result.Inserted != len(rows) {
+			t.Fatalf("import result: %+v", result)
+		}
+		wrong := func(identifier string) (response, error) {
+			return g.request(t.Context(), "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": "wrong-password"})
+		}
+		var flood sync.WaitGroup
+		var refused atomic.Int32
+		for _, row := range rows {
+			flood.Go(func() {
+				if r, err := wrong(row.Username); err == nil && r.status == http.StatusServiceUnavailable {
+					refused.Add(1)
+				}
+			})
+		}
+		time.Sleep(50 * time.Millisecond)
+		r, err := wrong("missing-while-busy")
+		noError(t, err)
+		if r.status != http.StatusServiceUnavailable && r.status != http.StatusUnauthorized {
+			t.Fatalf("missing account while busy: %d %s", r.status, r.body)
+		}
+		flood.Wait()
+		if refused.Load() == 0 {
+			t.Fatal("the flood never filled the hash budget")
+		}
+		identifiers := []string{u.Username, "missing-after-busy"}
+		fastest := map[string]time.Duration{}
+		for range 5 {
+			for _, identifier := range identifiers {
+				start := time.Now()
+				r, err := wrong(identifier)
+				noError(t, err)
+				r.want(t, http.StatusUnauthorized, "invalid_credentials")
+				if took := time.Since(start); fastest[identifier] == 0 || took < fastest[identifier] {
+					fastest[identifier] = took
+				}
+			}
+		}
+		if fastest[identifiers[1]] < fastest[identifiers[0]]/4 {
+			t.Fatalf("wrong password for a missing account answered in %s, for an account in %s", fastest[identifiers[1]], fastest[identifiers[0]])
 		}
 	})
 }
