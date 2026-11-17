@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/internal/ratelimit"
@@ -164,7 +165,23 @@ func (l *Limiter) shared(ctx context.Context, bucket, key string) (ratelimit.Res
 		Remaining: ratelimit.Remaining(lim.Limit, count+1),
 		Window:    lim.Window,
 		Cooldown:  lim.Cooldown,
+		Entry:     member,
 	}, nil
+}
+
+// Refund removes the request spent recorded, from Redis or from the fallback
+// that decided it (whose entries have no colon).
+func (l *Limiter) Refund(ctx context.Context, bucket, key string, spent ratelimit.Result) {
+	if !spent.Allowed || spent.Entry == "" {
+		return
+	}
+	if !strings.Contains(spent.Entry, ":") {
+		l.fallback.Refund(ctx, bucket, key, spent)
+		return
+	}
+	redisfallback.Run(ctx, l.gate, func(ctx context.Context) (int64, error) {
+		return l.rdb.ZRem(ctx, l.prefix+key+":"+bucket, spent.Entry).Result()
+	})
 }
 
 func reasonFromCode(code int64) string {
