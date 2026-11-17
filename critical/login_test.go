@@ -317,6 +317,7 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		}
 	})
 	t.Run("AK-J04-C09_missing_account_costs_a_password_check_after_the_hash_budget_was_full", func(t *testing.T) {
+		// A cached dummy hash fails this only as the process's first missing-account sign-in: run it alone to prove that.
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 100000, Window: time.Hour}
 		}))
