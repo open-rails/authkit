@@ -510,6 +510,10 @@ type DatabaseConfig struct {
 	// own River client there, and a host fleet passed to Start with
 	// WithRiverClient must use the same schema.
 	RiverSchema string `yaml:"river_schema"`
+	// RiverConns sizes the pool of the River client Start builds when the host passes no fleet; 0 keeps 5 (a fetcher per
+	// queue, the leader elector, the periodic enqueuer and the completer). A host that budgets its connections to
+	// PostgreSQL across its pools sets it (Tensorhub th-382).
+	RiverConns int `yaml:"river_conns"`
 }
 
 // InvitationsConfig controls invitations: invite links and emailed
