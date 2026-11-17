@@ -221,6 +221,8 @@ type DatabaseConfig struct {
 	// River client there; set it to a host fleet's schema to pass that fleet
 	// to Start (WithRiverClient), which must use it.
 	RiverSchema string `yaml:"river_schema"`
+	// RiverConns sizes the pool of the River client Start builds when the host passes no fleet; 0 keeps 5.
+	RiverConns int `yaml:"river_conns"`
 }
 
 // HTTPConfig configures the HTTP surface: one handler serving the JSON API,

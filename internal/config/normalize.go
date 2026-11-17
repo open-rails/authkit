@@ -101,6 +101,9 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	}
 	c.Languages = normalizeLanguages(c.Languages, degrade)
 
+	if c.Database.RiverConns < 0 {
+		return Config{}, nil, fmt.Errorf("authkit: Database.RiverConns %d is negative", c.Database.RiverConns)
+	}
 	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema, c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}

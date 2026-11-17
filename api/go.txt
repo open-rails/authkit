@@ -259,6 +259,7 @@ pkg authkit, type CredentialPerms struct, Read iam.Perm
 pkg authkit, type CredentialPerms struct, embedded config.Resource
 pkg authkit, type DatabaseConfig = config.DatabaseConfig
 pkg authkit, type DatabaseConfig struct
+pkg authkit, type DatabaseConfig struct, RiverConns int `yaml:"river_conns"`
 pkg authkit, type DatabaseConfig struct, RiverSchema string `yaml:"river_schema"`
 pkg authkit, type DatabaseConfig struct, Schema string `yaml:"schema"`
 pkg authkit, type DatabaseConfig struct, SkipMigrations bool `yaml:"skip_migrations"`
