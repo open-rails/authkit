@@ -168,6 +168,9 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.EventRetention < time.Second {
 		return Config{}, nil, errors.New("authkit: EventRetention must be at least one second")
 	}
+	if c.Database.RiverConns < 0 {
+		return Config{}, nil, fmt.Errorf("authkit: Database.RiverConns %d is negative", c.Database.RiverConns)
+	}
 	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema); err != nil {
 		return Config{}, nil, err
 	}
