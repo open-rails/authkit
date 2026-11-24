@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { SignInResult } from "../client/authResult.ts"
 import { AuthKitError, errorMetadata, statedWait } from "../client/errors.ts"
+import {
+  inCrossOriginFrame,
+  type PasskeyWindowLabels,
+} from "../client/passkeyWindow.ts"
 import { passkeyDismissed, webAuthnAvailable } from "../client/webauthn.ts"
 import type {
   AccountRecoveryConfirmation,
@@ -67,7 +71,9 @@ export type LoginState =
   // version to accept again.
   | { step: "agreements"; agreements: Agreement[]; returnTo?: string }
   // Signed up with a code: a passkey makes the next sign-in one tap.
-  | { step: "passkey_offer"; returnTo?: string }
+  // inWindow: this cross-origin frame could not create one, so a window
+  // on this origin does (Safari).
+  | { step: "passkey_offer"; returnTo?: string; inWindow?: boolean }
   // Signed in, but newly issued backup codes must be shown first.
   | { step: "backup_codes"; codes: string[]; returnTo?: string }
   | { step: "done"; returnTo?: string }
@@ -319,12 +325,32 @@ export function useLogin(options: LoginOptions = {}) {
   )
 
   // Adds a passkey after a code sign-up; closing the prompt keeps the offer.
+  // In a cross-origin frame a refusal offers a window instead, as Safari
+  // never creates a passkey in one.
   const addPasskey = useCallback(
     () =>
       run(async () => {
         if (state.step !== "passkey_offer") return
         try {
           await client.registerPasskey()
+        } catch (err) {
+          if (passkeyRefusedInFrame(err))
+            return setState({ ...state, inWindow: true })
+          if (passkeyDismissed(err)) return
+          throw err
+        }
+        finish(state.returnTo)
+      }),
+    [client, run, finish, state]
+  )
+
+  // Adds the passkey in a window on this origin (call from a click).
+  const addPasskeyInWindow = useCallback(
+    (labels: PasskeyWindowLabels) =>
+      run(async () => {
+        if (state.step !== "passkey_offer") return
+        try {
+          await client.registerPasskeyInWindow(labels)
         } catch (err) {
           if (passkeyDismissed(err)) return
           throw err
@@ -611,6 +637,7 @@ export function useLogin(options: LoginOptions = {}) {
     acceptAgreements,
     declineAgreements,
     addPasskey,
+    addPasskeyInWindow,
     skipPasskey,
     resume,
     verifyTwoFactor,
@@ -627,3 +654,9 @@ export function useLogin(options: LoginOptions = {}) {
     reset,
   }
 }
+
+// A creation the browser refused because this page is a cross-origin frame.
+const passkeyRefusedInFrame = (error: unknown) =>
+  inCrossOriginFrame() &&
+  error instanceof DOMException &&
+  (error.name === "NotAllowedError" || error.name === "SecurityError")

@@ -161,6 +161,8 @@ export const zh: AuthUiMessageBundle = {
     description: "添加通行密钥，无需验证码即可用指纹、面容或屏幕锁登录。",
     add: "添加通行密钥",
     skip: "以后再说",
+    window: "你的浏览器会在新窗口中添加通行密钥。",
+    openWindow: "在新窗口中继续",
   },
   register: {
     passwordHint: "至少使用 {min} 个字符。",

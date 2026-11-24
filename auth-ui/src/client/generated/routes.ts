@@ -28,6 +28,7 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "POST", path: "/api/v1/passwordless/confirm", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "passwordless" },
   { method: "POST", path: "/api/v1/passkeys/login/begin", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "passkeys" },
   { method: "POST", path: "/api/v1/passkeys/login/finish", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "passkeys" },
+  { method: "GET", path: "/api/v1/passkeys/window", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "passkeys" },
   { method: "POST", path: "/api/v1/password/reset/request", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: null },
   { method: "POST", path: "/api/v1/password/reset/confirm", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: null },
   { method: "POST", path: "/api/v1/solana/challenge", group: "auth", auth: "public", permission: null, stepUp: false, mountedWhen: "solana" },

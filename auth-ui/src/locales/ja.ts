@@ -169,6 +169,8 @@ export const ja: AuthUiMessageBundle = {
       "パスキーを追加すると、コードなしで指紋、顔、画面ロックでログインできます。",
     add: "パスキーを追加",
     skip: "今はしない",
+    window: "このブラウザでは新しいウィンドウでパスキーを追加します。",
+    openWindow: "新しいウィンドウで続ける",
   },
   register: {
     passwordHint: "{min}文字以上にしてください。",

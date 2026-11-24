@@ -54,7 +54,13 @@ import type {
   UserProfile,
   UserSecurity,
 } from "./types.ts"
-import { creationOptions, getAssertion, registrationBody } from "./webauthn.ts"
+import { createInWindow, type PasskeyWindowLabels } from "./passkeyWindow.ts"
+import {
+  creationOptions,
+  getAssertion,
+  registrationBody,
+  windowRegistrationBody,
+} from "./webauthn.ts"
 
 // Durable refresh-token home for mounts without the refresh cookie. Cookie
 // mounts (the browser default) need none: the token never reaches script.
@@ -1726,6 +1732,25 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         commit(result.token_set, gen, "login", result.created)
       else if (gen !== generation) throw new AuthSessionChangedError()
       return result
+    },
+
+    // Creates a passkey in a top-level window on this origin (call from a
+    // click), for a cross-origin iframe whose browser refuses to create one
+    // in the frame (Safari): the frame's session begins and finishes it.
+    registerPasskeyInWindow: async (
+      labels: PasskeyWindowLabels
+    ): Promise<SignInKey> => {
+      const credential = await createInWindow(
+        url(baseUrl, "/passkeys/window"),
+        async () =>
+          creationOptions(
+            await request<unknown>("POST", "/me/passkeys/register/begin")
+          ),
+        labels
+      )
+      return request<SignInKey>("POST", "/me/passkeys/register/finish", {
+        body: windowRegistrationBody(credential),
+      })
     },
 
     // Creates a passkey with the browser's authenticator (call from a click).

@@ -229,13 +229,23 @@ export function PasskeyOffer({ controller }: { controller: LoginController }) {
         description={t("passkeyOffer.description")}
       />
       {error && <FormAlert>{describe(error)}</FormAlert>}
+      {state.inWindow && (
+        <FormAlert tone="success">{t("passkeyOffer.window")}</FormAlert>
+      )}
       <Button
         size="lg"
         className="w-full"
         disabled={busy}
-        onClick={() => void controller.addPasskey()}
+        onClick={() =>
+          void (state.inWindow
+            ? controller.addPasskeyInWindow({
+                title: t("passkeyOffer.title"),
+                create: t("passkeyOffer.add"),
+              })
+            : controller.addPasskey())
+        }
       >
-        {t("passkeyOffer.add")}
+        {t(state.inWindow ? "passkeyOffer.openWindow" : "passkeyOffer.add")}
       </Button>
       <Button
         variant="ghost"

@@ -194,6 +194,10 @@ func Catalog() []RouteSpec {
 			Responses: replyOK(assertion{}), serve: handle((*Service).handlePasskeyLoginBeginPOST)},
 		{Method: POST, Path: "/passkeys/login/finish", Group: auth, Auth: public, Bucket: RLPasskeyLogin, MountedWhen: FeaturePasskeys,
 			Request: WebAuthnCredential{}, Responses: signedIn, serve: handle((*Service).handlePasskeyLoginFinishPOST)},
+		// The window a cross-origin iframe opens to create a passkey where
+		// the browser refuses it in the frame (Safari): an HTML document.
+		{Method: GET, Path: "/passkeys/window", Group: auth, Auth: public, Bucket: RLCapabilitiesRead, MountedWhen: FeaturePasskeys,
+			Responses: []Reply{{Status: http.StatusOK}}, serve: handle((*Service).handlePasskeyWindowGET)},
 		{Method: POST, Path: "/password/reset/request", Group: auth, Auth: public, Bucket: RLPasswordResetRequest,
 			Request: IdentifierRequest{}, Responses: replyAccepted, serve: handle((*Service).handlePasswordResetRequestPOST)},
 		{Method: POST, Path: "/password/reset/confirm", Group: auth, Auth: public, Bucket: RLPasswordResetConfirm,

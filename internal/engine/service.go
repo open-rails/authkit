@@ -40,6 +40,9 @@ type Engine struct {
 	consentRevocationCheck func(ctx context.Context, userID, clientID string) error
 	// groupNameHook is Deps.GroupName: a group's name on consent screens.
 	groupNameHook func(context.Context, string) (string, error)
+	// passkeyTopOrigin is Deps.PasskeyTopOrigin: the pages that may frame a
+	// passkey ceremony.
+	passkeyTopOrigin func(context.Context, string) (bool, error)
 	// clientAssertions verifies group clients' RFC 7523 client assertions
 	// against their jwks_uri.
 	clientAssertions     *clientAssertionVerifier

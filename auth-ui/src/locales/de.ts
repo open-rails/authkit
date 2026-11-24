@@ -175,6 +175,8 @@ export const de: AuthUiMessageBundle = {
       "Füge einen Passkey hinzu, um dich ohne Code mit Fingerabdruck, Gesicht oder Displaysperre anzumelden.",
     add: "Passkey hinzufügen",
     skip: "Nicht jetzt",
+    window: "Dein Browser fügt Passkeys in einem neuen Fenster hinzu.",
+    openWindow: "In neuem Fenster fortfahren",
   },
   register: {
     passwordHint: "Mindestens {min} Zeichen.",

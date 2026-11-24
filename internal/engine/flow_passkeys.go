@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -70,8 +71,8 @@ func (s *Engine) passkeyUserVerification() protocol.UserVerificationRequirement 
 	return protocol.VerificationRequired
 }
 
-func (s *Engine) webAuthn() (*webauthn.WebAuthn, error) {
-	return webauthn.New(&webauthn.Config{
+func (s *Engine) webAuthnConfig() *webauthn.Config {
+	return &webauthn.Config{
 		RPID:                  s.cfg.Passkeys.RPID,
 		RPDisplayName:         s.cfg.Passkeys.RPDisplayName,
 		RPOrigins:             append([]string(nil), s.cfg.Passkeys.Origins...),
@@ -82,7 +83,42 @@ func (s *Engine) webAuthn() (*webauthn.WebAuthn, error) {
 		// No extension is requested and no output is read, so a client that
 		// volunteers one must not fail the ceremony.
 		ExtensionsUnsolicitedOutputPolicy: protocol.UnsolicitedOutputPolicyIgnore,
-	})
+	}
+}
+
+// webAuthn is the relying party that begins ceremonies.
+func (s *Engine) webAuthn() (*webauthn.WebAuthn, error) { return webauthn.New(s.webAuthnConfig()) }
+
+// webAuthnFor is the relying party that checks a ceremony which ran where
+// its client data says (WebAuthn L3 §7.1 step 11, §7.2 step 15). One inside
+// a cross-origin iframe of Passkeys.Origins passes only with
+// Deps.PasskeyTopOrigin: the page that framed it (topOrigin) must be one it
+// admits, and one that names no page (Safari omits it) passes on its own
+// origin, never on topOrigin. Otherwise go-webauthn refuses it.
+func (s *Engine) webAuthnFor(ctx context.Context, c protocol.CollectedClientData) (*webauthn.WebAuthn, error) {
+	cfg := s.webAuthnConfig()
+	if c.CrossOrigin && s.passkeyTopOrigin != nil {
+		cfg.RPAllowCrossOrigin = true
+		if top, ok := httpsOrigin(c.TopOrigin); ok {
+			admitted, err := s.passkeyTopOrigin(ctx, top)
+			if err != nil {
+				return nil, err
+			}
+			if admitted {
+				cfg.RPTopOrigins = []string{top}
+			}
+		}
+	}
+	return webauthn.New(cfg)
+}
+
+// httpsOrigin is raw as an https origin (scheme, host, port; nothing else).
+func httpsOrigin(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return "", false
+	}
+	return "https://" + strings.ToLower(u.Host), true
 }
 
 // BeginPasskeyRegistration starts adding a passkey to an already identified
@@ -171,12 +207,12 @@ func (s *Engine) finishPasskeyCreation(ctx context.Context, userID string, respo
 	if err != nil {
 		return nil, 0, err
 	}
-	cred, err := s.createCredential(u, session, parsed)
+	cred, err := s.createCredential(ctx, u, session, parsed)
 	return cred, data.CredentialVersion, err
 }
 
-func (s *Engine) createCredential(u passkeyUser, session webauthn.SessionData, parsed *protocol.ParsedCredentialCreationData) (*webauthn.Credential, error) {
-	wa, err := s.webAuthn()
+func (s *Engine) createCredential(ctx context.Context, u passkeyUser, session webauthn.SessionData, parsed *protocol.ParsedCredentialCreationData) (*webauthn.Credential, error) {
+	wa, err := s.webAuthnFor(ctx, parsed.Response.CollectedClientData)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +272,7 @@ func (s *Engine) finishDiscoverableAssertion(ctx context.Context, purpose string
 	if data.Purpose != purpose {
 		return verifiedPasskey{}, jwt.ErrTokenUnverifiable
 	}
-	wa, err := s.webAuthn()
+	wa, err := s.webAuthnFor(ctx, parsed.Response.CollectedClientData)
 	if err != nil {
 		return verifiedPasskey{}, err
 	}
