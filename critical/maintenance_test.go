@@ -43,7 +43,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		f.call(t, "POST", "/token", "", map[string]string{"grant_type": "refresh_token", "refresh_token": *session.RefreshToken}).want(t, http.StatusUnauthorized, "invalid_token")
 		proof := f.passwordlessProof(t, u.Email, "code")
 		f.expireProofs(t)
-		f.call(t, "POST", "/passwordless/confirm", "", map[string]string{"identifier": u.Email, "code": proof.Code}).want(t, http.StatusUnauthorized, "invalid_code")
+		f.confirmCode(t, "/passwordless/confirm", "", proof).want(t, http.StatusUnauthorized, "invalid_code")
 		key, _, _ := f.key(t)
 		_, err = f.pool.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, "api_keys"}.Sanitize()+" SET expires_at=statement_timestamp()-interval '1 second' WHERE id=$1", key.APIKey.ID)
 		noError(t, err)

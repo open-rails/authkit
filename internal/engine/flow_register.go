@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/password"
 	"github.com/open-rails/authkit/internal/secret"
@@ -94,18 +95,13 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		}
 		out := authflow.RegisterOutcome{Username: username, Phone: &phone}
 		if requiresVerification {
-			switch {
-			case !phoneTaken:
-				_, err = s.issuePendingPhoneRegistration(ctx, phone, username, phc, in.PreferredLanguage)
-			case s.pendingChangeTargetTaken(ctx, kindRegisterPhone, phone):
+			if phoneTaken && s.pendingChangeTargetTaken(ctx, kindRegisterPhone, phone) {
 				return authflow.RegisterOutcome{}, iam.ErrPhoneInUse
-			default:
-				err = s.registerTakenContact(ctx, kindRegisterPhone, phone, username, phc, in.PreferredLanguage)
-			}
-			if err != nil {
-				return authflow.RegisterOutcome{}, registrationErr("send_phone_verification", err)
 			}
 			out.Kind = authflow.RegisterVerifyPhone
+			if out.Challenge, err = s.registerPending(ctx, kindRegisterPhone, phone, username, phc, in.PreferredLanguage, phoneTaken); err != nil {
+				return authflow.RegisterOutcome{}, registrationErr("send_phone_verification", err)
+			}
 			return out, nil
 		}
 		if phoneTaken {
@@ -118,7 +114,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 			return authflow.RegisterOutcome{}, err
 		}
 		if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.SMSAvailable() {
-			if err := s.sendPhoneVerificationToUser(ctx, phone, account.ID, 0); err != nil {
+			if _, err := s.sendPhoneVerificationToUser(ctx, phone, account.ID); err != nil {
 				slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 			}
 		}
@@ -138,20 +134,15 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	}
 	out := authflow.RegisterOutcome{Username: username, Email: &email}
 	if requiresVerification {
-		switch {
-		case !emailTaken:
-			_, err = s.issuePendingEmailRegistration(ctx, email, username, phc, 0, in.PreferredLanguage)
-		case s.pendingChangeTargetTaken(ctx, kindRegisterEmail, email):
-			// Every attempt leaves a pending sign-up, taken address or not, so
-			// this says nothing about an account.
+		// Every attempt leaves a pending sign-up, taken address or not, so
+		// this says nothing about an account.
+		if emailTaken && s.pendingChangeTargetTaken(ctx, kindRegisterEmail, email) {
 			return authflow.RegisterOutcome{}, iam.ErrEmailInUse
-		default:
-			err = s.registerTakenContact(ctx, kindRegisterEmail, email, username, phc, in.PreferredLanguage)
-		}
-		if err != nil {
-			return authflow.RegisterOutcome{}, registrationErr("send_email_verification", err)
 		}
 		out.Kind = authflow.RegisterVerifyEmail
+		if out.Challenge, err = s.registerPending(ctx, kindRegisterEmail, email, username, phc, in.PreferredLanguage, emailTaken); err != nil {
+			return authflow.RegisterOutcome{}, registrationErr("send_email_verification", err)
+		}
 		return out, nil
 	}
 	// Without required proof a fresh sign-up signs in, which a taken address
@@ -164,18 +155,31 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		return authflow.RegisterOutcome{}, err
 	}
 	if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.EmailAvailable() {
-		if err := s.RequestEmailVerification(ctx, email, 0); err != nil {
+		if _, err := s.requestEmailVerification(ctx, email); err != nil {
 			slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 		}
 	}
 	return s.registeredSession(ctx, in, out, account)
 }
 
+// registerPending holds a sign-up pending its code and answers the code's
+// challenge; taken says an account holds the address. Past the address's send
+// quota nothing is stored or sent, and the challenge names nothing.
+func (s *Engine) registerPending(ctx context.Context, kind pendingChangeKind, target, username, passwordHash, preferredLanguage string, taken bool) (string, error) {
+	if !s.admitCode(ctx, httpapi.RLRegisterCreateIdentifier, target) {
+		return newChallengeHandle(), nil
+	}
+	if !taken {
+		return s.issuePendingRegistration(ctx, kind, target, username, passwordHash, preferredLanguage)
+	}
+	return newChallengeHandle(), s.registerTakenContact(ctx, kind, target, username, passwordHash, preferredLanguage)
+}
+
 // registerTakenContact is a fresh sign-up's pending step for an address an
 // account holds. It runs the same admission check and leaves the same pending
 // record, so the attempt holds its username, can be abandoned, and recovers by
-// its password at sign-in (passwordRejected) like a fresh one. Its code is
-// never sent and cannot match; the account's owner is notified instead.
+// its password at sign-in (passwordRejected) like a fresh one. No code is
+// sent for it; the account's owner is notified instead.
 func (s *Engine) registerTakenContact(ctx context.Context, kind pendingChangeKind, target, username, passwordHash, preferredLanguage string) error {
 	allowed, err := s.registrationAllowedForEmail(ctx, target)
 	if err != nil {
@@ -188,14 +192,12 @@ func (s *Engine) registerTakenContact(ctx context.Context, kind pendingChangeKin
 	if err != nil {
 		return err
 	}
-	if err := s.storePendingChange(ctx, pendingChange{
+	if _, err := s.storePendingChange(ctx, pendingChange{
 		Kind:              kind,
 		Target:            target,
 		Username:          username,
 		PasswordHash:      passwordHash,
 		PreferredLanguage: language,
-		CodeHash:          secret.Hash(secret.Token(32)),
-		LinkHash:          secret.Hash(secret.Token(32)),
 	}, kind.defaultTTL()); err != nil {
 		return err
 	}
@@ -210,17 +212,8 @@ func (s *Engine) renewTakenRegistration(ctx context.Context, kind pendingChangeK
 	if err != nil || !ok {
 		return err
 	}
-	return s.storePendingChange(ctx, pendingChange{
-		Kind:               kind,
-		Target:             rec.Target,
-		Username:           rec.Username,
-		PasswordHash:       rec.PasswordHash,
-		PreferredLanguage:  rec.PreferredLanguage,
-		AccountInviteToken: rec.AccountInviteToken,
-		Agreements:         rec.Agreements,
-		CodeHash:           secret.Hash(secret.Token(32)),
-		LinkHash:           secret.Hash(secret.Token(32)),
-	}, kind.defaultTTL())
+	_, err = s.renewPendingChange(ctx, rec)
+	return err
 }
 
 func notifyChannel(kind pendingChangeKind) string {

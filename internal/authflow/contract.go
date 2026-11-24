@@ -23,9 +23,12 @@ type PasswordlessStartRequest struct {
 	AccountInviteToken string
 }
 
+// PasswordlessStartResult: Challenge is the start's handle, whether or not a
+// code went out (Sent).
 type PasswordlessStartResult struct {
-	Sent    bool
-	Channel string
-	Code    string
-	LinkURL string
+	Challenge string
+	Sent      bool
+	Channel   string
+	Code      string
+	LinkURL   string
 }

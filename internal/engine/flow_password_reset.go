@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -24,6 +25,10 @@ func (s *Engine) RequestPasswordReset(ctx context.Context, email string, ttl tim
 	// Refused before the lookup, so the answer never depends on the account.
 	if s.email == nil && !s.cfg.Registration.AllowMissingSenders {
 		return errEmailNotConfigured
+	}
+	// Past the address's quota nothing is sent, answered alike.
+	if !s.admitCode(ctx, httpapi.RLPasswordResetRequestIdentifier, email) {
+		return nil
 	}
 	u, err := s.getUserByEmail(ctx, email)
 	if err != nil || u == nil {
@@ -98,6 +103,9 @@ func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 	if s.sms == nil && !s.cfg.Registration.AllowMissingSenders {
 		return errSMSNotConfigured
 	}
+	if !s.admitCode(ctx, httpapi.RLPasswordResetRequestIdentifier, phone) {
+		return nil
+	}
 	u, err := s.getUserByPhone(ctx, phone)
 	if err != nil || u == nil {
 		return nil // Don't reveal if phone exists
@@ -122,6 +130,10 @@ func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, tt
 
 	if err := s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessagePasswordReset, To: phone, UserID: u.ID, Language: s.userLanguage(ctx, u.ID),
 		Link: s.phonePasswordResetURL(token)}); err != nil {
+		_ = s.ephemDel(ctx, keyPasswordReset+hash)
+		if withheld(err) {
+			return nil
+		}
 		return err
 	}
 
@@ -177,13 +189,19 @@ func (s *Engine) notifyAccountExists(ctx context.Context, channel, target string
 	if s.sms == nil {
 		return nil
 	}
+	// A text its quota withholds is answered as a free number's code is.
 	msg := iam.SMSMessage{Kind: iam.MessageAccountExists, To: stored, UserID: u.ID, Language: language, Link: s.phonePasswordResetURL(token)}
-	if err := s.sendSMS(ctx, msg); !senderRefused(err, errmodel.ErrSMSDeliveryFailed) {
+	if err := s.sendSMS(ctx, msg); withheld(err) {
+		return nil
+	} else if !senderRefused(err, errmodel.ErrSMSDeliveryFailed) {
 		return err
 	}
 	slog.Warn("account_exists SMS refused by the sender, sending password_reset instead", "user_id", u.ID)
 	msg.Kind = iam.MessagePasswordReset
-	return s.sendSMS(ctx, msg)
+	if err := s.sendSMS(ctx, msg); !withheld(err) {
+		return err
+	}
+	return nil
 }
 
 // senderRefused reports a send the host's sender itself failed without timing

@@ -57,7 +57,7 @@ func (s *Service) authResult(w http.ResponseWriter, r *http.Request, out authflo
 		res.Reauthentication = &ReauthenticationStep{UserID: out.UserID, Reason: "mfa_required"}
 	case authflow.LoginVerificationRequired:
 		res.Status = AuthVerificationRequired
-		res.Verification = &VerificationStep{Identifier: out.Verification.Identifier, Channel: out.Verification.Channel, PasswordProof: nullableString(out.Verification.PasswordProof)}
+		res.Verification = &VerificationStep{Identifier: out.Verification.Identifier, Channel: out.Verification.Channel, Challenge: out.Verification.Challenge, PasswordProof: nullableString(out.Verification.PasswordProof)}
 	case authflow.LoginRecoveryRequired:
 		res.Status = AuthAccountRecoveryRequired
 		res.Recovery = out.Recovery

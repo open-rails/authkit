@@ -72,20 +72,21 @@ func TestCriticalRecovery(t *testing.T) {
 		u := f.user(t)
 		session := f.signIn(t, u)
 		newEmail := "changed-contact@example.com"
-		f.call(t, "PUT", "/me/email", session.AccessToken, map[string]string{"email": newEmail}).want(t, http.StatusAccepted, "")
+		challenge := challengeOf(t, f.call(t, "PUT", "/me/email", session.AccessToken, map[string]string{"email": newEmail}))
 		before, err := f.auth.User(t.Context(), iam.UserByID(u.ID))
 		noError(t, err)
 		if before.Email == nil || *before.Email != u.Email {
 			t.Fatal("unconfirmed contact replaced the current address")
 		}
-		proof := f.out.Last(t, iam.MessageVerification, newEmail)
-		f.call(t, "POST", "/verify/confirm", session.AccessToken, map[string]string{"identifier": newEmail, "code": proof.Code}).want(t, http.StatusNoContent, "")
+		proof := codeProof{f.out.Last(t, iam.MessageVerification, newEmail), challenge}
+		// Only the account that asked confirms its change's code.
+		f.confirmCode(t, "/verify/confirm", f.signIn(t, f.user(t)).AccessToken, proof).want(t, http.StatusUnauthorized, "invalid_code")
+		f.confirmCode(t, "/verify/confirm", session.AccessToken, proof).want(t, http.StatusNoContent, "")
 		u.Email = newEmail
 		session = f.signIn(t, u)
 		phone := "+12025550178"
-		f.call(t, "PUT", "/me/phone", session.AccessToken, map[string]string{"phone_number": phone}).want(t, http.StatusAccepted, "")
-		proof = f.out.Last(t, iam.MessageVerification, phone)
-		f.call(t, "POST", "/verify/confirm", session.AccessToken, map[string]string{"identifier": phone, "code": proof.Code}).want(t, http.StatusNoContent, "")
+		challenge = challengeOf(t, f.call(t, "PUT", "/me/phone", session.AccessToken, map[string]string{"phone_number": phone}))
+		f.confirmCode(t, "/verify/confirm", session.AccessToken, codeProof{f.out.Last(t, iam.MessageVerification, phone), challenge}).want(t, http.StatusNoContent, "")
 		got, err := f.auth.User(t.Context(), iam.UserByID(u.ID))
 		noError(t, err)
 		if got.Email == nil || *got.Email != newEmail || !got.EmailVerified || got.Phone == nil || *got.Phone != phone || !got.PhoneVerified {
@@ -102,11 +103,11 @@ func TestCriticalRecovery(t *testing.T) {
 	t.Run("AK-J06-C04_competing_contact_confirmations_have_one_owner", func(t *testing.T) {
 		users := []authtest.User{f.user(t), f.user(t)}
 		tokens := []iam.TokenSet{f.signIn(t, users[0]), f.signIn(t, users[1])}
-		codes := make([]string, 2)
+		proofs := make([]codeProof, 2)
 		const address = "contested-contact@example.com"
 		for i := range users {
-			f.call(t, "PUT", "/me/email", tokens[i].AccessToken, map[string]string{"email": address}).want(t, http.StatusAccepted, "")
-			codes[i] = f.out.Last(t, iam.MessageVerification, address).Code
+			challenge := challengeOf(t, f.call(t, "PUT", "/me/email", tokens[i].AccessToken, map[string]string{"email": address}))
+			proofs[i] = codeProof{f.out.Last(t, iam.MessageVerification, address), challenge}
 		}
 		results := make([]response, 2)
 		errs := make([]error, 2)
@@ -117,7 +118,7 @@ func TestCriticalRecovery(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				<-start
-				results[i], errs[i] = f.request(t.Context(), "POST", "/verify/confirm", tokens[i].AccessToken, map[string]string{"identifier": address, "code": codes[i]})
+				results[i], errs[i] = f.request(t.Context(), "POST", "/verify/confirm", tokens[i].AccessToken, map[string]string{"challenge": proofs[i].Challenge, "code": proofs[i].Code})
 			}()
 		}
 		close(start)
@@ -154,15 +155,18 @@ func TestCriticalRecovery(t *testing.T) {
 		r := g.call(t, "POST", "/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password})
 		r.want(t, http.StatusOK, "")
 		var parked struct {
-			Status   string        `json:"status"`
-			Tokens   *iam.TokenSet `json:"token_set"`
-			Recovery *struct{}     `json:"recovery"`
+			Status       string        `json:"status"`
+			Tokens       *iam.TokenSet `json:"token_set"`
+			Recovery     *struct{}     `json:"recovery"`
+			Verification struct {
+				Challenge string `json:"challenge"`
+			} `json:"verification"`
 		}
 		decode(t, r.body, &parked)
 		if parked.Status != "verification_required" || parked.Tokens != nil || parked.Recovery != nil {
 			t.Fatalf("password alone reached the restore step: %s", r.body)
 		}
-		r = g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": u.Email, "code": g.out.Last(t, iam.MessageVerification, u.Email).Code})
+		r = g.confirmCode(t, "/verify/confirm", "", codeProof{g.out.Last(t, iam.MessageVerification, u.Email), parked.Verification.Challenge})
 		r.want(t, http.StatusOK, "")
 		var recovery struct {
 			Status   string        `json:"status"`
@@ -199,9 +203,7 @@ func TestCriticalRecovery(t *testing.T) {
 		const phone = "+12025550179"
 		u, err := f.auth.CreateUser(t.Context(), iam.NewUser{Phone: phone, PhoneVerified: true, Username: "phoneonlyrecovery"})
 		noError(t, err)
-		f.call(t, "POST", "/passwordless/start", "", map[string]string{"identifier": phone, "mode": "login"}).want(t, http.StatusAccepted, "")
-		code := f.out.Last(t, iam.MessageVerification, phone).Code
-		tokens := tokensFrom(t, f.call(t, "POST", "/passwordless/confirm", "", map[string]string{"identifier": phone, "code": code}), u.ID)
+		tokens := tokensFrom(t, f.confirmCode(t, "/passwordless/confirm", "", f.passwordlessProof(t, phone, "login")), u.ID)
 		f.call(t, "DELETE", "/me/phone", tokens.AccessToken, nil).want(t, http.StatusConflict, "cannot_remove_last_contact")
 		user, err := f.auth.User(t.Context(), iam.UserByID(u.ID))
 		noError(t, err)

@@ -22,11 +22,8 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if s.rateLimitedByIdentifier(w, r, RLPasswordlessStart, identifier) {
-		return
-	}
-
-	_, err := s.svc.StartPasswordless(r.Context(), authflow.PasswordlessStartRequest{
+	// The address's send quota is the engine's, and never refuses.
+	out, err := s.svc.StartPasswordless(r.Context(), authflow.PasswordlessStartRequest{
 		Identifier:         identifier,
 		Mode:               req.Mode,
 		ReturnTo:           req.ReturnTo,
@@ -37,21 +34,24 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		writeError(w, err)
 		return
 	}
-	accepted(w)
+	writeJSON(w, http.StatusAccepted, CodeChallenge{Challenge: out.Challenge})
 }
 
+// POST /passwordless/confirm — {challenge, code} or {token}. A code is checked
+// only against the challenge it names; there is no budget per email or phone.
 func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.Request) {
 	var req CodeOrLinkRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	identifier := strings.TrimSpace(req.Identifier)
-	if identifier != "" && s.rateLimitedByIdentifier(w, r, RLPasswordlessConfirm, identifier) {
+	in := authflow.PasswordlessLoginInput{Identifier: strings.TrimSpace(req.Identifier), Challenge: strings.TrimSpace(req.Challenge), Code: strings.TrimSpace(req.Code),
+		Token: strings.TrimSpace(req.Token), Agreements: req.Agreements, UserAgent: r.UserAgent(), IP: s.requestIP(r)}
+	if in.Code != "" && in.Token == "" && in.Challenge == "" {
+		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("challenge"))
 		return
 	}
-
-	result, err := s.svc.PasswordlessLogin(r.Context(), authflow.PasswordlessLoginInput{Identifier: identifier, Code: strings.TrimSpace(req.Code), Token: strings.TrimSpace(req.Token), Agreements: req.Agreements, UserAgent: r.UserAgent(), IP: s.requestIP(r)})
+	result, err := s.svc.PasswordlessLogin(r.Context(), in)
 	if err != nil {
 		switch {
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):

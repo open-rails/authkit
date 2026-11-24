@@ -83,8 +83,9 @@ type Engine struct {
 	now       func() time.Time
 	ephemeral *ephemeralKV          // nil without Postgres
 	redis     redis.UniversalClient // Deps.Redis: DPoP proofs, else memory
-	// smsLimiter spends text messages' send limits (SetSMSLimiter).
-	smsLimiter ratelimit.Limiter
+	// sendLimiter spends send quotas and text messages' limits
+	// (SetSendLimiter).
+	sendLimiter ratelimit.Limiter
 	// replays spends JWT-bearer assertions (RFC 7523 §3), in the store DPoP
 	// proofs are spent in: Deps.Redis, else memory.
 	replays *dpop.Replays

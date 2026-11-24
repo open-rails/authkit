@@ -65,9 +65,8 @@ const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry
   `account_recovery_required` and `device_verification_required` carry their
   next step and are returned, not thrown. Failures throw `AuthKitError` with the AuthKit `code`
   (`errorMetadata(err, code)` reads its typed metadata).
-- A password sign-in parked at `verification_required` carries a
-  `password_proof`; `confirmVerification` sends it with that address's code,
-  so the account keeps its password.
+- A typed code is confirmed with the challenge its start answered: `startPasswordless`, `requestVerification`, `register` (when it waits on a code), `changeEmail` and `changePhone` resolve to `{ challenge }`, and `confirmPasswordless` / `confirmVerification` take `{ challenge, code }`. Each resend has its own challenge; nobody else's starts or guesses spend it.
+- A password sign-in parked at `verification_required` carries a `password_proof` and its code's `challenge`; `confirmVerification` sends the proof with that address's code, so the account keeps its password.
 - A new device past the account's daily limit answers
   `device_verification_required`: a code went to the owner's email or phone.
   `confirmDeviceVerification` finishes the sign-in with it;

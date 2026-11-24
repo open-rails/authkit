@@ -419,7 +419,14 @@
         },
         "responses": {
           "202": {
-            "description": "Accepted"
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeChallenge"
+                }
+              }
+            }
           },
           "default": {
             "description": "An error",
@@ -1037,7 +1044,14 @@
             }
           },
           "202": {
-            "description": "Accepted"
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeChallenge"
+                }
+              }
+            }
           },
           "default": {
             "description": "An error",
@@ -1237,7 +1251,14 @@
         },
         "responses": {
           "202": {
-            "description": "Accepted"
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeChallenge"
+                }
+              }
+            }
           },
           "default": {
             "description": "An error",
@@ -1802,7 +1823,14 @@
         },
         "responses": {
           "202": {
-            "description": "Accepted"
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeChallenge"
+                }
+              }
+            }
           },
           "default": {
             "description": "An error",
@@ -1842,7 +1870,14 @@
         },
         "responses": {
           "202": {
-            "description": "Accepted"
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeChallenge"
+                }
+              }
+            }
           },
           "default": {
             "description": "An error",
@@ -8931,10 +8966,24 @@
           "sms"
         ]
       },
+      "CodeChallenge": {
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge"
+        ]
+      },
       "CodeOrLinkRequest": {
         "type": "object",
         "properties": {
           "identifier": {
+            "type": "string"
+          },
+          "challenge": {
             "type": "string"
           },
           "code": {
@@ -13864,6 +13913,9 @@
           "channel": {
             "type": "string"
           },
+          "challenge": {
+            "type": "string"
+          },
           "password_proof": {
             "oneOf": [
               {
@@ -13878,6 +13930,7 @@
         "required": [
           "identifier",
           "channel",
+          "challenge",
           "password_proof"
         ]
       },
@@ -13885,6 +13938,9 @@
         "type": "object",
         "properties": {
           "identifier": {
+            "type": "string"
+          },
+          "challenge": {
             "type": "string"
           },
           "code": {
