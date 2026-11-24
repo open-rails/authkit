@@ -3,18 +3,18 @@ package engine
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/internal/secret"
 )
 
-func (s *Engine) issuePendingEmailRegistration(ctx context.Context, email, username, passwordHash string, ttl time.Duration, preferredLanguage string) (string, error) {
-	allowed, err := s.registrationAllowedForEmail(ctx, email)
+// issuePendingRegistration holds target and username for a sign-up pending its
+// proof and sends the first code, answering its challenge.
+func (s *Engine) issuePendingRegistration(ctx context.Context, kind pendingChangeKind, target, username, passwordHash, preferredLanguage string) (string, error) {
+	allowed, err := s.registrationAllowedForEmail(ctx, target)
 	if err != nil {
 		return "", err
 	}
@@ -25,36 +25,37 @@ func (s *Engine) issuePendingEmailRegistration(ctx context.Context, email, usern
 	if err != nil {
 		return "", err
 	}
-	if ttl <= 0 {
-		ttl = defaultEmailVerificationTTL
-	}
-	code := secret.Digits(6)
-	codeHash := secret.Hash(code)
-	linkToken := secret.Token(32)
-	linkHash := secret.Hash(linkToken)
-
-	if err := s.storePendingChange(ctx, pendingChange{
-		Kind:              kindRegisterEmail,
-		Target:            email,
+	rec, err := s.storePendingChange(ctx, pendingChange{
+		Kind:              kind,
+		Target:            target,
 		Username:          username,
 		PasswordHash:      passwordHash,
 		PreferredLanguage: language,
-		CodeHash:          codeHash,
-		LinkHash:          linkHash,
-	}, ttl); err != nil {
+	}, kind.defaultTTL())
+	if err != nil {
 		return "", err
 	}
+	return s.sendRegistrationCode(ctx, rec)
+}
 
-	if s.email != nil {
-		if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: email, Username: username, Language: s.messageLanguage(ctx, language),
-			Code: code, Link: s.emailVerificationURL(linkToken), Purpose: iam.PurposeSignup}); err != nil {
-			return "", err
+// sendRegistrationCode sends a code proving rec's address for the pending
+// sign-up, beside any code already out for it.
+func (s *Engine) sendRegistrationCode(ctx context.Context, rec pendingChange) (string, error) {
+	language := s.messageLanguage(ctx, rec.PreferredLanguage)
+	return s.sendVerification(ctx, verificationChallenge{Kind: rec.Kind, Target: rec.Target, PendingID: rec.ID}, func(code, link string) error {
+		if rec.Kind == kindRegisterEmail {
+			if s.email == nil {
+				return s.missingSender(errEmailNotConfigured)
+			}
+			return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: rec.Target, Username: rec.Username, Language: language,
+				Code: code, Link: s.emailVerificationURL(link), Purpose: iam.PurposeSignup})
 		}
-	} else if !s.cfg.Registration.AllowMissingSenders {
-		return "", errEmailNotConfigured
-	}
-
-	return code, nil
+		if s.sms == nil {
+			return s.missingSender(errSMSNotConfigured)
+		}
+		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: rec.Target, Language: language,
+			Code: code, Link: s.phoneVerificationURL(link), Purpose: iam.PurposeSignup})
+	})
 }
 
 // CheckPendingRegistrationConflict checks if email or username exists in users or pending registration cache.
@@ -81,48 +82,6 @@ func (s *Engine) CheckPendingRegistrationConflict(ctx context.Context, email, us
 	return emailTaken, usernameTaken, nil
 }
 
-// --- Phone Registration (for phone+password signups) ---
-
-func (s *Engine) issuePendingPhoneRegistration(ctx context.Context, phone, username, passwordHash, preferredLanguage string) (string, error) {
-	allowed, err := s.registrationAllowedForEmail(ctx, phone)
-	if err != nil {
-		return "", err
-	}
-	if !allowed {
-		return "", errmodel.ErrRegistrationDisabled
-	}
-	language, err := authflow.NormalizePreferredLanguage(preferredLanguage)
-	if err != nil {
-		return "", err
-	}
-	code := secret.Digits(6)
-	codeHash := secret.Hash(code)
-	linkToken := secret.Token(32)
-	linkHash := secret.Hash(linkToken)
-	if err := s.storePendingChange(ctx, pendingChange{
-		Kind:              kindRegisterPhone,
-		Target:            phone,
-		Username:          username,
-		PasswordHash:      passwordHash,
-		PreferredLanguage: language,
-		CodeHash:          codeHash,
-		LinkHash:          linkHash,
-	}, defaultPhoneVerificationTTL); err != nil {
-		return "", err
-	}
-
-	if s.sms != nil {
-		if err := s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, Language: s.messageLanguage(ctx, language),
-			Code: code, Link: s.phoneVerificationURL(linkToken), Purpose: iam.PurposeSignup}); err != nil {
-			return "", err
-		}
-	} else if !s.cfg.Registration.AllowMissingSenders {
-		return "", errSMSNotConfigured
-	}
-
-	return code, nil
-}
-
 // CheckPhoneRegistrationConflict checks if phone or username exists in users OR pending tables.
 // Returns (phoneTaken, usernameTaken, error)
 func (s *Engine) CheckPhoneRegistrationConflict(ctx context.Context, phone, username string) (bool, bool, error) {
@@ -146,23 +105,21 @@ func (s *Engine) CheckPhoneRegistrationConflict(ctx context.Context, phone, user
 	return phoneTaken, usernameTaken, nil
 }
 
-// resendRegistration reissues the pending signup while retaining its invitation,
-// username, password and language. A resend never creates an account.
-func (s *Engine) resendRegistration(ctx context.Context, identifier string) (bool, error) {
+// resendRegistration sends the pending sign-up for identifier another code,
+// keeping the codes already out, and renews its lifetime. A resend never
+// creates an account.
+func (s *Engine) resendRegistration(ctx context.Context, identifier string) (string, bool, error) {
 	kind := kindRegisterEmail
 	if !strings.Contains(identifier, "@") {
 		kind = kindRegisterPhone
 	}
 	rec, ok, err := s.pendingChangeByTarget(ctx, kind, identifier)
 	if err != nil || !ok {
-		return false, err
+		return "", false, err
 	}
-	ctx = contextWithAccountRegistrationInviteToken(ctx, rec.AccountInviteToken)
-	ctx = contextWithRegistrationAgreements(ctx, rec.Agreements)
-	if kind == kindRegisterEmail {
-		_, err = s.issuePendingEmailRegistration(ctx, rec.Target, rec.Username, rec.PasswordHash, 0, rec.PreferredLanguage)
-	} else {
-		_, err = s.issuePendingPhoneRegistration(ctx, rec.Target, rec.Username, rec.PasswordHash, rec.PreferredLanguage)
+	if renewed, err := s.renewPendingChange(ctx, rec); err != nil || !renewed {
+		return newChallengeHandle(), true, err
 	}
-	return true, err
+	handle, err := s.sendRegistrationCode(ctx, rec)
+	return handle, true, err
 }

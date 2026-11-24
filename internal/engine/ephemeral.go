@@ -51,7 +51,7 @@ func (k *ephemeralKV) scopedKey(ctx context.Context, key string) (string, error)
 }
 
 var tenantProofPrefixes = []string{
-	"email_verify:", "phone_verify:", "password_reset:", "password_proof:",
+	"verify:", "phone_verify:", "password_reset:", "password_proof:",
 	"passwordless:", "2fa:", "passkey:", "pending_change:", "oidc:", "siws:",
 	"device-key:", "step-up:", "account-recovery:", "signin:account:",
 	"signin:device-code:", "signin:device-sent:", "oauth:authz:", "oauth:code:", "oauth:refresh:",

@@ -111,20 +111,24 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		if r.header.Get("Retry-After") == "" {
 			t.Fatal("rate refusal omitted Retry-After")
 		}
-		// The public registration send has an additional identifier budget;
-		// trusted distinct source addresses must not buy unlimited email sends.
+		// The public registration send has an additional quota per address
+		// it sends to; trusted distinct source addresses must not buy
+		// unlimited email sends. Past it the sign-up answers as one does and
+		// sends nothing.
 		h := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
 			c.HTTP.DirectPeerIP = false
 			c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
-			c.HTTP.RateLimits["register_create"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			c.HTTP.RateLimits["register_create_identifier"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
 		}))
 		body := map[string]string{"identifier": "budgeted@example.com", "username": "budgetedperson", "password": authtest.Password}
 		a, err := h.requestHeaders(t.Context(), "POST", "/register", "", body, http.Header{"X-Forwarded-For": {"192.0.2.10"}})
 		noError(t, err)
-		a.want(t, http.StatusAccepted, "")
+		challengeOf(t, a)
+		body = map[string]string{"identifier": "budgeted@example.com", "username": "budgetedother", "password": authtest.Password}
+		h.call(t, "POST", "/register/abandon", "", map[string]string{"identifier": "budgeted@example.com", "password": authtest.Password}).want(t, http.StatusNoContent, "")
 		b, err := h.requestHeaders(t.Context(), "POST", "/register", "", body, http.Header{"X-Forwarded-For": {"192.0.2.11"}})
 		noError(t, err)
-		b.want(t, http.StatusTooManyRequests, "rate_limited")
+		challengeOf(t, b)
 		if len(h.out.Messages(iam.MessageVerification, "budgeted@example.com")) != 1 {
 			t.Fatal("identifier budget allowed duplicate external delivery")
 		}
@@ -256,8 +260,7 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 				const changed = "Budget-reset-password-5"
 				g.call(t, "POST", "/password/reset/confirm", "", map[string]string{"token": g.resetProof(t, u.Email), "new_password": changed}).want(t, http.StatusNoContent, "")
 				refused(login(u.Email, changed))
-				code := g.passwordlessProof(t, u.Email, "code").Code
-				tokensFrom(t, g.call(t, "POST", "/passwordless/confirm", "", map[string]string{"identifier": u.Email, "code": code}), u.ID)
+				tokensFrom(t, g.confirmCode(t, "/passwordless/confirm", "", g.passwordlessProof(t, u.Email, "code")), u.ID)
 				tokensFrom(t, login(other.Email, other.Password), other.ID)
 
 				// A spent budget frees itself as its window passes.

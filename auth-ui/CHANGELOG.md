@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Breaking:** a typed code is confirmed with the challenge its start answered. `startPasswordless`, `requestVerification`, `changeEmail` and `changePhone` resolve to `{ challenge }`, and `register` to a `SignInResult` or `{ challenge }` instead of `null`. `confirmPasswordless` and `confirmVerification` take `{ challenge, code }` (or a link's `{ token }`); an `identifier` beside them must be the code's address. A `verification_required` result carries `verification.challenge`. `useLogin`'s `code` and `signup_agreements` steps, `useRegister`'s `verify` step and `useContactVerification`'s `code_sent` step hold the current challenge, and a resend replaces it. `useLogin().sendCode` refused as too soon moves on to the code step only when this client already holds a challenge for that address; otherwise the refusal is its error.
 - The restore step says when an account goes for good, as "in 19 days, on Nov 24" in the page's language, and Restore signs the person in whichever way they signed in. `confirmAccountRecovery` now answers a `SignInResult`, or `null` when the account is back but the person must sign in again. `useLogin` no longer keeps the password.
 - `PasswordlessLink` lands AuthKit's emailed sign-in link (`Frontend.PasswordlessPath`) and finishes every later step in place, restoring a deleted account or a second factor included. `useLogin` gains `confirmLink`.
 - The delete panel no longer calls deletion irreversible: it states the 30 days to restore.

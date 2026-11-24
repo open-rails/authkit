@@ -19,7 +19,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 | `{BasePath}/oidc/{provider}/…` | browser sign-in with an identity provider |
 | `{BasePath}/.well-known/jwks.json` | the public signing keys |
 
-`BasePath` defaults to the path of `TokenConfig.Issuer`. When the issuer is a URL, `BasePath` must equal that path, because verifiers look for JWKS at the issuer plus `/.well-known/jwks.json`. Serve the paths unchanged, with no prefix stripping in front. If a proxy changes the origin or the path clients see, set `HTTPConfig.PublicURL`; DPoP proofs name it.
+`TokenConfig.Issuer` is an https URL; `http://` is accepted only on a loopback host (`localhost`, `127.0.0.1`, `[::1]`, any port) for local development. `FrontendConfig.BaseURL` (the issuer when empty) follows the same rule, and its scheme decides whether cookies are `Secure` and `__Host-`. `BasePath` defaults to the path of the issuer, and a set one must equal it, because verifiers look for JWKS at the issuer plus `/.well-known/jwks.json`. Serve the paths unchanged, with no prefix stripping in front. If a proxy changes the origin or the path clients see, set `HTTPConfig.PublicURL`; DPoP proofs name it.
 
 ## Which routes are mounted
 
@@ -29,6 +29,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - `HTTPConfig.Exclude` drops individual routes the host serves itself.
 - `Client.Routes()` lists what is mounted.
 - `Deps.Wrap` decorates each handler: logging, tracing, CORS. AuthKit sets no CORS headers of its own.
+- Every answer is `Cache-Control: no-store`, refusals and unknown paths included, except the successful answers of the public metadata: JWKS (`public, max-age=300, must-revalidate`), `/capabilities` and the authorization server's metadata documents (`public, max-age=300`).
 
 ## Browsers
 
@@ -39,8 +40,10 @@ Every route lives beneath `HTTPConfig.BasePath`:
 
 ## Client addresses and rate limits
 
-- `New` requires you to declare what sits in front of AuthKit: `HTTPConfig.TrustedProxies`, `CloudflareProxies` or `DirectPeerIP`, or `Deps.ClientIP`. Forwarded-address headers count only from the declared proxies.
+- `New` requires you to declare what sits in front of AuthKit, once: its proxies (`HTTPConfig.TrustedProxies`, with `CloudflareProxies` where Cloudflare fronts the origin), `DirectPeerIP` for none, or `Deps.ClientIP` for your own extraction. It refuses none, and more than one. Forwarded-address headers count only from the declared proxies; with `DirectPeerIP` the client is the TCP peer.
 - Every route has a rate-limit bucket (`x-authkit-rate-limit` in the OpenAPI). Budgets are per client address; an IPv6 address counts per /64. Emailed and texted codes also have per-account and per-destination budgets.
+- A code typed before anything is proven belongs to the start that sent it. `POST /passwordless/start`, `/verify/request`, `/register` (when it waits on a code) and `PUT /me/email`, `/me/phone` answer 202 `{"challenge": "…"}`, a random 128-bit handle, and the code is confirmed with it: `{"challenge", "code"}` at `POST /passwordless/confirm` or `/verify/confirm`; an `identifier` sent beside it must be the address the code went to. A code is checked only against the challenge it names, and five wrong codes burn that challenge alone. A start never replaces another, so nobody else's start or guesses spend your code. A link keeps its own token (`{"token"}`). A sign-in parked at `verification_required` carries its code's `verification.challenge`.
+- Each email or phone a start sends to also has a send quota, beside the route's per-client-address budget: `passwordless_start_identifier` (30 an hour), `verify_request_identifier` (45, shared by `/verify/request` and the contact changes), `register_create_identifier` (12), `password_reset_request_identifier` (12) and `device_key_enroll_begin_identifier` (30, per email and per public key). It never refuses: past it nothing is stored or sent, and the answer is the one a sent code gets, whether or not the address has an account. Each allows at least twice what one client address may send there and has no cooldown, so one client cannot spend another account's codes. Confirming has no budget per email or phone, only the route's per-client-address one (`passwordless_confirm`, `verify_confirm`); guessing is bounded by five per challenge times the send quota. `sms_number` and `sms_account` (30 an hour) are quotas of the same kind on every text message: a code start past them answers alike and sends nothing, and any other send is refused with `rate_limited`.
 - Password sign-in also has a failed-attempt budget per identifier (email, username or phone, in any case): `password_login_identifier`, 20 an hour by default, beside the route's per-address `password_login`. It is spent before the account is looked up, so an identifier with no account is refused the same way, and given back when the account's own password proves right and the sign-in goes on; a pending sign-up's password does not count as that. Each identifier has its own budget, so an account's email, phone, username and forwarding former names each get one; a refusal never shows which identifiers share an account. Once it is spent the right password is refused too, until the window frees an attempt; a password reset does not lift it. Codes, passkeys and provider sign-in do not use it.
 - `DefaultRateLimits()` holds the defaults. `HTTPConfig.RateLimits` overrides buckets by name; an unknown name is an error.
 - Counters live in each process's memory. Set `Deps.Redis` when you run more than one replica, to share them.

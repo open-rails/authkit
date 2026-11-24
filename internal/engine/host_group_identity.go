@@ -16,7 +16,7 @@ import (
 )
 
 // Group reads one group, a soft-deleted one included, with DeletedAt set.
-// Absence is ErrGroupNotFound.
+// Absence, or another tenant's group in a tenant view, is ErrGroupNotFound.
 func (s *Engine) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error) {
 	if err := s.requirePG(); err != nil {
 		return iam.Group{}, err
@@ -33,7 +33,11 @@ func (s *Engine) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error)
 	if err != nil {
 		return iam.Group{}, iam.ErrGroupNotFound
 	}
-	return st.groupByID(ctx, u.String())
+	g, err := st.groupByID(ctx, u.String())
+	if err == nil && !inView(ctx, g.Persona, g.TenantID) {
+		return iam.Group{}, iam.ErrGroupNotFound
+	}
+	return g, err
 }
 
 // RootGroupID is the root group's id.
@@ -44,18 +48,24 @@ func (s *Engine) RootGroupID(ctx context.Context) (string, error) {
 	return s.rootGroup(ctx, s.groupStore())
 }
 
-// Groups reads many groups by id, soft-deleted ones included. Unknown ids
-// are absent.
+// Groups reads many groups by id, soft-deleted ones included. Unknown ids,
+// and other tenants' groups in a tenant view, are absent.
 func (s *Engine) Groups(ctx context.Context, ids []string) (map[string]iam.Group, error) {
 	if err := s.requirePG(); err != nil {
 		return nil, err
 	}
-	return s.groupStore().groupsByID(ctx, ids)
+	groups, err := s.groupStore().groupsByID(ctx, ids)
+	for id, g := range groups {
+		if !inView(ctx, g.Persona, g.TenantID) {
+			delete(groups, id)
+		}
+	}
+	return groups, err
 }
 
-// ListGroups lists groups oldest first. The root group is never listed.
-// q.Ownerless keeps live groups with no owner that counts toward the
-// last-owner rule (requireRemainingOwner).
+// ListGroups lists groups oldest first; a tenant view lists only its
+// tenant's. The root group is never listed. q.Ownerless keeps live groups
+// with no owner that counts toward the last-owner rule (requireRemainingOwner).
 func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error) {
 	var out iam.ListPage[iam.Group]
 	if err := s.requirePG(); err != nil {
@@ -78,7 +88,7 @@ func (s *Engine) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage
 	limit := q.Page.PageLimit()
 	rows, err := s.q.PermissionGroupsPage(ctx, db.PermissionGroupsPageParams{
 		Persona: persona.String(), IncludeDeleted: q.IncludeDeleted, Ownerless: q.Ownerless,
-		After: after[0], MfaPersonas: mfaPersonas, PageLimit: int64(limit + 1),
+		After: after[0], MfaPersonas: mfaPersonas, TenantID: viewTenantText(ctx), PageLimit: int64(limit + 1),
 	})
 	if err != nil {
 		return out, err
@@ -121,7 +131,7 @@ func (s *Engine) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.M
 
 func (s *Engine) listGroupMembers(ctx context.Context, st *permissionGroupStore, queries *db.Queries, ref iam.GroupRef, q iam.MemberQuery) (iam.ListPage[iam.GroupMember], error) {
 	var out iam.ListPage[iam.GroupMember]
-	g, err := s.resolveGroup(ctx, st, ref)
+	g, err := s.viewGroup(ctx, st, ref)
 	if err != nil {
 		return out, err
 	}
@@ -181,7 +191,7 @@ func (s *Engine) listGroupMembers(ctx context.Context, st *permissionGroupStore,
 }
 
 // ListMemberships lists the live groups a subject holds a role in, ordered
-// by persona, then id.
+// by persona, then id; in a tenant view, root and its tenant's.
 func (s *Engine) ListMemberships(ctx context.Context, subject iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
 	var out iam.ListPage[iam.Membership]
 	if err := s.requirePG(); err != nil {
@@ -196,7 +206,7 @@ func (s *Engine) ListMemberships(ctx context.Context, subject iam.Subject, p iam
 		return out, err
 	}
 	limit := p.PageLimit()
-	arg := db.GroupsOfUserPageParams{SubjectID: subject.ID, AfterPersona: after[0], AfterID: after[1], PageLimit: int64(limit + 1)}
+	arg := db.GroupsOfUserPageParams{SubjectID: subject.ID, AfterPersona: after[0], AfterID: after[1], TenantID: viewTenantText(ctx), PageLimit: int64(limit + 1)}
 	var rows []db.GroupsOfUserPageRow
 	if subject.Kind == iam.SubjectKindUser {
 		rows, err = s.q.GroupsOfUserPage(ctx, arg)

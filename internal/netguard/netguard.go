@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -18,7 +19,11 @@ import (
 // (JWKS) would otherwise stall every concurrent waiter.
 const DefaultTimeout = 30 * time.Second
 
-var privateBlocks = parseBlocks(
+// nonPublic lists the reserved and special-purpose ranges outside
+// netip's own loopback, link-local, multicast and unspecified classes.
+// IPv4-mapped addresses are classified as IPv4; NAT64 (64:ff9b::/96) by
+// the IPv4 address it embeds.
+var nonPublic = prefixes(
 	"0.0.0.0/8",          // unspecified / "this" network
 	"10.0.0.0/8",         // RFC-1918 private
 	"100.64.0.0/10",      // RFC-6598 carrier-grade NAT
@@ -33,38 +38,49 @@ var privateBlocks = parseBlocks(
 	"203.0.113.0/24",     // RFC-5737 documentation
 	"240.0.0.0/4",        // reserved (class E)
 	"255.255.255.255/32", // broadcast
-	"::1/128",            // IPv6 loopback
-	"64:ff9b::/96",       // NAT64: reaches any IPv4 address, private included
+	"::/96",              // IPv4-compatible (deprecated), unspecified and loopback
 	"64:ff9b:1::/48",     // local-use NAT64
+	"100::/64",           // discard-only
+	"2001::/32",          // Teredo: embeds an obfuscated IPv4 address
+	"2001:db8::/32",      // documentation
 	"2002::/16",          // 6to4: embeds an arbitrary IPv4 address
-	"fc00::/7",           // IPv6 unique local
-	"fe80::/10",          // IPv6 link-local
-	"::/128",             // IPv6 unspecified
+	"3fff::/20",          // documentation
+	"fc00::/7",           // unique local
+	"fe80::/10",          // link-local
+	"fec0::/10",          // site-local (deprecated)
 )
 
-func parseBlocks(cidrs ...string) []*net.IPNet {
-	out := make([]*net.IPNet, 0, len(cidrs))
+// nat64 is the well-known NAT64 prefix: its last 32 bits are the IPv4
+// address it reaches.
+var nat64 = netip.MustParsePrefix("64:ff9b::/96")
+
+func prefixes(cidrs ...string) []netip.Prefix {
+	out := make([]netip.Prefix, 0, len(cidrs))
 	for _, cidr := range cidrs {
-		_, block, err := net.ParseCIDR(cidr)
-		if err != nil {
-			panic("netguard: bad CIDR literal " + cidr)
-		}
-		out = append(out, block)
+		out = append(out, netip.MustParsePrefix(cidr))
 	}
 	return out
 }
 
-// IsPrivateIP reports whether ip is loopback, link-local, multicast,
-// unspecified, or inside PrivateBlocks.
+// IsPrivateIP reports whether ip is not a public unicast address: loopback,
+// link-local, multicast, unspecified, or in a reserved range. An invalid ip
+// is private.
 func IsPrivateIP(ip net.IP) bool {
-	if ip == nil {
+	a, ok := netip.AddrFromSlice(ip)
+	return !ok || isPrivate(a)
+}
+
+func isPrivate(a netip.Addr) bool {
+	a = a.Unmap().WithZone("")
+	if nat64.Contains(a) {
+		b := a.As16()
+		return isPrivate(netip.AddrFrom4([4]byte(b[12:])))
+	}
+	if a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsMulticast() || a.IsUnspecified() {
 		return true
 	}
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
-		return true
-	}
-	for _, block := range privateBlocks {
-		if block.Contains(ip) {
+	for _, p := range nonPublic {
+		if p.Contains(a) {
 			return true
 		}
 	}
@@ -160,11 +176,29 @@ func TransportWith(r Resolver, allowPrivate bool) *http.Transport {
 	return t
 }
 
+// MaxRedirects is the most redirects Client follows.
+const MaxRedirects = 5
+
 // Client returns a timeout-bounded *http.Client over Transport(allowPrivate).
-// timeout <= 0 uses DefaultTimeout.
+// It follows at most MaxRedirects redirects, and none from https to
+// another scheme. timeout <= 0 uses DefaultTimeout.
 func Client(timeout time.Duration, allowPrivate bool) *http.Client {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	return &http.Client{Timeout: timeout, Transport: Transport(allowPrivate)}
+	return &http.Client{Timeout: timeout, Transport: Transport(allowPrivate), CheckRedirect: checkRedirect}
+}
+
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) > MaxRedirects {
+		return fmt.Errorf("netguard: stopped after %d redirects", MaxRedirects)
+	}
+	if req.URL.Scheme != "https" {
+		for _, prev := range via {
+			if prev.URL.Scheme == "https" {
+				return fmt.Errorf("netguard: refused a redirect from https to %s", req.URL.Scheme)
+			}
+		}
+	}
+	return nil
 }

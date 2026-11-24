@@ -8,7 +8,8 @@ import (
 )
 
 // The tenant directory: root:tenants:read and root:tenants:manage, checked at
-// the route. Selecting a tenant for the request does not change the target.
+// the route; writes also need a session that signed in recently. Selecting a
+// tenant for the request does not change the target.
 
 var tenantNotFound = map[error]errmodel.Code{iam.ErrTenantNotFound: errmodel.CodeNotFound, iam.ErrTenantRequired: errmodel.CodeNotFound}
 

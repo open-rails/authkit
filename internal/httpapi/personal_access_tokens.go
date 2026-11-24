@@ -51,7 +51,6 @@ func (s *Service) handlePersonalTokensPOST(w http.ResponseWriter, r *http.Reques
 		writeError(w, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusCreated, out)
 }
 

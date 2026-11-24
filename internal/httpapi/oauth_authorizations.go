@@ -62,7 +62,6 @@ func (s *Service) handleOAuthAuthorizationGET(w http.ResponseWriter, r *http.Req
 	if a.LoginHint != "" {
 		out.LoginHint = &a.LoginHint
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, out)
 }
 

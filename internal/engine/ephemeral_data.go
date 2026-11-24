@@ -15,23 +15,16 @@ const (
 	defaultEmailVerificationTTL = time.Hour
 	defaultPhoneVerificationTTL = 15 * time.Minute
 
-	// Wrong typed-code guesses allowed per address before the outstanding code is
-	// invalidated, so a 6-digit code cannot be brute-forced within its TTL.
-	maxEmailVerifyCodeAttempts = 5
-	keyEmailVerifyCodeAttempts = "email_verify:attempts:"
-	maxPhoneVerifyCodeAttempts = 5
-	keyPhoneVerifyCodeAttempts = "phone_verify:attempts:"
-	maxTwoFactorCodeAttempts   = 5
-	keyTwoFactorCodeAttempts   = "2fa:attempts:" // +<code record key>
-	twoFactorCodeTTL           = 10 * time.Minute
+	maxTwoFactorCodeAttempts = 5
+	keyTwoFactorCodeAttempts = "2fa:attempts:" // +<code record key>
+	twoFactorCodeTTL         = 10 * time.Minute
 
-	// A short code is never part of a key (#301): a verification record lives
-	// under the identity it was issued for and carries its code hash inside. Only
-	// 256-bit link tokens get a global pointer (link hash -> record key).
+	// A short code is never part of a key: a phone's 2FA setup record
+	// lives under the number it was issued for and carries its code hash
+	// inside. Only 256-bit link tokens get a global pointer (link hash -> record
+	// key).
 	keyPhoneVerify        = "phone_verify:rec:"  // +<purpose>:<phone>
 	keyPhoneVerifyLink    = "phone_verify:link:" // +<linkHash> -> record key
-	keyEmailVerify        = "email_verify:user:" // +<userID>
-	keyEmailVerifyLink    = "email_verify:link:" // +<linkHash> -> record key
 	keyPasswordReset      = "password_reset:token:"
 	keyPasswordProof      = "password_proof:" // +<token hash>
 	keyTwoFactorStepUp    = "2fa:step-up:"
@@ -47,15 +40,6 @@ type phoneVerificationData struct {
 	Purpose  string `json:"purpose"`
 	CodeHash string `json:"code_hash"`
 	LinkHash string `json:"link_hash,omitempty"`
-}
-
-type emailVerifyData struct {
-	ID       string  `json:"id"`
-	Version  int64   `json:"version"`
-	UserID   string  `json:"user_id"`
-	Email    *string `json:"email,omitempty"`
-	CodeHash string  `json:"code_hash"`
-	LinkHash string  `json:"link_hash,omitempty"`
 }
 
 type passwordResetData struct {
@@ -172,65 +156,10 @@ func (s *Engine) consumePhoneVerification(ctx context.Context, purpose, phone, c
 	return data.UserID, nil
 }
 
-// storeEmailVerification issues one verification record per user, superseding
-// any outstanding one.
-func (s *Engine) storeEmailVerification(ctx context.Context, userID string, email *string, codeHash, linkHash string, ttl time.Duration) error {
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	if ttl <= 0 {
-		ttl = defaultEmailVerificationTTL
-	}
-	key := keyEmailVerify + userID
-	s.deleteEmailVerification(ctx, userID)
-	version, err := s.q.UserCredentialVersion(ctx, userID)
-	if err != nil {
-		return err
-	}
-	data := emailVerifyData{ID: secret.Token(16), Version: version.CredentialVersion, UserID: userID, Email: email, CodeHash: codeHash, LinkHash: linkHash}
-	if err := s.ephemSetJSON(ctx, key, data, ttl); err != nil {
-		return err
-	}
-	if linkHash != "" {
-		if err := s.ephemSetString(ctx, keyEmailVerifyLink+linkHash, key, ttl); err != nil {
-			return err
-		}
-		return s.rememberProofRoute(ctx, "verification-link", linkHash, ttl)
-	}
-	return nil
-}
-
-func (s *Engine) deleteEmailVerification(ctx context.Context, userID string) {
-	key := keyEmailVerify + userID
-	var data emailVerifyData
-	raw, ok, _ := s.ephemReadJSON(ctx, key, &data)
-	if ok && s.claimProof(ctx, key, raw) == nil && data.LinkHash != "" {
-		_ = s.ephemDel(ctx, keyEmailVerifyLink+data.LinkHash)
-	}
-}
-
-// recordFailedEmailVerifyCode increments the per-email failed-attempt counter for
-// the typed email-verification code. After maxEmailVerifyCodeAttempts failures it
-// invalidates every outstanding code/pending-registration for that address so the
-// short numeric code cannot be brute-forced within its TTL (AK security audit F1).
-// No-op without an ephemeral store.
-func (s *Engine) recordFailedEmailVerifyCode(ctx context.Context, email string) {
-	if !s.useEphemeralStore() {
-		return
-	}
-	email = contact.NormalizeEmail(strings.TrimSpace(email))
-	if email == "" {
-		return
-	}
-	if s.recordFailedAttempt(ctx, keyEmailVerifyCodeAttempts+email, defaultEmailVerificationTTL, maxEmailVerifyCodeAttempts) {
-		s.invalidateEmailVerifyCodes(ctx, email)
-	}
-}
-
-// recordFailedAttempt bumps a per-identifier wrong-guess counter atomically and
-// reports whether the cap is reached, clearing the counter so a re-issued code
-// starts fresh. A store error counts as reached (fail closed): a guess that
-// cannot be counted must not keep the code alive.
+// recordFailedAttempt bumps a wrong-guess counter atomically and reports
+// whether the cap is reached, clearing the counter so a re-issued code starts
+// fresh. A store error counts as reached (fail closed): a guess that cannot
+// be counted must not keep the code alive.
 func (s *Engine) recordFailedAttempt(ctx context.Context, key string, ttl time.Duration, max int64) bool {
 	n, err := s.ephemIncr(ctx, key, ttl)
 	if err != nil || n >= max {
@@ -238,75 +167,6 @@ func (s *Engine) recordFailedAttempt(ctx context.Context, key string, ttl time.D
 		return true
 	}
 	return false
-}
-
-// clearEmailVerifyCodeAttempts resets the per-email failed-attempt counter after a
-// successful confirmation.
-func (s *Engine) clearEmailVerifyCodeAttempts(ctx context.Context, email string) {
-	if !s.useEphemeralStore() {
-		return
-	}
-	email = contact.NormalizeEmail(strings.TrimSpace(email))
-	if email == "" {
-		return
-	}
-	_ = s.ephemDel(ctx, keyEmailVerifyCodeAttempts+email)
-}
-
-// invalidateEmailVerifyCodes deletes the outstanding pending registration and
-// existing-user verification record for the address once the attempt cap is hit.
-func (s *Engine) invalidateEmailVerifyCodes(ctx context.Context, email string) {
-	email = contact.NormalizeEmail(strings.TrimSpace(email))
-	if email == "" {
-		return
-	}
-	s.deletePendingChangeByTarget(ctx, kindRegisterEmail, email)
-	if s.pg != nil {
-		if u, err := s.getUserByEmail(ctx, email); err == nil && u != nil {
-			s.deleteEmailVerification(ctx, u.ID)
-		}
-	}
-}
-
-// recordFailedPhoneVerifyCode is the phone twin of recordFailedEmailVerifyCode:
-// after maxPhoneVerifyCodeAttempts wrong guesses the outstanding code(s) for the
-// number are invalidated. No-op without an ephemeral store.
-func (s *Engine) recordFailedPhoneVerifyCode(ctx context.Context, phone string) {
-	if !s.useEphemeralStore() {
-		return
-	}
-	phone = contact.NormalizePhone(strings.TrimSpace(phone))
-	if phone == "" {
-		return
-	}
-	if s.recordFailedAttempt(ctx, keyPhoneVerifyCodeAttempts+phone, defaultPhoneVerificationTTL, maxPhoneVerifyCodeAttempts) {
-		s.invalidatePhoneVerifyCodes(ctx, phone)
-	}
-}
-
-// clearPhoneVerifyCodeAttempts resets the per-phone failed-attempt counter after a
-// successful confirmation.
-func (s *Engine) clearPhoneVerifyCodeAttempts(ctx context.Context, phone string) {
-	if !s.useEphemeralStore() {
-		return
-	}
-	phone = contact.NormalizePhone(strings.TrimSpace(phone))
-	if phone == "" {
-		return
-	}
-	_ = s.ephemDel(ctx, keyPhoneVerifyCodeAttempts+phone)
-}
-
-// invalidatePhoneVerifyCodes deletes the outstanding codes for a number when the
-// attempt cap is hit: the pending phone registration and the existing-user
-// "verify_phone" record (the two unauthenticated confirm paths).
-func (s *Engine) invalidatePhoneVerifyCodes(ctx context.Context, phone string) {
-	phone = contact.NormalizePhone(strings.TrimSpace(phone))
-	if phone == "" {
-		return
-	}
-	s.deletePendingChangeByTarget(ctx, kindRegisterPhone, phone)
-	s.deletePhoneVerification(ctx, phoneVerificationKey("verify_phone", phone))
 }
 
 func (s *Engine) storePasswordReset(ctx context.Context, tokenHash, userID, channel, contact string, ttl time.Duration) error {

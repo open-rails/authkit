@@ -96,6 +96,10 @@ type RouteSpec struct {
 	// MFAEnrollmentExempt marks the 2FA enroll/challenge/verify surface a
 	// forced-enrollment-gated user must still reach (#243).
 	MFAEnrollmentExempt bool
+	// CacheControl is the Cache-Control of the route's successful answers.
+	// Empty is no-store, every answer's default; only public metadata
+	// names another.
+	CacheControl string
 	// Query, Request: the query string and the JSON body (zero values; nil
 	// for none). Responses: every success outcome.
 	Query   any
@@ -116,6 +120,12 @@ func handle(f func(*Service, http.ResponseWriter, *http.Request)) func(*Service)
 	}
 }
 
+// rootGated checks root permission perm in front of f, for a route whose
+// tier is not AuthPermission and whose operation takes no identity.
+func rootGated(perm iam.Perm, f func(*Service, http.ResponseWriter, *http.Request)) func(*Service) http.Handler {
+	return func(s *Service) http.Handler { return s.requirePermission(iam.RootGroup(), perm, handle(f)(s)) }
+}
+
 func groupOp(op GroupOp) func(*Service) http.Handler {
 	return func(s *Service) http.Handler { return s.GroupHandler(op) }
 }
@@ -126,6 +136,8 @@ func replyCreated(body any) []Reply { return []Reply{{http.StatusCreated, body}}
 var (
 	replyNoContent = []Reply{{Status: http.StatusNoContent}}
 	replyAccepted  = []Reply{{Status: http.StatusAccepted}}
+	// A start that may send a code answers its challenge.
+	replyChallenge = []Reply{{http.StatusAccepted, CodeChallenge{}}}
 )
 
 // Catalog is AuthKit's whole HTTP surface, every route a configuration can
@@ -147,12 +159,12 @@ func Catalog() []RouteSpec {
 	signedIn := replyOK(AuthResult{})
 	usersRead := ident.RootUsersRead.String()
 	return []RouteSpec{
-		{Method: GET, Path: iam.JWKSPath, Surface: SurfaceBase, Group: auth, Auth: public, Bucket: RLJWKSRead,
+		{Method: GET, Path: iam.JWKSPath, Surface: SurfaceBase, Group: auth, Auth: public, Bucket: RLJWKSRead, CacheControl: "public, max-age=300, must-revalidate",
 			Responses: replyOK(keys.JWKS{}), serve: func(s *Service) http.Handler { return s.JWKSHandler() }},
 
 		// Signing in. Every answer that signs in, or names the next step, is
 		// an AuthResult.
-		{Method: GET, Path: "/capabilities", Group: auth, Auth: public, Bucket: RLCapabilitiesRead,
+		{Method: GET, Path: "/capabilities", Group: auth, Auth: public, Bucket: RLCapabilitiesRead, CacheControl: "public, max-age=300",
 			Responses: replyOK(Capabilities{}), serve: handle((*Service).handleCapabilitiesGET)},
 		{Method: POST, Path: "/token", Group: auth, Auth: public, Bucket: RLTokenRefresh,
 			Request: TokenRefreshRequest{}, Responses: signedIn, serve: handle((*Service).handleAuthTokenPOST)},
@@ -175,7 +187,7 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/account/recovery/confirm", Group: auth, Auth: public, Bucket: RLPasswordLogin,
 			Request: TokenRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleAccountRecoveryConfirmPOST)},
 		{Method: POST, Path: "/passwordless/start", Group: auth, Auth: public, Bucket: RLPasswordlessStart, MountedWhen: FeaturePasswordless,
-			Request: PasswordlessStartRequest{}, Responses: replyAccepted, serve: handle((*Service).handlePasswordlessStartPOST)},
+			Request: PasswordlessStartRequest{}, Responses: replyChallenge, serve: handle((*Service).handlePasswordlessStartPOST)},
 		{Method: POST, Path: "/passwordless/confirm", Group: auth, Auth: public, Bucket: RLPasswordlessConfirm, MountedWhen: FeaturePasswordless,
 			Request: CodeOrLinkRequest{}, Responses: signedIn, serve: handle((*Service).handlePasswordlessConfirmPOST)},
 		{Method: POST, Path: "/passkeys/login/begin", Group: auth, Auth: public, Bucket: RLPasskeyLogin, MountedWhen: FeaturePasskeys,
@@ -211,7 +223,7 @@ func Catalog() []RouteSpec {
 			Responses: replyNoContent, serve: handle((*Service).handleDeviceKeysDELETE)},
 
 		{Method: POST, Path: "/register", Group: registration, Auth: public, Bucket: RLRegisterCreate, MountedWhen: FeatureRegistration,
-			Request: RegisterRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusAccepted, nil}}, serve: handle((*Service).handleRegisterUnifiedPOST)},
+			Request: RegisterRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusAccepted, CodeChallenge{}}}, serve: handle((*Service).handleRegisterUnifiedPOST)},
 		{Method: GET, Path: "/register/availability", Group: registration, Auth: public, Bucket: RLRegisterAvailability,
 			Query: AvailabilityQuery{}, Responses: replyOK(Availability{}), serve: handle((*Service).handleRegisterAvailabilityGET)},
 		{Method: GET, Path: "/usernames/generate", Group: registration, Auth: public, Bucket: RLRegisterAvailability,
@@ -224,7 +236,7 @@ func Catalog() []RouteSpec {
 		// Proving an address. Changing the caller's own is PUT /me/email and
 		// /me/phone; its code is confirmed here, signed in.
 		{Method: POST, Path: "/verify/request", Group: account, Auth: public, Bucket: RLVerifyRequest,
-			Request: IdentifierRequest{}, Responses: replyAccepted, serve: handle((*Service).handleVerifyRequestPOST)},
+			Request: IdentifierRequest{}, Responses: replyChallenge, serve: handle((*Service).handleVerifyRequestPOST)},
 		{Method: POST, Path: "/verify/confirm", Group: account, Auth: optional, Bucket: RLVerifyConfirm,
 			Request: VerifyConfirmRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleVerifyConfirmPOST)},
 
@@ -257,9 +269,9 @@ func Catalog() []RouteSpec {
 		{Method: PUT, Path: "/me/password", Group: account, Auth: session, StepUp: true, Bucket: RLMePasswordChange,
 			Request: PasswordChangeRequest{}, Responses: replyNoContent, serve: handle((*Service).handleMePasswordPUT)},
 		{Method: PUT, Path: "/me/email", Group: account, Auth: session, StepUp: true, Bucket: RLMeContactChange,
-			Request: EmailChangeRequest{}, Responses: replyAccepted, serve: handle((*Service).handleMeEmailPUT)},
+			Request: EmailChangeRequest{}, Responses: replyChallenge, serve: handle((*Service).handleMeEmailPUT)},
 		{Method: PUT, Path: "/me/phone", Group: account, Auth: session, StepUp: true, Bucket: RLMeContactChange,
-			Request: PhoneChangeRequest{}, Responses: replyAccepted, serve: handle((*Service).handleMePhonePUT)},
+			Request: PhoneChangeRequest{}, Responses: replyChallenge, serve: handle((*Service).handleMePhonePUT)},
 		{Method: DELETE, Path: "/me/phone", Group: account, Auth: session, StepUp: true, Bucket: RLMeUpdate,
 			Responses: replyNoContent, serve: handle((*Service).handleMePhoneDELETE)},
 		{Method: GET, Path: "/me/sessions", Group: account, Auth: required, Bucket: RLSessionList,
@@ -394,12 +406,13 @@ func Catalog() []RouteSpec {
 
 		// The tenant directory (#471). A tenant's ID is stable; its slug is a
 		// renamable public name, and a former name keeps resolving for a while.
-		{Method: POST, Path: "/admin/tenants", Group: admin, Auth: permission, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
-			Request: TenantCreateRequest{}, Responses: replyCreated(iam.Tenant{}), serve: handle((*Service).handleAdminTenantCreatePOST)},
+		// Writes, like the directory's, are for a person who signed in recently.
+		{Method: POST, Path: "/admin/tenants", Group: admin, Auth: session, StepUp: true, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
+			Request: TenantCreateRequest{}, Responses: replyCreated(iam.Tenant{}), serve: rootGated(ident.RootTenantsManage, (*Service).handleAdminTenantCreatePOST)},
 		{Method: GET, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: permission, Perm: ident.RootTenantsRead.String(), Bucket: RLAdminRead,
 			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantGET)},
-		{Method: PATCH, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: permission, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
-			Request: TenantRenameRequest{}, Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantPATCH)},
+		{Method: PATCH, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: session, StepUp: true, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
+			Request: TenantRenameRequest{}, Responses: replyOK(iam.Tenant{}), serve: rootGated(ident.RootTenantsManage, (*Service).handleAdminTenantPATCH)},
 		{Method: GET, Path: "/admin/tenants/by-slug/{slug}", Group: admin, Auth: permission, Perm: ident.RootTenantsRead.String(), Bucket: RLAdminRead,
 			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantBySlugGET)},
 
@@ -491,9 +504,9 @@ func Catalog() []RouteSpec {
 		// #430: the authorization server's protocol endpoints, beneath the
 		// issuer's path. Errors are OAuth's {error, error_description}; the
 		// browser endpoints redirect.
-		{Method: GET, Path: iam.OpenIDConfigurationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer,
+		{Method: GET, Path: iam.OpenIDConfigurationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer, CacheControl: "public, max-age=300",
 			Responses: replyOK(OAuthServerMetadata{}), serve: handle((*Service).handleOAuthMetadata)},
-		{Method: GET, Path: iam.AuthorizationServerMetadataPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer,
+		{Method: GET, Path: iam.AuthorizationServerMetadataPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer, CacheControl: "public, max-age=300",
 			Responses: replyOK(OAuthServerMetadata{}), serve: handle((*Service).handleOAuthMetadata)},
 		{Method: GET, Path: iam.OAuthAuthorizePath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthAuthorize, MountedWhen: FeatureAuthorizationServer,
 			Query: OAuthAuthorizeParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthAuthorize)},

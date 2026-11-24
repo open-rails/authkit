@@ -24,16 +24,17 @@ const (
 	// session, or the step it waits on).
 	RegisterSignedIn RegisterOutcomeKind = "signed_in"
 	// RegisterVerifyEmail / RegisterVerifyPhone: the registration is pending
-	// until the code just sent to the identifier is confirmed.
+	// until the code sent to the identifier for Challenge is confirmed.
 	RegisterVerifyEmail RegisterOutcomeKind = "verify_email"
 	RegisterVerifyPhone RegisterOutcomeKind = "verify_phone"
 )
 
 // RegisterOutcome reports who was registered and what happens next.
 type RegisterOutcome struct {
-	Login    *LoginOutcome
-	Kind     RegisterOutcomeKind
-	Username string
-	Email    *string
-	Phone    *string
+	Login     *LoginOutcome
+	Kind      RegisterOutcomeKind
+	Challenge string
+	Username  string
+	Email     *string
+	Phone     *string
 }

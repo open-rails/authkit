@@ -12,11 +12,10 @@ import (
 	"github.com/open-rails/authkit/internal/secret"
 )
 
-// PendingChangeKind identifies one of the four verification-gated "deferred
-// change" flows. They all share the same shape — "hold a change until an
-// emailed/texted code is verified, then finalize it" — so they share one record
-// type, one ephemeral storage namespace, and one set of generic operations,
-// differing only in their per-kind finalizer.
+// pendingChangeKind is what a verification code proves an address for: a
+// pending sign-up, an account's own address, or a contact change. Codes live
+// in verification challenges; only a pending sign-up keeps a record of its
+// own, the hold its address and username are taken by until it is proven.
 type pendingChangeKind string
 
 const (
@@ -28,25 +27,18 @@ const (
 	kindChangePhone   pendingChangeKind = "change_phone"
 )
 
-// One record per identity (#301): register kinds are keyed by the target (the
-// user does not exist yet), change kinds by the user. The 6-digit code hash lives
-// inside the record and is only ever compared against the record the caller
-// addressed, so two strangers drawing the same code never share storage. Only the
-// 256-bit link token gets a global pointer.
+// One pending sign-up per address, keyed by it (the user does not exist yet),
+// with its username indexed.
 const (
-	keyPendingChange     = "pending_change:rec:"  // +<kind>:<target|userID> -> pendingChange JSON
-	keyPendingChangeLink = "pending_change:link:" // +<kind>:<linkHash> -> record key
-	keyPendingChangeUser = "pending_change:user:" // +<kind>:<username> -> record key (register kinds)
+	keyPendingChange     = "pending_change:rec:"  // +<kind>:<target> -> pendingChange JSON
+	keyPendingChangeUser = "pending_change:user:" // +<kind>:<username> -> record key
 )
 
-// pendingChange is the unified record backing all four flows. Register kinds
-// leave UserID empty and carry the signup payload; change kinds set UserID and
-// leave the signup payload empty. Target is the email or phone being
-// registered/changed-to.
+// pendingChange is a pending sign-up (register kinds), or a contact change a
+// challenge proved (change kinds: UserID, Version, Target) on its way to its
+// finalizer. Target is the email or phone being registered or changed to.
 type pendingChange struct {
-	Version            int64 `json:"version,omitempty"`
-	storeKey           string
-	linkKey            string
+	Version            int64  `json:"version,omitempty"`
 	ID                 string `json:"id"`
 	AccountInviteToken string `json:"account_invite_token,omitempty"`
 	expected           []byte
@@ -56,14 +48,16 @@ type pendingChange struct {
 	Username           string            `json:"username,omitempty"`
 	PasswordHash       string            `json:"password_hash,omitempty"`
 	PreferredLanguage  string            `json:"preferred_language,omitempty"`
-	CodeHash           string            `json:"code_hash"`
-	LinkHash           string            `json:"link_hash,omitempty"`
 	// Agreements a pending sign-up accepted, recorded when it is proven.
 	Agreements []iam.AgreementRef `json:"agreements,omitempty"`
 }
 
 func (k pendingChangeKind) isRegister() bool {
 	return k == kindRegisterEmail || k == kindRegisterPhone
+}
+
+func (k pendingChangeKind) isChange() bool {
+	return k == kindChangeEmail || k == kindChangePhone
 }
 
 func (k pendingChangeKind) isEmail() bool {
@@ -96,47 +90,21 @@ func pendingChangeUserKey(kind pendingChangeKind, username string) string {
 	return keyPendingChangeUser + string(kind) + ":" + strings.ToLower(strings.TrimSpace(username))
 }
 
-// Link pointers are namespaced per kind: the HTTP confirm handlers try each
-// kind in turn with the same token, and a miss for one kind must never consume
-// another kind's single-use pointer.
-func pendingChangeLinkKey(kind pendingChangeKind, linkHash string) string {
-	return keyPendingChangeLink + string(kind) + ":" + linkHash
-}
+func (rec pendingChange) key() string { return pendingChangeKey(rec.Kind, rec.Target) }
 
-func (rec pendingChange) key() string {
-	if rec.storeKey != "" {
-		return rec.storeKey
-	}
-	if rec.Kind.isRegister() {
-		return pendingChangeKey(rec.Kind, rec.Target)
-	}
-	return pendingChangeKey(rec.Kind, rec.UserID)
-}
-
-// storePendingChange writes a pending change under its identity key plus the
-// link pointer and (register kinds) the username index. Any prior record on the
-// same identity or username is cleared first so a re-request supersedes it.
-func (s *Engine) storePendingChange(ctx context.Context, rec pendingChange, ttl time.Duration) error {
+// storePendingChange writes a pending sign-up under its address plus the
+// username index, and returns it. Any prior record on the same address or
+// username is cleared first, and with it the codes sent for it.
+func (s *Engine) storePendingChange(ctx context.Context, rec pendingChange, ttl time.Duration) (pendingChange, error) {
 	if !s.useEphemeralStore() {
-		return fmt.Errorf("ephemeral store not configured")
+		return rec, fmt.Errorf("ephemeral store not configured")
 	}
-	if rec.CodeHash == "" && rec.LinkHash == "" {
-		return fmt.Errorf("pending change without verification secret")
+	if !rec.Kind.isRegister() {
+		return rec, fmt.Errorf("pending change of kind %s is not stored", rec.Kind)
 	}
 	rec.ID = secret.Token(16)
-	if rec.Kind.isRegister() {
-		rec.AccountInviteToken = accountRegistrationInviteTokenFromContext(ctx)
-		rec.Agreements = registrationAgreementsFromContext(ctx)
-	} else {
-		if err := s.requirePG(); err != nil {
-			return err
-		}
-		version, err := s.q.UserCredentialVersion(ctx, rec.UserID)
-		if err != nil {
-			return err
-		}
-		rec.Version = version.CredentialVersion
-	}
+	rec.AccountInviteToken = accountRegistrationInviteTokenFromContext(ctx)
+	rec.Agreements = registrationAgreementsFromContext(ctx)
 	rec.Target = normalizePendingTarget(rec.Kind, rec.Target)
 	if ttl <= 0 {
 		ttl = rec.Kind.defaultTTL()
@@ -144,28 +112,38 @@ func (s *Engine) storePendingChange(ctx context.Context, rec pendingChange, ttl 
 	key := rec.key()
 
 	s.deletePendingChange(ctx, key)
-	if rec.Kind.isRegister() && rec.Username != "" {
+	if rec.Username != "" {
 		var old pendingChangeIndex
 		if ok, _ := s.ephemGetJSON(ctx, pendingChangeUserKey(rec.Kind, rec.Username), &old); ok && old.Key != "" && old.Key != key {
 			s.deletePendingChange(ctx, old.Key)
 		}
 	}
 
-	if err := s.ephemSetJSON(ctx, key, rec, ttl); err != nil {
-		return err
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		return rec, err
 	}
-	if rec.LinkHash != "" {
-		if err := s.ephemSetString(ctx, pendingChangeLinkKey(rec.Kind, rec.LinkHash), key, ttl); err != nil {
-			return err
-		}
-		if err := s.rememberProofRoute(ctx, "verification-link", rec.LinkHash, ttl); err != nil {
-			return err
-		}
+	if err := s.ephemeral.Set(ctx, key, raw, ttl); err != nil {
+		return rec, err
 	}
-	if rec.Kind.isRegister() && rec.Username != "" {
+	rec.expected = raw
+	if rec.Username != "" {
 		_ = s.ephemSetJSON(ctx, pendingChangeUserKey(rec.Kind, rec.Username), pendingChangeIndex{Key: key, ID: rec.ID}, ttl)
 	}
-	return nil
+	return rec, nil
+}
+
+// renewPendingChange gives rec a fresh lifetime, keeping the codes already
+// sent for it good, and reports whether rec is still the record stored.
+func (s *Engine) renewPendingChange(ctx context.Context, rec pendingChange) (bool, error) {
+	ttl := rec.Kind.defaultTTL()
+	if ok, err := s.ephemeral.Swap(ctx, rec.key(), rec.expected, rec.expected, ttl); err != nil || !ok {
+		return false, err
+	}
+	if rec.Username != "" {
+		_ = s.ephemSetJSON(ctx, pendingChangeUserKey(rec.Kind, rec.Username), pendingChangeIndex{Key: rec.key(), ID: rec.ID}, ttl)
+	}
+	return true, nil
 }
 
 func (s *Engine) loadPendingChange(ctx context.Context, key string) (pendingChange, bool, error) {
@@ -232,12 +210,7 @@ func (s *Engine) pendingChangeTargetTaken(ctx context.Context, kind pendingChang
 }
 
 func (s *Engine) clearPendingIndexes(ctx context.Context, rec pendingChange) {
-	if rec.linkKey != "" {
-		_ = s.ephemDel(ctx, rec.linkKey)
-	} else if rec.LinkHash != "" {
-		_ = s.ephemDel(ctx, pendingChangeLinkKey(rec.Kind, rec.LinkHash))
-	}
-	if rec.Kind.isRegister() && rec.Username != "" {
+	if rec.Username != "" {
 		value, _ := json.Marshal(pendingChangeIndex{Key: rec.key(), ID: rec.ID})
 		_, _ = s.ephemeral.CompareAndConsume(ctx, pendingChangeUserKey(rec.Kind, rec.Username), value)
 	}
@@ -264,8 +237,8 @@ func (s *Engine) deletePendingChangeByTarget(ctx context.Context, kind pendingCh
 	s.deletePendingChange(ctx, pendingChangeKey(kind, normalizePendingTarget(kind, target)))
 }
 
-// finalizePendingChange dispatches to the per-kind finalizer that completes the
-// deferred change and returns the affected user's ID.
+// finalizePendingChange dispatches a proven contact change to its finalizer
+// and returns the affected user's ID.
 func (s *Engine) finalizePendingChange(ctx context.Context, rec pendingChange, keepSessionID *string) (string, error) {
 	switch rec.Kind {
 	case kindChangeEmail:

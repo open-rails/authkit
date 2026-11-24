@@ -91,7 +91,6 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 			algs = append(algs, k.Alg)
 		}
 	}
-	w.Header().Set("Cache-Control", "public, max-age=300")
 	// A public document every browser client reads first.
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	writeJSON(w, http.StatusOK, OAuthServerMetadata{
@@ -170,7 +169,6 @@ func (s *Service) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, "oauth_authorize", err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
@@ -322,8 +320,7 @@ func finishAuthorization(clientID, redirectURI, challenge string, granted []stri
 // refresh tokens are protected by rotation (RFC 9700 §4.14.2).
 func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	s.oauthCORS(w, r)
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Pragma", "no-cache") // RFC 6749 §5.1, beside the mount's no-store
 	params, err := oauthParams(r, true)
 	if err != nil {
 		oauthFail(w, err)
@@ -438,7 +435,6 @@ func scopeParam(params url.Values) []string {
 // token, revoked or not.
 func (s *Service) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
 	s.oauthCORS(w, r)
-	w.Header().Set("Cache-Control", "no-store")
 	params, err := oauthParams(r, true)
 	if err != nil {
 		oauthFail(w, err)
@@ -537,7 +533,6 @@ func (s *Service) authenticateOAuthClient(r *http.Request, params url.Values) (a
 // one with a fresh proof of its key.
 func (s *Service) handleOAuthUserInfo(w http.ResponseWriter, r *http.Request) {
 	s.oauthCORS(w, r)
-	w.Header().Set("Cache-Control", "no-store")
 	token, isDPoP := jose.RequestToken(r)
 	scheme := "Bearer"
 	if isDPoP {
@@ -601,7 +596,6 @@ func (s *Service) handleOAuthEndSession(w http.ResponseWriter, r *http.Request) 
 	if target == "" {
 		target = s.cfg.Frontend.BaseURL
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
@@ -747,7 +741,6 @@ func oauthFail(w http.ResponseWriter, err error) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(oe.HTTPStatus())
 	body := map[string]string{"error": oe.Code, "error_description": oe.Description}
 	if oe.Reason != "" {

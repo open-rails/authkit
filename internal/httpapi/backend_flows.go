@@ -79,12 +79,12 @@ type flowsBackend interface {
 	Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error)
 	RegistrationVerificationEnabled() bool
 	RenamePasskey(ctx context.Context, userID, id, label string) error
-	RequestEmailChange(ctx context.Context, userID, newEmail string) error
-	RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error
+	RequestEmailChange(ctx context.Context, userID, newEmail string) (string, error)
+	RequestEmailVerification(ctx context.Context, email string) (string, error)
 	RequestPasswordReset(ctx context.Context, email string, ttl time.Duration, ip *string, ua *string) error
-	RequestPhoneChange(ctx context.Context, userID, newPhone string) error
+	RequestPhoneChange(ctx context.Context, userID, newPhone string) (string, error)
 	RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error
-	RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error
+	RequestPhoneVerification(ctx context.Context, phone string) (string, error)
 	ResendLoginChallenge(ctx context.Context, userID, nonce, factorID string) (*authflow.TwoFactorChallenge, error)
 	SMSAvailable() bool
 	Send2FAStepUpCode(ctx context.Context, userID, sessionID, factorID string) error

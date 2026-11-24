@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/open-rails/authkit/internal/keyfile"
 )
 
 // defaultKeyReloadInterval is how often a FileSource re-stats keys.json:
@@ -37,8 +39,9 @@ func (s Static) PublicKeys() map[string]crypto.PublicKey { return clonePublicKey
 
 // FileSource is the Source Watch returns: keys.json, reloaded when it changes
 // on disk (re-rendered by Vault Agent), so a signing-key rotation needs no
-// restart. Reads are lock-free. A malformed or unreadable file keeps the last
-// good keys: a bad render never bricks signing (authkit #90).
+// restart. Reads are lock-free. A malformed or unreadable file, or one that
+// is group- or world-writable, keeps the last good keys and is logged: a bad
+// render never bricks signing (authkit #90).
 type FileSource struct {
 	path     string // directory containing keys.json
 	interval time.Duration
@@ -54,8 +57,9 @@ type FileSource struct {
 
 // Watch loads <path>/keys.json, the envelope {active_key_id,
 // active_private_key_pem, public_keys: {kid: pem}}, and re-reads it every
-// 10s when it changed. It errors when path holds no valid keys.json. Close
-// stops the watch; reloads are logged on slog.Default.
+// 10s when it changed. It errors when path holds no valid keys.json, or one
+// that is group- or world-writable. Close stops the watch; reloads are logged
+// on slog.Default.
 func Watch(path string) (*FileSource, error) {
 	return watch(path, defaultKeyReloadInterval, slog.Default())
 }
@@ -152,7 +156,7 @@ func (r *FileSource) pollLoop() {
 // loadStaticFromFile loads the keys.json envelope under path:
 // {active_key_id, active_private_key_pem, public_keys: {kid: pem}}.
 func loadStaticFromFile(path string) (*Static, error) {
-	data, err := readFileUnderDir(path, "keys.json")
+	data, err := keyfile.Read(path, "keys.json")
 	if err != nil {
 		return nil, fmt.Errorf("read keys.json under %s: %w", path, err)
 	}
@@ -175,7 +179,9 @@ func loadStaticFromFile(path string) (*Static, error) {
 // private-key PEM) plus verification-only public keys (kid to PEM, such as
 // retired keys kept in the JWKS during rotation). It performs no I/O. An
 // unparseable public key is an error: a verifier that silently drops a
-// rotation key would reject every token it signed.
+// rotation key would reject every token it signed. A public key under the
+// active kid must be the signer's own: JWKS would otherwise publish a key
+// that verifies none of its tokens.
 func StaticFromPEM(activeKeyID, activePrivateKeyPEM string, publicKeysPEM map[string]string) (Static, error) {
 	activeKeyID = strings.TrimSpace(activeKeyID)
 	activePrivateKeyPEM = strings.TrimSpace(activePrivateKeyPEM)
@@ -197,22 +203,14 @@ func StaticFromPEM(activeKeyID, activePrivateKeyPEM string, publicKeysPEM map[st
 		if err != nil {
 			return Static{}, fmt.Errorf("public key %q: %w", kid, err)
 		}
+		if kid == activeKeyID {
+			if own, ok := signer.Public().(interface{ Equal(crypto.PublicKey) bool }); !ok || !own.Equal(pub) {
+				return Static{}, fmt.Errorf("public key %q is not the active private key's", kid)
+			}
+			continue
+		}
 		publicKeys[kid] = pub
 	}
 
 	return Static{Active: signer, Public: publicKeys}, nil
-}
-
-// readFileUnderDir reads a single path segment under baseDir, rejecting traversal.
-func readFileUnderDir(baseDir, name string) ([]byte, error) {
-	cleanName := filepath.Clean(name)
-	if cleanName != name || cleanName == "." || cleanName == ".." || strings.Contains(cleanName, string(os.PathSeparator)) {
-		return nil, fmt.Errorf("invalid file name %q", name)
-	}
-	root, err := os.OpenRoot(baseDir)
-	if err != nil {
-		return nil, err
-	}
-	defer root.Close()
-	return root.ReadFile(cleanName)
 }

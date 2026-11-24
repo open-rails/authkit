@@ -27,6 +27,7 @@ import type {
   Availability,
   BackupCodes,
   Capabilities,
+  CodeChallenge,
   FreshAuth,
   EventPage,
   PersonalAccessToken,
@@ -1239,15 +1240,15 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         })
       }),
 
-    // Null: a code went to the identifier (202); confirmVerification
-    // finishes the registration.
+    // A CodeChallenge (202): a code went to the identifier, and
+    // confirmVerification with its challenge finishes the registration.
     register: async (input: {
       identifier: string
       username: string
       password: string
       inviteCode?: string
       agreements?: AgreementRef[]
-    }): Promise<SignInResult | null> => {
+    }): Promise<SignInResult | CodeChallenge> => {
       const gen = generation
       const { status, body } = await exchange("POST", "/register", {
         bearer: null,
@@ -1259,7 +1260,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           agreements: input.agreements?.length ? input.agreements : undefined,
         },
       })
-      return status === 200 ? signedIn(body, gen) : null
+      return status === 200 ? signedIn(body, gen) : (body as CodeChallenge)
     },
 
     // The server answers for the username only; email and phoneNumber are
@@ -1301,19 +1302,22 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       request<void>("POST", "/register/abandon", { body: input, bearer: null }),
 
     // Sends a code (or link) proving an address; never changes a contact.
+    // Its code is confirmed with the challenge it answers.
     requestVerification: (input: { identifier: string }) =>
-      request<void>("POST", "/verify/request", {
+      request<CodeChallenge>("POST", "/verify/request", {
         body: { identifier: input.identifier },
         bearer: null,
       }),
 
     // Null (204): a signed-in proof, the session unchanged. Otherwise the
-    // sign-in the proof finished (or its next step).
+    // sign-in the proof finished (or its next step). A code is checked
+    // against the challenge its start answered; identifier, when given, must
+    // be the address it went to.
     // A code for the address a password sign-in just parked on carries that
     // sign-in's password proof, so the account keeps its password.
     confirmVerification: async (
       input:
-        | { identifier: string; code: string }
+        | { challenge: string; code: string; identifier?: string }
         | { token: string; identifier?: string }
     ): Promise<SignInResult | null> => {
       const gen = generation
@@ -1332,12 +1336,13 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return status === 204 ? null : signedIn(body, gen)
     },
 
-    // Sends a code to the new address; confirmVerification switches it.
+    // Sends a code to the new address; confirmVerification with its
+    // challenge switches it.
     changeEmail: (email: string) =>
-      request<void>("PUT", "/me/email", { body: { email } }),
+      request<CodeChallenge>("PUT", "/me/email", { body: { email } }),
 
     changePhone: (phoneNumber: string) =>
-      request<void>("PUT", "/me/phone", {
+      request<CodeChallenge>("PUT", "/me/phone", {
         body: { phone_number: phoneNumber },
       }),
 
@@ -1855,6 +1860,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return status === 204 ? null : signedIn(body, gen)
     },
 
+    // Its code is confirmed with the challenge it answers.
     startPasswordless: (input: {
       identifier: string
       mode?: string
@@ -1862,7 +1868,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       preferredLanguage?: string
       inviteCode?: string
     }) =>
-      request<void>("POST", "/passwordless/start", {
+      request<CodeChallenge>("POST", "/passwordless/start", {
         bearer: null,
         body: {
           identifier: input.identifier,
@@ -1877,7 +1883,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     // the sign-up's agreements; the code stays good for that retry.
     confirmPasswordless: (
       input: (
-        | { identifier: string; code: string }
+        | { challenge: string; code: string; identifier?: string }
         | { token: string; identifier?: string }
       ) & { agreements?: AgreementRef[] }
     ) =>

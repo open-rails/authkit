@@ -189,8 +189,13 @@ export type ChannelCapabilities = {
   sms: boolean
 }
 
+export type CodeChallenge = {
+  challenge: string
+}
+
 export type CodeOrLinkRequest = {
   identifier?: string
+  challenge?: string
   code?: string
   token?: string
   agreements?: AgreementRef[]
@@ -1344,11 +1349,13 @@ export type VerificationCapabilities = {
 export type VerificationStep = {
   identifier: string
   channel: string
+  challenge: string
   password_proof: string | null
 }
 
 export type VerifyConfirmRequest = {
   identifier?: string
+  challenge?: string
   code?: string
   token?: string
   password_proof?: string
