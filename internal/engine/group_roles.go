@@ -234,7 +234,7 @@ func (s *Engine) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 		return nil, err
 	}
 	st := s.groupStore()
-	g, err := s.resolveGroup(ctx, st, ref)
+	g, err := s.viewGroup(ctx, st, ref)
 	if err != nil {
 		return nil, err
 	}

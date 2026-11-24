@@ -129,7 +129,8 @@ func (s *Engine) requireLiveOwner(ctx context.Context, st *permissionGroupStore,
 
 // DeleteGroup soft-deletes a group: it stops resolving and granting, while
 // its rows stay until PurgeGroup. Deleting a deleted group is a no-op; the
-// root group cannot be deleted.
+// root group cannot be deleted. In a tenant view, another tenant's group is
+// ErrGroupNotFound.
 func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.Option) error {
 	host, err := hostTx("DeleteGroup", opts)
 	if err != nil {
@@ -144,7 +145,7 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.
 		}
 		q := db.New(st.q)
 		group, err := q.PermissionGroupForUpdate(ctx, ref.ID())
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && !inView(ctx, groupTargetOf(group).Persona, groupTargetOf(group).TenantID) {
 			return iam.ErrGroupNotFound
 		}
 		if err != nil || group.DeletedAt != nil {
@@ -175,12 +176,14 @@ func (s *Engine) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.
 }
 
 // PurgeGroup permanently deletes a group, live or soft-deleted, with every
-// role, key and link in it. Purging an unknown group is a no-op.
+// role, key and link in it. Purging an unknown group is a no-op. In a tenant
+// view, another tenant's group is ErrGroupNotFound, and stays.
 func (s *Engine) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.Option) error {
 	host, err := hostTx("PurgeGroup", opts)
 	if err != nil {
 		return err
 	}
+	outside := false
 	err = s.withAuthorityMutationIn(ctx, iam.SystemIdentity(), host, func(st *permissionGroupStore) error {
 		if ref.IsRoot() {
 			return fmt.Errorf("the root group cannot be deleted: %w", iam.ErrUnknownGroupPersona)
@@ -188,9 +191,20 @@ func (s *Engine) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...ops.O
 		if !isUUID(ref.ID()) {
 			return iam.ErrGroupNotFound
 		}
-		return s.deleteGroupTx(ctx, st, strings.ToLower(ref.ID()))
+		gid := strings.ToLower(ref.ID())
+		if _, viewed := tenancy.View(ctx); viewed {
+			group, err := db.New(st.q).PermissionGroupForUpdate(ctx, gid)
+			if err == nil && !inView(ctx, groupTargetOf(group).Persona, groupTargetOf(group).TenantID) {
+				outside = true
+				return iam.ErrGroupNotFound
+			}
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+		}
+		return s.deleteGroupTx(ctx, st, gid)
 	})
-	if errors.Is(err, iam.ErrGroupNotFound) {
+	if errors.Is(err, iam.ErrGroupNotFound) && !outside {
 		return nil
 	}
 	return err

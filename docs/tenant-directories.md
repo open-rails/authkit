@@ -50,6 +50,8 @@ an existing tenant and returns a lightweight view that borrows the original
 engine, pools, keys and workers. Closing the view does not close the authority.
 Start and stop shared workers through their owning client.
 
+A view's group reads and lifecycle stay in its tenant: `Group`, `Groups`, `ListGroups`, `ListGroupMembers`, `ListMemberships`, `GroupRoles`, `ListGroupRoles`, `GroupRole`, `DeleteGroup` and `PurgeGroup` see only the tenant's groups and the root group. Another tenant's group is `iam.ErrGroupNotFound` (`PurgeGroup` included, so it is never mistaken for one already purged), or absent from a list, and is left untouched. The owning client still reads and removes every tenant's groups.
+
 Use an explicit `ForTenant` view for callbacks that resolve an account in a
 fixed target directory, such as an avatar owner or notification recipient.
 Pass that view's `UserInfo` rather than the owning client's method so an

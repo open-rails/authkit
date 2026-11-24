@@ -52,6 +52,16 @@ func (s *Engine) resolveGroup(ctx context.Context, st *permissionGroupStore, ref
 	return groupTargetOf(g), err
 }
 
+// viewGroup is resolveGroup for a host's group read: in a tenant view,
+// another tenant's group is ErrGroupNotFound.
+func (s *Engine) viewGroup(ctx context.Context, st *permissionGroupStore, ref iam.GroupRef) (groupTarget, error) {
+	g, err := s.resolveGroup(ctx, st, ref)
+	if err == nil && !inView(ctx, g.Persona, g.TenantID) {
+		return groupTarget{}, iam.ErrGroupNotFound
+	}
+	return g, err
+}
+
 func groupTargetOf(g db.PermissionGroup) groupTarget {
 	var tenant iam.TenantID
 	if g.TenantID != nil {
