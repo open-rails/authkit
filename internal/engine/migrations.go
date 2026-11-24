@@ -22,8 +22,15 @@ import (
 // already migrated passes unchanged: migrations this build does not know are
 // left as they are.
 type MigrationOptions struct {
-	// LegacyTenantID explicitly adopts an existing single directory into this
-	// canonical business tenant. It never invents a tenant or merges directories.
+	// Tenancy is the deployment's Config.Tenancy. Single-tenant, Migrate
+	// creates the one tenant a database without one needs (under
+	// LegacyTenantID, else a new ID), adopts the one a database holds, and
+	// refuses a database with more, or with another than LegacyTenantID.
+	Tenancy config.Tenancy
+	// LegacyTenantID names the tenant that adopts the accounts of a database
+	// from before tenants (AuthKit before v1.30). Multi-tenant such a
+	// database refuses to migrate without it; single-tenant a new ID is
+	// used. It never merges directories.
 	LegacyTenantID iam.TenantID
 	// Logger receives the migrators' logs. Nil is slog.Default().
 	Logger *slog.Logger
@@ -41,14 +48,18 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 		opts = options[0]
 	}
 	log := logx.Or(opts.Logger)
-	if !opts.LegacyTenantID.IsZero() {
+	legacy := opts.LegacyTenantID
+	if legacy.IsZero() && opts.Tenancy == config.TenancySingle {
+		legacy = iam.NewTenantID()
+	}
+	if !legacy.IsZero() {
 		// The migration setting belongs only to this owned handle. Never mutate
 		// the host pool or interpolate a configured ID into migration SQL.
 		cfg := pool.Config().Copy()
 		if cfg.ConnConfig.RuntimeParams == nil {
 			cfg.ConnConfig.RuntimeParams = map[string]string{}
 		}
-		cfg.ConnConfig.RuntimeParams["authkit.legacy_tenant_id"] = opts.LegacyTenantID.String()
+		cfg.ConnConfig.RuntimeParams["authkit.legacy_tenant_id"] = legacy.String()
 		owned, err := pgxpool.NewWithConfig(ctx, cfg)
 		if err != nil {
 			return fmt.Errorf("authkit: prepare tenant migration connection: %w", err)
@@ -83,6 +94,11 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 	// notifies its queue, so AuthKit's own fleet polls only as a backstop (#477).
 	if err := riverhelpers.ApplyMigrations(ctx, pool, riverhelpers.MigrationOptions{Schema: riverSchema, Logger: log}); err != nil {
 		return fmt.Errorf("authkit: migrate River: %w", err)
+	}
+	if opts.Tenancy == config.TenancySingle {
+		if _, err := soleTenant(ctx, log, pool, db, opts.LegacyTenantID, true); err != nil {
+			return err
+		}
 	}
 	return nil
 }

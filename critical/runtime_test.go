@@ -284,6 +284,56 @@ func TestCriticalRuntime(t *testing.T) {
 			t.Fatalf("AuthKit logged on slog.Default(): %q", got)
 		}
 	})
+	t.Run("AK-J01-C08_development_keys_sign_only_for_a_loopback_issuer", func(t *testing.T) {
+		f := newFixture(t)
+		deps := f.deps
+		deps.KeySource = nil
+		local := f.cfg
+		local.Token.Issuer, local.Frontend.BaseURL = "http://localhost:4780", ""
+		local.TwoFactor.TOTPSecretKey = nil
+
+		// A loopback issuer generates its keys into the configured directory
+		// (a Compose volume) and signs with them across restarts.
+		dir := filepath.Join(t.TempDir(), "vault", "auth")
+		local.Keys = authkit.KeysConfig{Path: dir}
+		var signed []byte
+		for range 2 {
+			client, err := authkit.New(t.Context(), local, deps)
+			noError(t, err)
+			token, err := client.MintAccessToken(t.Context(), authtest.NewUser(t, client).ID, iam.AccessTokenOptions{})
+			noError(t, err)
+			_, err = client.Verify(t.Context(), token.Value)
+			noError(t, err)
+			noError(t, client.Close(context.Background()))
+			keyFile, err := os.ReadFile(filepath.Join(dir, "keys.json"))
+			noError(t, err)
+			if signed != nil && string(signed) != string(keyFile) {
+				t.Fatal("a restart regenerated the development keys")
+			}
+			signed = keyFile
+		}
+
+		// The same directory under a real issuer refuses to boot.
+		production := f.cfg
+		production.Keys = authkit.KeysConfig{Path: dir}
+		production.TwoFactor.TOTPSecretKey = nil
+		startRefused(t, production, deps, "development keys cannot sign for "+production.Token.Issuer+": provision real keys")
+
+		// A real issuer never generates, and provisioned keys serve any issuer.
+		empty := t.TempDir()
+		production.Keys = authkit.KeysConfig{Path: empty}
+		startRefused(t, production, deps, "keys.json not found")
+		if entries, err := os.ReadDir(empty); err != nil || len(entries) != 0 {
+			t.Fatalf("a real issuer wrote keys: %v", err)
+		}
+		writeKeyFile(t, empty, "keys.json", keysJSON(t, "provisioned"), 0o600)
+		for _, cfg := range []authkit.Config{production, local} {
+			cfg.Keys = authkit.KeysConfig{Path: empty}
+			client, err := authkit.New(t.Context(), cfg, deps)
+			noError(t, err)
+			noError(t, client.Close(context.Background()))
+		}
+	})
 }
 
 // logRecords is a slog.Handler keeping every record's message.

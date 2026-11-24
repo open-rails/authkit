@@ -22,7 +22,7 @@ import (
 func TestCriticalSessionHistoryImport(t *testing.T) {
 	rdb := realRedis(t)
 	redisDep := authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb })
-	f := newFixture(t, redisDep)
+	f := newFixture(t, multiTenant, redisDep)
 	entry := func(userID, id string) iam.ImportSessionEvent {
 		return iam.ImportSessionEvent{UserID: userID, ID: id, Kind: iam.SessionEventCreated,
 			OccurredAt: time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond),
@@ -576,7 +576,7 @@ func TestCriticalSessions(t *testing.T) {
 		}
 	})
 	t.Run("AK-J05-C06_member_checks_read_account_and_session_once_per_call", func(t *testing.T) {
-		f, log := newTracedFixture(t)
+		f, log := newTracedFixture(t, multiTenant)
 		g, _, _ := f.ownedGroup(t)
 		refs := []iam.GroupRef{iam.RootGroup(), iam.GroupByID(f.tenant.String()), iam.GroupByID(g.ID)}
 		request := func(ctx context.Context, token string) *http.Request {

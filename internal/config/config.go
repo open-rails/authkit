@@ -6,6 +6,7 @@
 package config
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
@@ -16,10 +17,17 @@ import (
 // reaches outside the process (the pool, senders, keys, providers, hooks) is
 // in Deps. authkit.New normalizes it once.
 type Config struct {
-	// DefaultTenantID binds ordinary account operations and HTTP authentication
-	// when no explicit trusted tenant resolver/view is used. Zero leaves this
-	// deployment available for root provisioning, but does not select an account
-	// directory. Use the same canonical ID as ContentKit, never a derived ID.
+	// Tenancy is how many account directories (tenants) the deployment has.
+	// TenancySingle, the zero value, is one, which AuthKit creates or adopts
+	// and owns. TenancyMulti opts into CreateTenant and ForTenant over many.
+	// Set it in code: it has no YAML key.
+	Tenancy Tenancy `yaml:"-"`
+
+	// DefaultTenantID is the tenant ordinary account operations and HTTP
+	// authentication act in when no trusted tenant view or resolver selects
+	// one. Single-tenant it is optional and must name the sole tenant (a
+	// fresh database's is created under it); zero is the sole tenant.
+	// Multi-tenant, zero refuses such operations (iam.ErrTenantRequired).
 	DefaultTenantID iam.TenantID `yaml:"default_tenant_id"`
 
 	// Database names the PostgreSQL schemas AuthKit's and River's tables live
@@ -225,20 +233,38 @@ const (
 	DPoPRequired DPoPMode = "required"
 )
 
+// Tenancy is Config.Tenancy.
+type Tenancy uint8
+
+const (
+	// TenancySingle is one tenant, which Migrate creates in a fresh
+	// database or adopts when it holds exactly one. A database with more
+	// refuses to start; CreateTenant is iam.ErrSingleTenant.
+	TenancySingle Tenancy = iota
+	// TenancyMulti is any number of tenants, made with CreateTenant and
+	// selected with ForTenant or Deps.RequestTenant.
+	TenancyMulti
+)
+
+func (t Tenancy) String() string {
+	switch t {
+	case TenancySingle:
+		return "single"
+	case TenancyMulti:
+		return "multi"
+	}
+	return fmt.Sprintf("Tenancy(%d)", uint8(t))
+}
+
 // KeysConfig controls signing-key resolution when Deps.KeySource is nil.
-// Explicit paths are host-owned. Development-only default paths use the local
-// state directory (XDG_STATE_HOME, otherwise ~/.local/state).
 type KeysConfig struct {
 	// Path is the directory holding keys.json (hot-reloaded on rotation) and
-	// totp.key. Empty defaults to /vault/auth in production, or a stable
-	// per-issuer local state directory with AllowEphemeralDevKeys.
+	// totp.key. Empty is /vault/auth, or for a loopback Token.Issuer
+	// $XDG_STATE_HOME/authkit/development/<issuer SHA-256> (falling back to
+	// ~/.local/state). For a loopback issuer AuthKit generates whichever of
+	// the two is missing and reuses it across restarts, marked as development
+	// keys, which no other issuer loads. Any other issuer never generates.
 	Path string `yaml:"path"`
-	// AllowEphemeralDevKeys generates an RSA signing key when Path holds no
-	// keys.json, and a TOTP key when it holds no totp.key. Despite the legacy
-	// name, both keys are always persisted and reused across restarts. Empty
-	// Path uses $XDG_STATE_HOME/authkit/development/<issuer SHA-256>, falling
-	// back to ~/.local/state. Development only; never enabled automatically.
-	AllowEphemeralDevKeys bool `yaml:"allow_ephemeral_dev_keys"`
 	// VerifyOnly builds AuthKit with no signer: minting returns
 	// iam.ErrSigningNotConfigured, verification and permission reads work, and
 	// JWKS serves an empty set. Key resolution is skipped.

@@ -16,14 +16,14 @@ import (
 )
 
 func TestCriticalConfiguredGroups(t *testing.T) {
-	f := newFixture(t)
+	f := newFixture(t, multiTenant)
 	poolConfig := f.pool.Config().Copy()
 	poolConfig.MaxConns, poolConfig.MinConns = 1, 0
 	pool, err := pgxpool.NewWithConfig(t.Context(), poolConfig)
 	noError(t, err)
 	t.Cleanup(pool.Close)
 	// No issuer, HTTP, sender, signing key or running worker is supplied.
-	cfg := authkit.Config{Database: f.cfg.Database, Roles: f.roles, DefaultTenantID: f.tenant}
+	cfg := authkit.Config{Tenancy: authkit.TenancyMulti, Database: f.cfg.Database, Roles: f.roles, DefaultTenantID: f.tenant}
 	ensure := func(ctx context.Context, groups ...iam.NewGroup) ([]iam.Group, error) {
 		return authkit.EnsureGroups(ctx, pool, cfg, groups, nil)
 	}

@@ -34,25 +34,29 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if err != nil {
 		return nil, err
 	}
-	if norm.Keys, err = resolveDevelopmentKeys(norm.Keys, norm.Token.Issuer); err != nil {
-		return nil, err
-	}
-	// #232: the TOTP key is the explicit override or <Keys.Path>/totp.key;
-	// without either, TOTP is unavailable. The engine reads Config, so the
-	// resolved key is written back into it.
-	if norm.TwoFactor.TOTPSecretKey, err = resolveTOTPSecretKey(norm, log); err != nil {
-		return nil, err
-	}
-	src, owned, err := engineKeySource(norm.Keys, deps.KeySource, log)
+	dev, err := newDevelopmentKeys(norm.Keys, norm.Token.Issuer)
 	if err != nil {
 		return nil, err
 	}
+	norm.Keys.Path = dev.dir
+	signs := deps.KeySource != nil || !norm.Keys.VerifyOnly
+	// #232: the TOTP key is the explicit override or <Keys.Path>/totp.key;
+	// without either, TOTP is unavailable. The engine reads Config, so the
+	// resolved key is written back into it.
+	if norm.TwoFactor.TOTPSecretKey, err = resolveTOTPSecretKey(norm, signs, dev, log); err != nil {
+		return nil, err
+	}
+	src, owned, err := engineKeySource(norm.Keys, deps.KeySource, dev, log)
+	if err != nil {
+		return nil, err
+	}
+	dev.report(log)
 	s := &Engine{
 		log:               log,
 		cfg:               norm,
 		keys:              src,
 		ownedKeySource:    owned,
-		signs:             deps.KeySource != nil || !norm.Keys.VerifyOnly,
+		signs:             signs,
 		schema:            norm.Database.Schema,
 		groupSchema:       gs,
 		solanaSNSResolver: newDefaultSolanaSNSResolver(),
@@ -80,9 +84,21 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 				return nil, err
 			}
 		} else {
-			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{LegacyTenantID: norm.DefaultTenantID, Logger: log}); err != nil {
+			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{Tenancy: norm.Tenancy, LegacyTenantID: norm.DefaultTenantID, Logger: log}); err != nil {
 				return nil, err
 			}
+		}
+		// Single-tenant, the database's one tenant is the default: settings
+		// that name no tenant get it.
+		if norm.Tenancy == config.TenancySingle {
+			id, err := soleTenant(ctx, log, deps.Postgres, norm.Database, norm.DefaultTenantID, false)
+			if err != nil {
+				return nil, err
+			}
+			if err := config.BindDefaultTenant(&norm, id); err != nil {
+				return nil, err
+			}
+			s.cfg = norm
 		}
 	}
 	if norm.Notifications != nil {
@@ -111,7 +127,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if problem := s.secondFactorProblem(); problem != nil {
 		s.degrade(problem)
 	} else if s.signs && s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.cfg.TwoFactor.TOTPSecretKey) == 0 {
-		s.log.Warn("authkit: TOTP is offered but has no key, so it is unavailable", "path", filepath.Join(totpKeysDir(s.cfg), totpKeyFilename))
+		s.log.Warn("authkit: TOTP is offered but has no key, so it is unavailable", "path", filepath.Join(s.cfg.Keys.Path, totpKeyFilename))
 	}
 	if err := s.initRiver(ctx, deps.Postgres); err != nil {
 		return nil, err
@@ -178,25 +194,30 @@ func waitForPostgres(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool) 
 }
 
 // engineKeySource is the host's Deps.KeySource, or none (VerifyOnly), or
-// <Keys.Path>/keys.json. No environment variables are read (#231); with no
-// keys and no AllowEphemeralDevKeys opt-in, construction fails. The source is
-// read per operation, never snapshotted, so a hot-reloading file source is
-// observed for the engine's lifetime (#238). owned is closed with the engine.
-func engineKeySource(c config.KeysConfig, host keys.Source, log *slog.Logger) (_ keys.Source, owned *keys.FileSource, _ error) {
+// <Keys.Path>/keys.json. With no keys a loopback issuer generates development
+// keys and any other fails construction; development keys sign only for a
+// loopback issuer. The source is read per operation, never snapshotted, so a
+// hot-reloading file source is observed for the engine's lifetime (#238).
+// owned is closed with the engine.
+func engineKeySource(c config.KeysConfig, host keys.Source, dev *developmentKeys, log *slog.Logger) (_ keys.Source, owned *keys.FileSource, _ error) {
 	switch {
 	case host != nil:
+		if marked, ok := host.(interface{ Development() bool }); ok && marked.Development() {
+			if err := dev.refuse("Deps.KeySource"); err != nil {
+				return nil, nil, err
+			}
+		}
 		return host, nil, nil
 	case c.VerifyOnly:
 		// #87: no signer: minting returns ErrSigningNotConfigured, while
 		// verification, permission reads and the (empty) JWKS work.
 		return keys.Static{}, nil, nil
 	}
-	src, err := resolveKeySource(c.Path, c.AllowEphemeralDevKeys, log)
+	src, err := signingKeys(dev, log)
 	if err != nil {
-		return nil, nil, fmt.Errorf("authkit: failed to resolve JWT signing keys (set Keys.Path to a directory containing keys.json, provide Deps.KeySource, or — for development only — set Keys.AllowEphemeralDevKeys): %w", err)
+		return nil, nil, err
 	}
-	owned, _ = src.(*keys.FileSource)
-	return src, owned, nil
+	return src, src, nil
 }
 
 // Config is the normalized configuration the engine runs with.

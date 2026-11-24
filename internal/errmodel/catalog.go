@@ -150,6 +150,7 @@ var (
 	CodeSenderProofRequired             = def("sender_proof_required", 401, "The token requires sender proof.")
 	CodeServerBusy                      = def("server_busy", 503, "The server is busy. Try again in a moment.")
 	CodeSessionRevoked                  = def("session_revoked", 401, "Your session has ended. Please sign in again.")
+	CodeSingleTenant                    = def("single_tenant", 403, "This deployment has one tenant. More need multi-tenant mode.")
 	CodeSMSDeliveryFailed               = def("sms_delivery_failed", 502, "We couldn't deliver the text message. Please try again, or contact support.")
 	CodeSMSUnavailable                  = def("sms_unavailable", 503, "SMS is currently unavailable. Please use email instead.")
 	CodeStepUpRequired                  = def("step_up_required", 401, "Please confirm it's you to continue.")

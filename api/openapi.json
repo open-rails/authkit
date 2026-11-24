@@ -15116,6 +15116,10 @@
       "status": 401,
       "message": "Your session has ended. Please sign in again."
     },
+    "single_tenant": {
+      "status": 403,
+      "message": "This deployment has one tenant. More need multi-tenant mode."
+    },
     "sms_delivery_failed": {
       "status": 502,
       "message": "We couldn't deliver the text message. Please try again, or contact support."

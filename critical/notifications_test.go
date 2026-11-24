@@ -244,7 +244,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 	t.Run("AK-J34-C02_HTTP_receipts_are_private_and_producers_are_bound", func(t *testing.T) {
-		f, sink, role := notificationFixture(t)
+		f, sink, role := notificationFixture(t, multiTenant)
 		alice, bob := f.user(t), f.user(t)
 		m := notificationChange(alice.ID, "private:one", 1)
 		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
@@ -787,7 +787,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 	})
 
 	t.Run("AK-J34-C13_separate_instances_cannot_alias_another_tenants_inbox", func(t *testing.T) {
-		f, sink, _ := notificationFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+		f, sink, _ := notificationFixture(t, multiTenant, authtest.WithConfig(func(c *authkit.Config) {
 			c.Notifications.Scopes = map[string]string{c.DefaultTenantID.String(): "contentkit:accounts"}
 		}))
 		alice := f.user(t)

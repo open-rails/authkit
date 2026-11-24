@@ -20,6 +20,32 @@ func (q *Queries) AccountTenant(ctx context.Context, id string) (string, error) 
 	return tenant_id, err
 }
 
+const firstTwoTenants = `-- name: FirstTwoTenants :many
+SELECT id FROM tenants ORDER BY id LIMIT 2
+`
+
+// At most two tenants: enough to tell a single-tenant database's one tenant
+// from none and from several.
+func (q *Queries) FirstTwoTenants(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, firstTwoTenants)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertTenantSlugAlias = `-- name: InsertTenantSlugAlias :exec
 INSERT INTO tenant_slug_aliases(slug, tenant_id, expires_at)
 VALUES (

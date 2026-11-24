@@ -318,7 +318,7 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		if cl.TenantID.IsZero() {
 			cl.TenantID = c.DefaultTenantID
 		}
-		if slices.Contains(cl.Resources, scim.ID) && cl.TenantID.IsZero() {
+		if slices.Contains(cl.Resources, scim.ID) && cl.TenantID.IsZero() && !c.tenantPending() {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: SCIM client needs TenantID or DefaultTenantID", i)
 		}
 		if err := normalizeOAuthClient(&cl, a.Resources); err != nil {
@@ -550,6 +550,13 @@ func loopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// LoopbackURL reports whether raw is a URL on a loopback host (localhost,
+// 127.0.0.0/8, [::1]), as an http issuer must be: a local deployment.
+func LoopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && loopbackHost(u.Hostname())
 }
 
 // NormalizeClientURIs is the redirect URI rule for a client registered at

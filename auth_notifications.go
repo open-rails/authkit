@@ -128,19 +128,26 @@ func (a *Client) SetNotificationDismissed(ctx context.Context, userID, id string
 // MigrateNotifications explicitly prepares the optional inbox tables, even when
 // Database.SkipMigrations is true. Scope mappings preserve existing receipts in
 // place; they are deployment identity, not an instruction to merge account data.
-// It logs on log (nil is slog.Default()).
+// Run it after Migrate: producers that name no tenant use the default tenant,
+// single-tenant the database's one tenant. It logs on log (nil is
+// slog.Default()).
 func MigrateNotifications(ctx context.Context, pool *pgxpool.Pool, cfg Config, log *slog.Logger) error {
 	if cfg.Notifications == nil {
 		return nil
+	}
+	log = logx.Or(log)
+	tenant, err := engine.DefaultTenant(ctx, log, pool, cfg)
+	if err != nil {
+		return err
 	}
 	n := *cfg.Notifications
 	n.Producers = append([]NotificationProducer(nil), n.Producers...)
 	for i := range n.Producers {
 		if n.Producers[i].TenantID.IsZero() {
-			n.Producers[i].TenantID = cfg.DefaultTenantID
+			n.Producers[i].TenantID = tenant
 		}
 	}
-	return engine.MigrateNotifications(ctx, logx.Or(log), pool, cfg.Database, &n, cfg.DefaultTenantID)
+	return engine.MigrateNotifications(ctx, log, pool, cfg.Database, &n, tenant)
 }
 
 // NotificationAdoption maps exact legacy receipt origins to one current issue.

@@ -521,7 +521,7 @@ func checkNativeCallbackTenants(t *testing.T) {
 	}))
 	t.Cleanup(front.Close)
 	var persona iam.Persona
-	f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+	f := newFixture(t, multiTenant, authtest.WithConfig(func(c *authkit.Config) {
 		c.Token.Issuer = front.URL
 		persona = c.Roles.Persona("callbackshop", authkit.OAuthClients).Persona
 	}), authtest.WithDeps(func(d *authkit.Deps) {

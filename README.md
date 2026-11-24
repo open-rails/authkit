@@ -42,13 +42,8 @@ import (
 )
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
-	tenantID, err := iam.ParseTenantID(os.Getenv("TENANT_ID")) // persist this business UUID in configuration
-	if err != nil {
-		return nil, err
-	}
 	cfg := authkit.Config{
-		DefaultTenantID: tenantID,
-		Database:        authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
+		Database: authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
 		// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
 		Token: authkit.TokenConfig{
 			Issuer:          "https://myapp.com", // who issued this; that's you!

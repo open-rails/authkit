@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/keys"
@@ -20,46 +19,44 @@ import (
 // defaultKeysPath is where External Secrets mounts keys.json by default.
 const defaultKeysPath = "/vault/auth"
 
-// resolveKeySource resolves the signing keys when the host passes no source:
-// <path>/keys.json (default /vault/auth), served through a hot-reloading
-// keys.Watch source; else, with allowDevKeys only, atomically generates a
-// persistent RSA key. New resolves the per-issuer development path first.
-func resolveKeySource(path string, allowDevKeys bool, log *slog.Logger) (keys.Source, error) {
-	path = strings.TrimSpace(path)
-	if path == "" && allowDevKeys {
-		return nil, errors.New("development key directory must be resolved for the issuer")
-	}
-	dir := path
-	if dir == "" {
-		dir = defaultKeysPath
-	}
-	if _, err := os.Stat(filepath.Join(dir, "keys.json")); err == nil {
-		src, err := keys.Watch(dir, log)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load keys from %s: %w", dir, err)
+// signingKeys serves <dir>/keys.json through a hot-reloading keys.Watch
+// source. A loopback issuer without one generates a development key first.
+func signingKeys(dev *developmentKeys, log *slog.Logger) (*keys.FileSource, error) {
+	path := filepath.Join(dev.dir, "keys.json")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if !dev.local {
+			return nil, fmt.Errorf("authkit: no JWT signing keys: %s not found; mount keys.json or provide Deps.KeySource", path)
 		}
-		return src, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("read signing key directory %s: %w", dir, err)
+		data, err := developmentKeysJSON()
+		if err != nil {
+			return nil, err
+		}
+		if err := dev.generate("keys.json", data); err != nil {
+			return nil, err
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("authkit: read signing key directory %s: %w", dev.dir, err)
 	}
-	if !allowDevKeys {
-		return nil, fmt.Errorf("no JWT signing keys: %s/keys.json not found and ephemeral dev keys are not enabled; mount keys.json, provide an explicit KeySource, or opt in with AllowEphemeralDevKeys for local development", dir)
+	src, err := keys.Watch(dev.dir, log)
+	if err != nil {
+		return nil, fmt.Errorf("authkit: load JWT signing keys from %s: %w", dev.dir, err)
 	}
+	if err := dev.admit("keys.json", src.Development()); err != nil {
+		src.Close()
+		return nil, err
+	}
+	return src, nil
+}
+
+func developmentKeysJSON() ([]byte, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate development keys: %w", err)
+		return nil, fmt.Errorf("authkit: generate development signing key: %w", err)
 	}
-	kid := fmt.Sprintf("dev-%d", time.Now().Unix())
-	data, err := json.Marshal(map[string]any{
-		"active_key_id":          kid,
+	return json.Marshal(map[string]any{
+		"development":            true,
+		"active_key_id":          fmt.Sprintf("dev-%d", time.Now().Unix()),
 		"active_private_key_pem": string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
 		"public_keys":            map[string]string{},
 	})
-	if err != nil {
-		return nil, err
-	}
-	if err := createDevelopmentKey(filepath.Join(path, "keys.json"), data); err != nil {
-		return nil, fmt.Errorf("persist dev keys under %s: %w", path, err)
-	}
-	return keys.Watch(path, log)
 }
