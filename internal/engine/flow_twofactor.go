@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
@@ -567,7 +568,7 @@ func (s *Engine) verifyBackupCode(ctx context.Context, q *db.Queries, userID, ba
 	// former read-filter-rewrite, which let two concurrent submissions of the same
 	// code both succeed. Recovery rows are removed with the account's final
 	// code factor/passkey, so a detached code set never becomes a credential.
-	hash := secret.Hash(backupCode)
+	hash := secret.Hash(normalizeBackupCode(backupCode))
 	rows, err := q.MFAConsumeBackupCode(ctx, db.MFAConsumeBackupCodeParams{CodeHash: hash, UserID: userID})
 	if err != nil {
 		return false, err
@@ -627,13 +628,30 @@ func twoFactorFactorFromFields(row db.MfaFactor) authflow.MFAFactor {
 // I and O.
 const backupCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
+// backupCodeLen symbols of the 32-symbol alphabet carry 80 bits, beyond an
+// offline search of their unsalted digests.
+const backupCodeLen = 16
+
+// generateBackupCodes shows each code in groups of four; the digest is of
+// its symbols alone.
 func generateBackupCodes() (plaintextCodes, hashedCodes []string) {
 	plaintextCodes = make([]string, 10)
 	hashedCodes = make([]string, 10)
 	for i := 0; i < 10; i++ {
-		code := secret.Code(8, backupCodeAlphabet)
-		plaintextCodes[i] = code
+		code := secret.Code(backupCodeLen, backupCodeAlphabet)
+		plaintextCodes[i] = code[:4] + "-" + code[4:8] + "-" + code[8:12] + "-" + code[12:]
 		hashedCodes[i] = secret.Hash(code)
 	}
 	return plaintextCodes, hashedCodes
+}
+
+// normalizeBackupCode drops separators and case, so a code typed as shown,
+// or without its dashes, finds its digest.
+func normalizeBackupCode(code string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '-' || unicode.IsSpace(r) {
+			return -1
+		}
+		return unicode.ToUpper(r)
+	}, code)
 }
