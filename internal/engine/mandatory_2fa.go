@@ -168,19 +168,29 @@ func (s *Engine) assignedRoleRequiresMFA(persona iam.Persona, role iam.Role, cus
 }
 
 func (s *Engine) requireMFAForRoleAssignment(ctx context.Context, q db.DBTX, gid string, persona iam.Persona, subject iam.Subject, role iam.Role) error {
+	// An application can never enroll a second factor.
+	noMFA := ""
+	if subject.Kind != iam.SubjectKindUser {
+		noMFA = "an application"
+	}
+	return s.requireMFAHolder(ctx, q, groupTarget{ID: gid, Persona: persona}, role, noMFA)
+}
+
+// requireMFAHolder refuses a role that requires MFA for a holder that cannot
+// enroll a second factor here, named by noMFA ("" for a native account).
+func (s *Engine) requireMFAHolder(ctx context.Context, q db.DBTX, g groupTarget, role iam.Role, noMFA string) error {
 	// #148/root-owner-MFA: RequiresMFA is inert when the deployment has no usable
 	// 2FA (Mode == Disabled) — a fresh deployment must still be able to seed/assign
 	// its root owner. Mirrors requireSessionMFAState's gate.
 	if !s.TwoFactorEnabled() {
 		return nil
 	}
-	needs, err := s.roleRequiresMFA(ctx, q, groupTarget{ID: gid, Persona: persona}, role)
+	needs, err := s.roleRequiresMFA(ctx, q, g, role)
 	if err != nil || !needs {
 		return err
 	}
-	// An application can never enroll a second factor.
-	if subject.Kind != iam.SubjectKindUser {
-		return fmt.Errorf("role %q requires MFA, which an application cannot hold: %w", role, iam.ErrRoleNotAssignable)
+	if noMFA != "" {
+		return fmt.Errorf("role %q requires MFA, which %s cannot hold: %w", role, noMFA, iam.ErrRoleNotAssignable)
 	}
 	// Assign the human's role now. Authentication and live authorization
 	// enforce enrollment before its permissions can be used.

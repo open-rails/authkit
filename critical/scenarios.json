@@ -82,6 +82,7 @@
   "AK-J15-C05": "group create/list/delete/purge and persona migration",
   "AK-J15-C06": "host transaction rollback and IfRole precondition",
   "AK-J15-C07": "Can/CanDirect and missing optional capability",
+  "AK-J15-C08": "remote invitation acceptance refuses another catalog's invitation, a role that would demote, and disabled invitations, as native redemption does",
   "AK-J16-C01": "issue/list/use/revoke/expire",
   "AK-J16-C02": "wrong group/application/tenant",
   "AK-J16-C03": "grant above issuer ceiling refused",
