@@ -19,17 +19,17 @@ func preferredLanguageFromRequest(r *http.Request) string { return lang.Request(
 // authkit.Register (ak#318).
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
-		registrationDisabled(w)
+		s.registrationDisabled(w)
 		return
 	}
 	var req RegisterRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || strings.TrimSpace(req.Username) == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	out, err := s.svc.Register(r.Context(), authflow.RegisterInput{
@@ -38,7 +38,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		Agreements: req.Agreements, UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	if out.Kind != authflow.RegisterSignedIn {
@@ -57,17 +57,17 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 // so the endpoint never reveals whether a given identifier is mid-signup.
 func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r *http.Request) {
 	if s.publicRegistrationDisabled() {
-		registrationDisabled(w)
+		s.registrationDisabled(w)
 		return
 	}
 	var req IdentifierPasswordRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" || req.Password == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLRegisterAbandon, identifier) {
@@ -81,7 +81,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 		if s.svc.VerifyPendingPhonePassword(r.Context(), phone, req.Password) {
 			if err := s.svc.DeletePendingPhoneRegistrationByPhone(r.Context(), phone); err != nil {
 				s.logInternalError(r, "register_abandon", "delete_pending_phone_registration", "abandon_failed", err)
-				serverErr(w, "abandon_failed", nil)
+				s.serverErr(w, "abandon_failed", nil)
 				return
 			}
 		}
@@ -93,7 +93,7 @@ func (s *Service) handlePendingRegistrationAbandonPOST(w http.ResponseWriter, r 
 	if s.svc.VerifyPendingPassword(r.Context(), email, req.Password) {
 		if err := s.svc.DeletePendingRegistrationByEmail(r.Context(), email); err != nil {
 			s.logInternalError(r, "register_abandon", "delete_pending_registration", "abandon_failed", err)
-			serverErr(w, "abandon_failed", nil)
+			s.serverErr(w, "abandon_failed", nil)
 			return
 		}
 	}

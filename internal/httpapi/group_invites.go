@@ -24,26 +24,26 @@ import (
 func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	var body InvitationCreateRequest
 	if err := decodeJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	n := iam.NewInvitation{ExpiresAt: body.ExpiresAt}
 	if text := strings.TrimSpace(body.Role); text != "" {
 		role, err := s.groupRole(g.Persona, text)
 		if err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		n.Role = role
 	}
 	if strings.TrimSpace(body.Email) == "" {
 		if n.Role.IsZero() {
-			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("role"))
+			s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("role"))
 			return
 		}
 		created, err := s.svc.CreateInvitation(r.Context(), who, iam.GroupByID(g.ID), n)
 		if err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, created)
@@ -51,14 +51,14 @@ func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, 
 	}
 	n.Email = contact.NormalizeEmail(body.Email)
 	if err := contact.ValidateEmail(n.Email); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLInviteCreate, n.Email) {
 		return
 	}
 	if _, err := s.svc.CreateInvitation(r.Context(), who, iam.GroupByID(g.ID), n); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	accepted(w)
@@ -67,13 +67,13 @@ func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, 
 // groupInvitationsList lists the group's links and email invitations,
 // newest first (?cursor=, ?limit=), never their codes.
 func (s *Service) groupInvitationsList(w http.ResponseWriter, r *http.Request, g iam.Group) {
-	p, ok := readPage(w, r)
+	p, ok := s.readPage(w, r)
 	if !ok {
 		return
 	}
 	page, err := s.svc.ListInvitations(r.Context(), iam.GroupByID(g.ID), p)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	list(w, page)
@@ -83,7 +83,7 @@ func (s *Service) groupInvitationsList(w http.ResponseWriter, r *http.Request, g
 // redeemed or unknown one answers 204 too.
 func (s *Service) groupInvitationRevoke(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity, id string) {
 	if err := s.svc.RevokeInvitation(r.Context(), who, iam.GroupByID(g.ID), id); err != nil && !errors.Is(err, iam.ErrInvitationNotFound) {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -95,22 +95,22 @@ func (s *Service) groupInvitationRevoke(w http.ResponseWriter, r *http.Request, 
 func (s *Service) handleInvitationRedeemPOST(w http.ResponseWriter, r *http.Request) {
 	who, ok := verify.IdentityFromContext(r.Context())
 	if !ok || !state(who).IsUser() {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body InvitationRedeemRequest
 	if err := decodeJSON(r, &body); err != nil || strings.TrimSpace(body.Code) == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	res, err := s.svc.RedeemInvitation(r.Context(), who, strings.TrimSpace(body.Code))
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	g, err := s.svc.Group(r.Context(), iam.GroupByID(res.GroupID))
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, iam.Membership{Group: g, Role: res.Role})

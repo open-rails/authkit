@@ -12,12 +12,12 @@ import (
 
 func (s *Service) handleEventsGET(w http.ResponseWriter, r *http.Request) {
 	var query EventQuery
-	if !readQuery(w, r, &query) {
+	if !s.readQuery(w, r, &query) {
 		return
 	}
 	who, ok := verify.IdentityFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	// The log exposes the same private account facts as the user directory.
@@ -33,18 +33,18 @@ func (s *Service) handleEventsGET(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	if !allowed {
-		fail(w, errmodel.CodeForbidden)
+		s.fail(w, errmodel.CodeForbidden)
 		return
 	}
 	q := iam.EventQuery{After: query.After, Authority: query.Authority, Types: query.Types}
 	if query.Limit != nil {
 		q.Limit = *query.Limit
 		if q.Limit == 0 {
-			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("limit"))
+			s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("limit"))
 			return
 		}
 	}
@@ -55,7 +55,7 @@ func (s *Service) handleEventsGET(w http.ResponseWriter, r *http.Request) {
 	}
 	page, err := s.svc.ListEvents(r.Context(), q)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)

@@ -21,12 +21,12 @@ const maxPublicUserIDs = 100
 // too; no one is an empty page). Exactly one of the two.
 func (s *Service) handleUsersGET(w http.ResponseWriter, r *http.Request) {
 	var q UsersQuery
-	if !readQuery(w, r, &q) {
+	if !s.readQuery(w, r, &q) {
 		return
 	}
 	switch {
 	case (q.IDs == "") == (q.Username == ""):
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 	case q.Username != "":
 		s.publicUserByName(w, r, q.Username)
 	default:
@@ -40,7 +40,7 @@ func (s *Service) publicUsersByID(w http.ResponseWriter, r *http.Request, text s
 	for _, id := range strings.Split(text, ",") {
 		id = strings.TrimSpace(id)
 		if id == "" {
-			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("ids"))
+			s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("ids"))
 			return
 		}
 		if u, err := uuid.Parse(id); err == nil {
@@ -52,12 +52,12 @@ func (s *Service) publicUsersByID(w http.ResponseWriter, r *http.Request, text s
 		}
 	}
 	if len(ids) > maxPublicUserIDs {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("ids"))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("ids"))
 		return
 	}
 	found, err := s.svc.PublicUsers(r.Context(), ids)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	out := make([]iam.PublicUser, 0, len(found))
@@ -76,7 +76,7 @@ func (s *Service) publicUserByName(w http.ResponseWriter, r *http.Request, name 
 		return
 	}
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	s.publicUsersByID(w, r, res.ID)

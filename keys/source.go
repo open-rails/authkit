@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/internal/keyfile"
+	"github.com/open-rails/authkit/internal/logx"
 )
 
 // defaultKeyReloadInterval is how often a FileSource re-stats keys.json:
@@ -59,16 +60,16 @@ type FileSource struct {
 // active_private_key_pem, public_keys: {kid: pem}}, and re-reads it every
 // 10s when it changed. It errors when path holds no valid keys.json, or one
 // that is group- or world-writable. Close stops the watch; reloads are logged
-// on slog.Default.
-func Watch(path string) (*FileSource, error) {
-	return watch(path, defaultKeyReloadInterval, slog.Default())
+// on log (nil is slog.Default()).
+func Watch(path string, log *slog.Logger) (*FileSource, error) {
+	return watch(path, defaultKeyReloadInterval, logx.Or(log))
 }
 
 func watch(path string, interval time.Duration, log *slog.Logger) (*FileSource, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("key directory required")
 	}
-	static, err := loadStaticFromFile(path)
+	static, err := loadStaticFromFile(log, path)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +103,7 @@ func (r *FileSource) keyFileModTime() (time.Time, error) {
 func (r *FileSource) Reload() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	static, err := loadStaticFromFile(r.path)
+	static, err := loadStaticFromFile(r.log, r.path)
 	if err != nil {
 		return err
 	}
@@ -155,8 +156,8 @@ func (r *FileSource) pollLoop() {
 
 // loadStaticFromFile loads the keys.json envelope under path:
 // {active_key_id, active_private_key_pem, public_keys: {kid: pem}}.
-func loadStaticFromFile(path string) (*Static, error) {
-	data, err := keyfile.Read(path, "keys.json")
+func loadStaticFromFile(log *slog.Logger, path string) (*Static, error) {
+	data, err := keyfile.Read(log, path, "keys.json")
 	if err != nil {
 		return nil, fmt.Errorf("read keys.json under %s: %w", path, err)
 	}

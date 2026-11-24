@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -19,13 +18,13 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
 
-// riverConfig configures a River client AuthKit owns. It logs through the
-// slog default, like the rest of AuthKit, instead of River's stdout logger.
 // riverFetchBackstop is how long a job AuthKit's own fleet missed the notification of can wait.
 const riverFetchBackstop = 10 * time.Second
 
-func riverConfig(schema string) *river.Config {
-	return &river.Config{Schema: schema, Logger: slog.Default()}
+// riverConfig configures a River client AuthKit owns, logging through
+// Deps.Logger instead of River's stdout logger.
+func (s *Engine) riverConfig(schema string) *river.Config {
+	return &river.Config{Schema: schema, Logger: s.log}
 }
 
 // maintenanceQueue preserves existing readable names where River accepts them.
@@ -73,7 +72,7 @@ func (s *Engine) initRiver(ctx context.Context, host *pgxpool.Pool) error {
 	if s.pg == nil {
 		return nil
 	}
-	producer, err := river.NewClient(riverpgxv5.New(s.pg), riverConfig(s.cfg.Database.RiverSchema))
+	producer, err := river.NewClient(riverpgxv5.New(s.pg), s.riverConfig(s.cfg.Database.RiverSchema))
 	if err != nil {
 		return fmt.Errorf("authkit: construct River producer: %w", err)
 	}
@@ -278,7 +277,7 @@ func (s *Engine) startOwnRiver(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	cfg := riverConfig(s.cfg.Database.RiverSchema)
+	cfg := s.riverConfig(s.cfg.Database.RiverSchema)
 	// Migrate's trigger notifies every insert; the poll only backstops a dropped LISTEN (#477).
 	cfg.FetchPollInterval = riverFetchBackstop
 	client, err := riverhelpers.New(ctx, pool, cfg, s.RiverJobs())

@@ -13,12 +13,12 @@ import (
 // taken one answers like a fresh one), so those parameters are ignored.
 func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.Request) {
 	var q AvailabilityQuery
-	if !readQuery(w, r, &q) {
+	if !s.readQuery(w, r, &q) {
 		return
 	}
 	username := q.Username
 	if username == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 
@@ -34,7 +34,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 		if code == "" {
 			// Not a validation error — an internal failure.
 			s.logInternalError(r, "register_availability", "username", "database_error", err)
-			serverErr(w, "database_error", nil)
+			s.serverErr(w, "database_error", nil)
 			return
 		}
 		resp.Username = unavailable(code.String())
@@ -45,7 +45,7 @@ func (s *Service) handleRegisterAvailabilityGET(w http.ResponseWriter, r *http.R
 	_, usernameTaken, err := s.svc.CheckPendingRegistrationConflict(r.Context(), "", strings.TrimSpace(username))
 	if err != nil {
 		s.logInternalError(r, "register_availability", "username", "database_error", err)
-		serverErr(w, "database_error", nil)
+		s.serverErr(w, "database_error", nil)
 		return
 	}
 	if usernameTaken {

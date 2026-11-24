@@ -16,10 +16,10 @@ import (
 // failure is logged with its op and cause; the wire only ever says
 // internal_error. server_busy is load shedding, not a failure (ak#417), and
 // verification_unavailable is a sender outage the engine already logged.
-func writeError(w http.ResponseWriter, err error) {
+func (s *Service) writeError(w http.ResponseWriter, err error) {
 	e := errmodel.Wire(err)
 	if e.Status() >= 500 && e.Code() != string(errmodel.CodeServerBusy) && e.Code() != string(errmodel.CodeVerificationUnavailable) {
-		slog.Default().Error("authkit: request failed", slog.Int("status", e.Status()), slog.String("error", errorString(err)))
+		s.log.Error("authkit: request failed", slog.Int("status", e.Status()), slog.String("error", errorString(err)))
 	}
 	if seconds, ok := e.Metadata()["retry_after_seconds"].(int64); ok && seconds > 0 && w.Header().Get("Retry-After") == "" {
 		w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
@@ -28,13 +28,13 @@ func writeError(w http.ResponseWriter, err error) {
 }
 
 // fail writes code with its catalog status.
-func fail(w http.ResponseWriter, code errmodel.Code, opts ...errmodel.Option) {
-	writeError(w, errmodel.E(code, opts...))
+func (s *Service) fail(w http.ResponseWriter, code errmodel.Code, opts ...errmodel.Option) {
+	s.writeError(w, errmodel.E(code, opts...))
 }
 
 // serverErr writes 500 internal_error; op names the failed operation in the log.
-func serverErr(w http.ResponseWriter, op string, cause error) {
-	writeError(w, errmodel.Internal(op, cause))
+func (s *Service) serverErr(w http.ResponseWriter, op string, cause error) {
+	s.writeError(w, errmodel.Internal(op, cause))
 }
 
 func errorString(err error) string {
@@ -76,11 +76,13 @@ func codeRejection(err error) errmodel.Code {
 
 // registrationDisabled writes the stable registration-disabled rejection used by
 // every public user-creation path when NativeUserRegistrationMode is set.
-func registrationDisabled(w http.ResponseWriter) { fail(w, errmodel.CodeRegistrationDisabled) }
+func (s *Service) registrationDisabled(w http.ResponseWriter) {
+	s.fail(w, errmodel.CodeRegistrationDisabled)
+}
 
 // tooMany is the rate_limited refusal: Retry-After, the RateLimit-* headers,
 // and the budget as metadata.
-func tooMany(w http.ResponseWriter, availability authflow.ActionAvailability) {
+func (s *Service) tooMany(w http.ResponseWriter, availability authflow.ActionAvailability) {
 	if availability.RetryAfterSeconds > 0 {
 		seconds := int(availability.RetryAfterSeconds)
 		w.Header().Set("Retry-After", strconv.Itoa(seconds))
@@ -92,7 +94,7 @@ func tooMany(w http.ResponseWriter, availability authflow.ActionAvailability) {
 	if availability.Remaining != nil {
 		w.Header().Set("RateLimit-Remaining", strconv.Itoa(*availability.Remaining))
 	}
-	fail(w, errmodel.CodeRateLimited, errmodel.WithDetails(availability))
+	s.fail(w, errmodel.CodeRateLimited, errmodel.WithDetails(availability))
 }
 
 // noContent is the ack for a mutation with nothing to return (#313).

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -115,7 +114,7 @@ func (s *Engine) declareRemoteApplications(ctx context.Context, host pgx.Tx, ref
 			disabled = append(disabled, app.Issuer)
 			err := s.refuseSubjectOwnerLoss(ctx, st, iam.RemoteApplicationSubject(app.ID))
 			if errors.Is(err, iam.ErrLastOwner) {
-				slog.WarnContext(ctx, "authkit: disabling an undeclared remote application leaves a group without a usable owner; assign one (ListGroups with GroupQuery.Ownerless lists them)", "issuer", app.Issuer)
+				s.log.WarnContext(ctx, "authkit: disabling an undeclared remote application leaves a group without a usable owner; assign one (ListGroups with GroupQuery.Ownerless lists them)", "issuer", app.Issuer)
 			} else if err != nil {
 				return err
 			}
@@ -127,7 +126,7 @@ func (s *Engine) declareRemoteApplications(ctx context.Context, host pgx.Tx, ref
 			s.degrade(problem)
 		}
 		for _, issuer := range disabled {
-			slog.InfoContext(ctx, "authkit: disabled a remote application "+source+" no longer declares", "issuer", issuer)
+			s.log.InfoContext(ctx, "authkit: disabled a remote application "+source+" no longer declares", "issuer", issuer)
 		}
 	}
 	return err

@@ -18,17 +18,17 @@ import (
 func (s *Service) handleDeviceVerificationSendPOST(w http.ResponseWriter, r *http.Request) {
 	var req DeviceVerificationSendRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	userID, challenge := strings.TrimSpace(req.UserID), strings.TrimSpace(req.Challenge)
 	channel := strings.ToLower(strings.TrimSpace(req.Channel))
 	if userID == "" || challenge == "" {
-		fail(w, errmodel.CodeMissingFields)
+		s.fail(w, errmodel.CodeMissingFields)
 		return
 	}
 	if channel != "" && channel != "email" && channel != "sms" {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("channel"))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("channel"))
 		return
 	}
 	// Keyed by the proof, like the confirm route; the engine also caps the
@@ -38,7 +38,7 @@ func (s *Service) handleDeviceVerificationSendPOST(w http.ResponseWriter, r *htt
 	}
 	ch, err := s.svc.SendDeviceVerification(r.Context(), userID, challenge, channel)
 	if err != nil {
-		writeError(w, deviceChallengeError(err))
+		s.writeError(w, deviceChallengeError(err))
 		return
 	}
 	writeAuthResult(w, AuthResult{Status: AuthDeviceVerificationRequired, DeviceVerification: deviceVerificationStep(userID, ch)})
@@ -47,12 +47,12 @@ func (s *Service) handleDeviceVerificationSendPOST(w http.ResponseWriter, r *htt
 func (s *Service) handleDeviceVerificationConfirmPOST(w http.ResponseWriter, r *http.Request) {
 	var req DeviceVerificationConfirmRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	userID, challenge, code := strings.TrimSpace(req.UserID), strings.TrimSpace(req.Challenge), strings.TrimSpace(req.Code)
 	if userID == "" || challenge == "" || code == "" {
-		fail(w, errmodel.CodeMissingFields)
+		s.fail(w, errmodel.CodeMissingFields)
 		return
 	}
 	// Keyed by the proof, like /2fa/verify: a stranger who knows only the
@@ -66,9 +66,9 @@ func (s *Service) handleDeviceVerificationConfirmPOST(w http.ResponseWriter, r *
 		s.writeAuthResult(w, r, out, authExtras{})
 	case errors.Is(err, errmodel.ErrInvalidCode), errors.Is(err, errmodel.ErrCodeExpired):
 		logLoginFailed(s, r, userID, "invalid_device_code")
-		fail(w, codeRejection(err))
+		s.fail(w, codeRejection(err))
 	default:
-		writeError(w, deviceChallengeError(err))
+		s.writeError(w, deviceChallengeError(err))
 	}
 }
 

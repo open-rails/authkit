@@ -10,13 +10,13 @@ import (
 // handleAdminUserSessionEventsGET pages an account's session history, newest
 // first (?kind= repeatable, every kind when absent; ?cursor=, ?limit=).
 func (s *Service) handleAdminUserSessionEventsGET(w http.ResponseWriter, r *http.Request) {
-	q, ok := readSessionEventQuery(w, r)
+	q, ok := s.readSessionEventQuery(w, r)
 	if !ok {
 		return
 	}
 	page, err := s.svc.ListSessionEvents(r.Context(), r.PathValue("user_id"), q)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	list(w, page)
@@ -24,14 +24,14 @@ func (s *Service) handleAdminUserSessionEventsGET(w http.ResponseWriter, r *http
 
 // readSessionEventQuery reads a session history's query: an unknown kind is
 // 400 on param kind.
-func readSessionEventQuery(w http.ResponseWriter, r *http.Request) (iam.SessionEventQuery, bool) {
+func (s *Service) readSessionEventQuery(w http.ResponseWriter, r *http.Request) (iam.SessionEventQuery, bool) {
 	var query SessionEventQuery
-	if !readQuery(w, r, &query) {
+	if !s.readQuery(w, r, &query) {
 		return iam.SessionEventQuery{}, false
 	}
 	page, err := query.Page()
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return iam.SessionEventQuery{}, false
 	}
 	q := iam.SessionEventQuery{Page: page}
@@ -41,7 +41,7 @@ func readSessionEventQuery(w http.ResponseWriter, r *http.Request) (iam.SessionE
 			iam.SessionEventPasswordRecovery, iam.SessionEventAccountSessionsRevoked:
 			q.Kinds = append(q.Kinds, kind)
 		default:
-			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("kind"))
+			s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("kind"))
 			return iam.SessionEventQuery{}, false
 		}
 	}

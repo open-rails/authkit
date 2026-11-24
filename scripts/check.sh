@@ -37,6 +37,7 @@ if [[ "$mode" == all || "$mode" == workflows ]]; then
 fi
 
 if [[ "$mode" != workflows ]]; then
+  scripts/check-logging.sh
   go vet ./...
   # auth-ui's e2e server builds AuthKit from this checkout: its module must
   # follow the root's requirements.

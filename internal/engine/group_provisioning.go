@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 
 // EnsureGroups borrows the normal group lifecycle implementation without
 // constructing a signing/authentication runtime. It never assigns an owner.
-func EnsureGroups(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, groups []iam.NewGroup) ([]iam.Group, error) {
+func EnsureGroups(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, cfg config.Config, groups []iam.NewGroup) ([]iam.Group, error) {
 	if ctx == nil || pool == nil {
 		return nil, errors.New("authkit: EnsureGroups needs a context and PostgreSQL pool")
 	}
@@ -54,7 +55,7 @@ func EnsureGroups(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, gr
 	if len(input) == 0 {
 		return []iam.Group{}, nil
 	}
-	if err := validateMigrations(ctx, pool, cfg.Database); err != nil {
+	if err := validateMigrations(ctx, log, pool, cfg.Database); err != nil {
 		return nil, err
 	}
 	owned, err := schemaPool(pool, schema, func(c *pgxpool.Config) {
@@ -66,7 +67,7 @@ func EnsureGroups(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, gr
 	defer owned.Close()
 	// Only these fields are used by ownerless CreateGroup and its event log.
 	// Do not normalize a full runtime config or reconcile its role catalog here.
-	s := &Engine{cfg: config.Config{Database: cfg.Database, DefaultTenantID: cfg.DefaultTenantID}, pg: owned, q: db.New(owned), schema: schema, groupSchema: roles, now: time.Now}
+	s := &Engine{log: log, cfg: config.Config{Database: cfg.Database, DefaultTenantID: cfg.DefaultTenantID}, pg: owned, q: db.New(owned), schema: schema, groupSchema: roles, now: time.Now}
 	for _, g := range input {
 		if _, err := s.Tenant(ctx, g.TenantID); err != nil {
 			return nil, err

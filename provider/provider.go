@@ -10,11 +10,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/open-rails/authkit/internal/logx"
 	"github.com/open-rails/authkit/internal/netguard"
 )
 
@@ -157,6 +159,12 @@ func WithHTTPClient(c *http.Client) Option {
 	}
 }
 
+// WithLogger is where the provider logs its discovery failing and
+// recovering (default slog.Default()).
+func WithLogger(l *slog.Logger) Option {
+	return func(b *base) { b.log = l }
+}
+
 // WithAuthParams adds fixed authorization-request parameters (for example
 // response_mode=form_post).
 func WithAuthParams(params map[string]string) Option {
@@ -181,6 +189,7 @@ type base struct {
 	trustEmail  bool
 	authParams  map[string]string
 	httpClient  *http.Client
+	log         *slog.Logger
 }
 
 func newBase(name, issuer, clientID string, secret Secret, scopes []string, pkce bool, opts []Option) base {
@@ -201,6 +210,7 @@ func newBase(name, issuer, clientID string, secret Secret, scopes []string, pkce
 	if b.displayName == "" {
 		b.displayName = b.name
 	}
+	b.log = logx.Or(b.log)
 	b.httpClient = withOutageTracking(b.httpClient)
 	return b
 }

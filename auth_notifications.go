@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
+	"github.com/open-rails/authkit/internal/logx"
 	"github.com/open-rails/authkit/notify"
 )
 
@@ -126,7 +128,8 @@ func (a *Client) SetNotificationDismissed(ctx context.Context, userID, id string
 // MigrateNotifications explicitly prepares the optional inbox tables, even when
 // Database.SkipMigrations is true. Scope mappings preserve existing receipts in
 // place; they are deployment identity, not an instruction to merge account data.
-func MigrateNotifications(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
+// It logs on log (nil is slog.Default()).
+func MigrateNotifications(ctx context.Context, pool *pgxpool.Pool, cfg Config, log *slog.Logger) error {
 	if cfg.Notifications == nil {
 		return nil
 	}
@@ -137,7 +140,7 @@ func MigrateNotifications(ctx context.Context, pool *pgxpool.Pool, cfg Config) e
 			n.Producers[i].TenantID = cfg.DefaultTenantID
 		}
 	}
-	return engine.MigrateNotifications(ctx, pool, cfg.Database, &n, cfg.DefaultTenantID)
+	return engine.MigrateNotifications(ctx, logx.Or(log), pool, cfg.Database, &n, cfg.DefaultTenantID)
 }
 
 // NotificationAdoption maps exact legacy receipt origins to one current issue.

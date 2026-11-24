@@ -101,12 +101,13 @@ func (s *Engine) newResourceServer() (*resourceServer, error) {
 		verify.WithReplayStore(s.replayStore),
 		verify.WithStoredDPoPNonces(),
 		verify.WithPublicURL(rc.PublicURL),
+		verify.WithLogger(s.log),
 	}
 	if s.resourceHosts != nil {
 		opts = append(opts, verify.WithPublicHosts(s.resourceHosts))
 	}
-	rs := &resourceServer{s: s, v: verify.NewVerifier(opts...), assertions: verify.NewVerifier(verify.WithHTTPClient(client)), metadata: client, registered: map[string]time.Time{}}
-	rs.jwksURIs = cachepolicy.New(cachepolicy.IssuerMetadata(), rs.discoverAll)
+	rs := &resourceServer{s: s, v: verify.NewVerifier(opts...), assertions: verify.NewVerifier(verify.WithHTTPClient(client), verify.WithLogger(s.log)), metadata: client, registered: map[string]time.Time{}}
+	rs.jwksURIs = cachepolicy.New(cachepolicy.IssuerMetadata(), s.log, rs.discoverAll)
 	if err := rs.v.AddIssuer(s.cfg.Token.Issuer, []string{rc.ID}, verify.IssuerOptions{KeySource: s.keys, IsLocal: true}); err != nil {
 		return nil, err
 	}

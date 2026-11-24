@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/jackc/pgx/v5"
@@ -24,7 +25,7 @@ func notificationScope(cfg *config.NotificationsConfig, tenant iam.TenantID) str
 	return "authkit:" + tenant.String()
 }
 
-func notificationBindingMigrations(ctx context.Context, pool *pgxpool.Pool, schema string, validate bool) error {
+func notificationBindingMigrations(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, schema string, validate bool) error {
 	chain, err := migratekit.LoadFromFS(migrations.FS)
 	if err != nil {
 		return err
@@ -34,7 +35,7 @@ func notificationBindingMigrations(ctx context.Context, pool *pgxpool.Pool, sche
 		return err
 	}
 	defer m.Close()
-	m = m.WithSchema(schema).WithStrictIntegrity()
+	m = m.WithSchema(schema).WithStrictIntegrity().WithWarnFunc(migrationWarnings(ctx, log))
 	if validate {
 		if err := m.ValidateAllApplied(ctx, chain); err != nil {
 			return fmt.Errorf("%w: run MigrateNotifications: %w", ErrMigrationsRequired, err)

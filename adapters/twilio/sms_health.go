@@ -38,7 +38,7 @@ var otherSenderKinds = []struct{ path, key string }{
 // without an approved verification (error 30032). A network error or 5xx on
 // those lookups fails too; the next check re-arms. Anything else it can't
 // tell counts as healthy. Refused toll-free senders beside working ones, and
-// senders it can't tell about, log a warning on slog.Default, once per change.
+// senders it can't tell about, log a warning on SMSConfig.Logger, once per change.
 func (s *SMS) CheckHealth(ctx context.Context) error {
 	var account struct {
 		Status string `json:"status"`
@@ -67,10 +67,10 @@ func (s *SMS) CheckHealth(ctx context.Context) error {
 		}
 		return fmt.Errorf("messaging service %s has no sender", s.messagingServiceSID)
 	}
-	s.refusedWarning.warn(ctx, strings.Join(pool.refused, ","),
+	s.refusedWarning.warn(ctx, s.log, strings.Join(pool.refused, ","),
 		"authkit: Twilio refuses these toll-free SMS senders until their verification is approved (error 30032); SMS through them fails",
 		"messaging_service", s.messagingServiceSID, "senders", pool.refused)
-	s.unknownWarning.warn(ctx, strings.Join(pool.unknown, ","),
+	s.unknownWarning.warn(ctx, s.log, strings.Join(pool.unknown, ","),
 		"authkit: can't tell whether Twilio accepts these SMS senders; counting them as usable",
 		"messaging_service", s.messagingServiceSID, "senders", pool.unknown)
 	return nil

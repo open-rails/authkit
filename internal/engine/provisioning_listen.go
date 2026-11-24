@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,7 +25,7 @@ func (s *Engine) listenProvisioning(ctx context.Context) {
 		if listened {
 			wait = time.Second
 		}
-		slog.WarnContext(ctx, "authkit: provisioning listener interrupted; reconnecting", "error", err, "retry_in", wait)
+		s.log.WarnContext(ctx, "authkit: provisioning listener interrupted; reconnecting", "error", err, "retry_in", wait)
 		select {
 		case <-ctx.Done():
 			return
@@ -84,6 +83,6 @@ func (s *Engine) wakeProvisioning(ctx context.Context, t *provisioningTarget) er
 		return err
 	}
 	return pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error {
-		return scheduleDue(ctx, tx, s.maintenance.producer, s.provisioningArgs(t), *next)
+		return s.scheduleDue(ctx, tx, s.maintenance.producer, s.provisioningArgs(t), *next)
 	})
 }

@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -112,6 +113,15 @@ type Deps struct {
 	// Wrap decorates every API and browser-OIDC handler at mount time, inside
 	// the request guards. Use RequestTenant for directory selection.
 	Wrap func(iam.Route, http.Handler) http.Handler
+
+	// Logger receives everything AuthKit logs, its River clients' and
+	// migrators' included. Nil is slog.Default(), read once by New; AuthKit
+	// never changes the default. What the host builds, and the functions that
+	// need no Client, take their own: keys.Watch, provider.WithLogger,
+	// verify.WithLogger, twilio.SMSConfig.Logger, MigrationOptions.Logger,
+	// MigrateNotifications, EnsureGroups, NewNotificationDelivery and
+	// ParseBootstrapManifestYAML.
+	Logger *slog.Logger
 }
 
 // EmailSender delivers email; adapters/smtp.New returns one.

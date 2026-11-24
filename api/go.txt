@@ -14,17 +14,17 @@ pkg authkit, const NotificationDeliveryQueue untyped string = "authkit_notificat
 pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
 pkg authkit, func DefaultRateLimits() map[string]RateLimit
-pkg authkit, func EnsureGroups(context.Context, *pgxpool.Pool, Config, []iam.NewGroup) ([]iam.Group, error)
+pkg authkit, func EnsureGroups(context.Context, *pgxpool.Pool, Config, []iam.NewGroup, *slog.Logger) ([]iam.Group, error)
 pkg authkit, func IfRole(iam.Role) Option
 pkg authkit, func InTx(pgx.Tx) Option
 pkg authkit, func IncludeDeleted() Option
 pkg authkit, func Migrate(context.Context, *pgxpool.Pool, DatabaseConfig, ...MigrationOptions) error
-pkg authkit, func MigrateNotifications(context.Context, *pgxpool.Pool, Config) error
+pkg authkit, func MigrateNotifications(context.Context, *pgxpool.Pool, Config, *slog.Logger) error
 pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
-pkg authkit, func NewNotificationDelivery(*pgxpool.Pool, string, map[string]RemoteNotificationConfig) (*NotificationDelivery, error)
+pkg authkit, func NewNotificationDelivery(*pgxpool.Pool, string, map[string]RemoteNotificationConfig, *slog.Logger) (*NotificationDelivery, error)
 pkg authkit, func NewRemoteEventReader(RemoteEventConfig) (eventlog.Reader, error)
 pkg authkit, func NewRoles(...PersonaOption) *Roles
-pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
+pkg authkit, func ParseBootstrapManifestYAML([]byte, *slog.Logger) (iam.BootstrapManifest, error)
 pkg authkit, func ScheduleAccountResync(context.Context, *pgxpool.Pool, string, string, time.Time) error
 pkg authkit, func TenantFromContext(context.Context) (iam.TenantID, bool)
 pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
@@ -93,6 +93,7 @@ pkg authkit, method (*Client) ListPersonalAccessTokens(context.Context, auth.Ide
 pkg authkit, method (*Client) ListRemoteApplications(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error)
 pkg authkit, method (*Client) ListSessionEvents(context.Context, string, iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
 pkg authkit, method (*Client) ListUsers(context.Context, iam.UserQuery) (iam.ListPage[iam.UserEntry], error)
+pkg authkit, method (*Client) Logger() *slog.Logger
 pkg authkit, method (*Client) MigrateGroupPersona(context.Context, iam.GroupPersonaMigration) (iam.GroupPersonaMigrationReport, error)
 pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.AccessTokenOptions, ...Option) (iam.Token, error)
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
@@ -178,6 +179,7 @@ pkg authkit, method (*Verifier) CheckCredential(context.Context, verify.Claims) 
 pkg authkit, method (*Verifier) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) KnownPermission(iam.Perm) bool
+pkg authkit, method (*Verifier) Logger() *slog.Logger
 pkg authkit, method (*Verifier) Verify(context.Context, string) (verify.Claims, error)
 pkg authkit, method (*Verifier) VerifyRequest(*http.Request) (verify.Claims, error)
 pkg authkit, method (CredentialPerms) All() iam.Perm
@@ -287,6 +289,7 @@ pkg authkit, type Deps struct, EntitlementHolders func(context.Context, string) 
 pkg authkit, type Deps struct, Entitlements func(context.Context, []string) (map[string][]string, error)
 pkg authkit, type Deps struct, GroupName func(context.Context, string) (string, error)
 pkg authkit, type Deps struct, KeySource keys.Source
+pkg authkit, type Deps struct, Logger *slog.Logger
 pkg authkit, type Deps struct, NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 pkg authkit, type Deps struct, OAuthGrants iam.OAuthGrantAuthorizer
 pkg authkit, type Deps struct, OnPurge func(context.Context, iam.UserDeletion) error
@@ -362,6 +365,7 @@ pkg authkit, type MemberPerms struct, embedded config.Resource
 pkg authkit, type MigrationOptions = engine.MigrationOptions
 pkg authkit, type MigrationOptions struct
 pkg authkit, type MigrationOptions struct, LegacyTenantID iam.TenantID
+pkg authkit, type MigrationOptions struct, Logger *slog.Logger
 pkg authkit, type NameRetention = config.NameRetention
 pkg authkit, type NameRetention struct
 pkg authkit, type NameRetention struct, Duration time.Duration `yaml:"duration"`
@@ -635,6 +639,7 @@ pkg authkit/adapters/twilio, type SMSConfig struct, AppName string
 pkg authkit/adapters/twilio, type SMSConfig struct, AuthToken string
 pkg authkit/adapters/twilio, type SMSConfig struct, Client *http.Client
 pkg authkit/adapters/twilio, type SMSConfig struct, DeliveryPollInterval time.Duration
+pkg authkit/adapters/twilio, type SMSConfig struct, Logger *slog.Logger
 pkg authkit/adapters/twilio, type SMSConfig struct, MessagingServiceSID string
 pkg authkit/adapters/twilio, type SMSConfig struct, Render func(context.Context, iam.SMSMessage) (string, bool)
 pkg authkit/auth, const CredentialAPIKey CredentialKind = "api_key"
@@ -1934,7 +1939,7 @@ pkg authkit/keys, func PublicKeys(JWKS) (map[string]crypto.PublicKey, error)
 pkg authkit/keys, func SignerFromKey(string, crypto.Signer) (Signer, error)
 pkg authkit/keys, func SignerFromPEM(string, []byte) (Signer, error)
 pkg authkit/keys, func StaticFromPEM(string, string, map[string]string) (Static, error)
-pkg authkit/keys, func Watch(string) (*FileSource, error)
+pkg authkit/keys, func Watch(string, *slog.Logger) (*FileSource, error)
 pkg authkit/keys, method (*FileSource) ActiveSigner() Signer
 pkg authkit/keys, method (*FileSource) Close()
 pkg authkit/keys, method (*FileSource) PublicKeys() map[string]crypto.PublicKey
@@ -2055,6 +2060,7 @@ pkg authkit/provider, func OIDC(string, string, string, string, ...Option) Provi
 pkg authkit/provider, func WithAuthParams(map[string]string) Option
 pkg authkit/provider, func WithDisplayName(string) Option
 pkg authkit/provider, func WithHTTPClient(*http.Client) Option
+pkg authkit/provider, func WithLogger(*slog.Logger) Option
 pkg authkit/provider, func WithPKCE(bool) Option
 pkg authkit/provider, func WithScopes(...string) Option
 pkg authkit/provider, func WithSecret(Secret) Option
@@ -2147,6 +2153,7 @@ pkg authkit/verify, func WithDPoP(redis.UniversalClient) VerifierOption
 pkg authkit/verify, func WithDPoPNonce([]byte) VerifierOption
 pkg authkit/verify, func WithGroup(context.Context, iam.GroupRef) context.Context
 pkg authkit/verify, func WithHTTPClient(*http.Client) VerifierOption
+pkg authkit/verify, func WithLogger(*slog.Logger) VerifierOption
 pkg authkit/verify, func WithPublicHosts(func(context.Context, string) (bool, error)) VerifierOption
 pkg authkit/verify, func WithPublicURL(string) VerifierOption
 pkg authkit/verify, func WithReplayStore(ReplayStore) VerifierOption

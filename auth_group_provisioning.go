@@ -2,10 +2,12 @@ package authkit
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
+	"github.com/open-rails/authkit/internal/logx"
 )
 
 // EnsureGroups prepares explicitly identified, ownerless permission groups
@@ -21,7 +23,8 @@ import (
 // Input validation precedes writes. Each new group and its event commit
 // together using CreateGroup's normal authority locks. If a later operation
 // fails, the result contains the committed prefix; retrying the entire input
-// is safe. The caller retains ownership of pool.
-func EnsureGroups(ctx context.Context, pool *pgxpool.Pool, cfg Config, groups []iam.NewGroup) ([]iam.Group, error) {
-	return engine.EnsureGroups(ctx, pool, cfg, groups)
+// is safe. The caller retains ownership of pool. It logs on log (nil is
+// slog.Default()).
+func EnsureGroups(ctx context.Context, pool *pgxpool.Pool, cfg Config, groups []iam.NewGroup, log *slog.Logger) ([]iam.Group, error) {
+	return engine.EnsureGroups(ctx, logx.Or(log), pool, cfg, groups)
 }

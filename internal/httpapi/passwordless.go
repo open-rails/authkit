@@ -14,12 +14,12 @@ import (
 func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Request) {
 	var req PasswordlessStartRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// The address's send quota is the engine's, and never refuses.
@@ -31,7 +31,7 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		AccountInviteToken: req.InviteCode,
 	})
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, CodeChallenge{Challenge: out.Challenge})
@@ -42,13 +42,13 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.Request) {
 	var req CodeOrLinkRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	in := authflow.PasswordlessLoginInput{Identifier: strings.TrimSpace(req.Identifier), Challenge: strings.TrimSpace(req.Challenge), Code: strings.TrimSpace(req.Code),
 		Token: strings.TrimSpace(req.Token), Agreements: req.Agreements, UserAgent: r.UserAgent(), IP: s.requestIP(r)}
 	if in.Code != "" && in.Token == "" && in.Challenge == "" {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("challenge"))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("challenge"))
 		return
 	}
 	result, err := s.svc.PasswordlessLogin(r.Context(), in)
@@ -57,16 +57,16 @@ func (s *Service) handlePasswordlessConfirmPOST(w http.ResponseWriter, r *http.R
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):
 			logLoginFailed(s, r, "", "invalid_or_expired_passwordless_code")
 			if strings.TrimSpace(req.Code) == "" && strings.TrimSpace(req.Token) != "" {
-				fail(w, errmodel.CodeInvalidLink)
+				s.fail(w, errmodel.CodeInvalidLink)
 			} else {
-				fail(w, errmodel.CodeInvalidCode)
+				s.fail(w, errmodel.CodeInvalidCode)
 			}
 		case errors.Is(err, errmodel.ErrRegistrationDisabled), errors.Is(err, errmodel.ErrPasswordlessDisabled):
 			logLoginFailed(s, r, "", "passwordless_disabled")
-			fail(w, errmodel.CodePasswordlessDisabled)
+			s.fail(w, errmodel.CodePasswordlessDisabled)
 		default:
 			logLoginFailed(s, r, "", "passwordless_failed")
-			writeError(w, err)
+			s.writeError(w, err)
 		}
 		return
 	}

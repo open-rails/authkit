@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,7 @@ const defaultKeysPath = "/vault/auth"
 // <path>/keys.json (default /vault/auth), served through a hot-reloading
 // keys.Watch source; else, with allowDevKeys only, atomically generates a
 // persistent RSA key. New resolves the per-issuer development path first.
-func resolveKeySource(path string, allowDevKeys bool) (keys.Source, error) {
+func resolveKeySource(path string, allowDevKeys bool, log *slog.Logger) (keys.Source, error) {
 	path = strings.TrimSpace(path)
 	if path == "" && allowDevKeys {
 		return nil, errors.New("development key directory must be resolved for the issuer")
@@ -33,7 +34,7 @@ func resolveKeySource(path string, allowDevKeys bool) (keys.Source, error) {
 		dir = defaultKeysPath
 	}
 	if _, err := os.Stat(filepath.Join(dir, "keys.json")); err == nil {
-		src, err := keys.Watch(dir)
+		src, err := keys.Watch(dir, log)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keys from %s: %w", dir, err)
 		}
@@ -60,5 +61,5 @@ func resolveKeySource(path string, allowDevKeys bool) (keys.Source, error) {
 	if err := createDevelopmentKey(filepath.Join(path, "keys.json"), data); err != nil {
 		return nil, fmt.Errorf("persist dev keys under %s: %w", path, err)
 	}
-	return keys.Watch(path)
+	return keys.Watch(path, log)
 }

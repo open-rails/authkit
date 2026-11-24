@@ -11,6 +11,7 @@ import (
 	"crypto"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/jwks"
+	"github.com/open-rails/authkit/internal/logx"
 	"github.com/open-rails/authkit/keys"
 	"github.com/redis/go-redis/v9"
 )
@@ -34,6 +36,7 @@ type Verifier struct {
 	publicURL  string
 	hosts      func(ctx context.Context, host string) (bool, error)
 	client     *http.Client
+	log        *slog.Logger
 
 	mu      sync.RWMutex
 	issuers map[string]issuer
@@ -62,6 +65,7 @@ type verifierConfig struct {
 	storedNonces bool
 	publicURL    string
 	hosts        func(ctx context.Context, host string) (bool, error)
+	log          *slog.Logger
 }
 
 // WithSkew sets the clock skew allowed on exp, nbf and iat (default 60s).
@@ -134,6 +138,12 @@ func WithPublicURL(url string) VerifierOption {
 	return func(c *verifierConfig) { c.publicURL = strings.TrimRight(strings.TrimSpace(url), "/") }
 }
 
+// WithLogger is where the verifier logs its stores failing and recovering
+// and its issuers' keys failing to reload (default slog.Default()).
+func WithLogger(l *slog.Logger) VerifierOption {
+	return func(c *verifierConfig) { c.log = l }
+}
+
 // NewVerifier returns a Verifier that trusts no issuer until AddIssuer. It
 // panics on a WithDPoPNonce key shorter than 32 bytes.
 func NewVerifier(opts ...VerifierOption) *Verifier {
@@ -146,12 +156,13 @@ func NewVerifier(opts ...VerifierOption) *Verifier {
 		publicURL: cfg.publicURL,
 		hosts:     cfg.hosts,
 		client:    cfg.client,
+		log:       logx.Or(cfg.log),
 		issuers:   map[string]issuer{},
 	}
 	if cfg.dpop {
-		v.replays = dpop.NewReplays(cfg.redis, cfg.replays)
+		v.replays = dpop.NewReplays(cfg.redis, cfg.replays, v.log)
 		if cfg.storedNonces {
-			v.dpopNonces = dpop.NewStoredNonces(cfg.redis)
+			v.dpopNonces = dpop.NewStoredNonces(cfg.redis, v.log)
 		}
 	}
 	if cfg.nonceKey != nil {
@@ -233,7 +244,7 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	switch {
 	case is.jwks != nil:
 		if v.keys == nil {
-			v.keys = jwks.New(v.client, cachepolicy.IssuerKeys)
+			v.keys = jwks.New(v.client, cachepolicy.IssuerKeys, v.log)
 		}
 		v.keys.Register(*is.jwks)
 	case v.keys != nil:

@@ -74,7 +74,7 @@ func (s *Service) authResult(w http.ResponseWriter, r *http.Request, out authflo
 func (s *Service) writeAuthResult(w http.ResponseWriter, r *http.Request, out authflow.LoginOutcome, extra authExtras) {
 	res, err := s.authResult(w, r, out, extra)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeAuthResult(w, res)

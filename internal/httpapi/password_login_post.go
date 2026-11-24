@@ -15,12 +15,12 @@ import (
 func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request) {
 	var req PasswordLoginRequest
 	if err := decodeJSON(r, &req); err != nil || req.Password == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	identifier := strings.TrimSpace(req.Identifier)
 	if identifier == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// Spent before any lookup, so an identifier with no account is refused
@@ -34,7 +34,7 @@ func (s *Service) handlePasswordLoginPOST(w http.ResponseWriter, r *http.Request
 		Identifier: identifier, Password: req.Password, UserAgent: r.UserAgent(), IP: s.requestIP(r),
 	})
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	// A pending sign-up's password names no account, wherever it matched.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"sync"
 	"time"
@@ -84,7 +83,7 @@ func (a *Client) StartAccountEvents(ctx context.Context, o AccountEventOptions) 
 			}
 			r.mu.Unlock()
 			if err != nil && ctx.Err() == nil {
-				slog.Warn("authkit: account event polling failed; cursor retained for retry", "failure", "pass_error", "schema", o.Schema, "error", err)
+				a.Logger().WarnContext(ctx, "authkit: account event polling failed; cursor retained for retry", "failure", "pass_error", "schema", o.Schema, "error", err)
 			}
 			select {
 			case <-ctx.Done():
@@ -174,7 +173,7 @@ func (r *AccountEventLoop) park(ctx context.Context, userID, kind string, cause 
 	if err != nil {
 		return fmt.Errorf("park account %s after %v: %w", userID, cause, err)
 	}
-	slog.Warn("authkit: account event failed; user parked for resync", "failure", "parked_user", "schema", r.options.Schema, "user_id", userID, "kind", kind, "attempts", attempts, "error", cause)
+	r.client.Logger().WarnContext(ctx, "authkit: account event failed; user parked for resync", "failure", "parked_user", "schema", r.options.Schema, "user_id", userID, "kind", kind, "attempts", attempts, "error", cause)
 	return nil
 }
 

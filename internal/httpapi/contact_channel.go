@@ -78,12 +78,12 @@ func (s *Service) contactChannelFor(identifier string) (contactChannel, string, 
 // identifier is invalid_request, a malformed one gets its validation code.
 func (s *Service) requireContactChannel(w http.ResponseWriter, identifier string) (contactChannel, string, bool) {
 	if strings.TrimSpace(identifier) == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return contactChannel{}, "", false
 	}
 	ch, id, err := s.contactChannelFor(identifier)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return contactChannel{}, "", false
 	}
 	return ch, id, true
@@ -97,7 +97,7 @@ func (s *Service) requireContactChannel(w http.ResponseWriter, identifier string
 func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
 	var req IdentifierRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	ch, id, ok := s.requireContactChannel(w, req.Identifier)
@@ -105,12 +105,12 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !ch.senderAvailable() {
-		writeError(w, errmodel.E(ch.errUnavailable))
+		s.writeError(w, errmodel.E(ch.errUnavailable))
 		return
 	}
 	challenge, err := ch.requestVerification(r.Context(), id)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, CodeChallenge{Challenge: challenge})
@@ -121,17 +121,17 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request) {
 	var req VerifyConfirmRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	in := authflow.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Challenge: strings.TrimSpace(req.Challenge), Code: strings.ToUpper(strings.TrimSpace(req.Code)),
 		Token: strings.TrimSpace(req.Token), PasswordProof: strings.TrimSpace(req.PasswordProof), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
 	if in.Token != "" && in.Code != "" || in.Token == "" && in.Code == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if in.Code != "" && in.Challenge == "" {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("challenge"))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("challenge"))
 		return
 	}
 	if in.Identifier != "" {
@@ -148,13 +148,13 @@ func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		switch {
 		case !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, jwt.ErrTokenInvalidClaims):
-			writeError(w, err)
+			s.writeError(w, err)
 		case in.Token == "":
-			fail(w, errmodel.CodeInvalidCode)
+			s.fail(w, errmodel.CodeInvalidCode)
 		default:
 			// One answer for every failed link: it never tells whether the
 			// address has an account or is already verified (N9).
-			fail(w, errmodel.CodeInvalidLink)
+			s.fail(w, errmodel.CodeInvalidLink)
 		}
 		return
 	}
@@ -179,12 +179,12 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 		return
 	}
 	if !ch.senderAvailable() {
-		writeError(w, errmodel.E(ch.errUnavailable))
+		s.writeError(w, errmodel.E(ch.errUnavailable))
 		return
 	}
 	ua, ip := r.UserAgent(), s.requestIP(r)
 	if err := ch.requestPasswordReset(r.Context(), id, &ip, &ua); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	accepted(w)
@@ -194,22 +194,22 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 func (s *Service) handlePasswordResetConfirmPOST(w http.ResponseWriter, r *http.Request) {
 	var req PasswordResetConfirmRequest
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Token) == "" || req.NewPassword == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.ValidatePassword(req.NewPassword); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	if _, err := s.svc.ConfirmPasswordReset(r.Context(), strings.TrimSpace(req.Token), req.NewPassword); err != nil {
 		if authflow.ValidationErrorCode(err) != "" {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		if s.confirmBackendFailed(w, r, "password_reset_confirm", "confirm_password_reset", err) {
 			return
 		}
-		fail(w, errmodel.CodeInvalidLink)
+		s.fail(w, errmodel.CodeInvalidLink)
 		return
 	}
 	noContent(w)

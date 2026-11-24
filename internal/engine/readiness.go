@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -24,7 +23,7 @@ type Probe struct {
 // degrade records a survivable problem New handled by switching off or
 // defaulting the feature it concerns.
 func (s *Engine) degrade(problem error) {
-	slog.Warn(problem.Error())
+	s.log.Warn(problem.Error())
 	s.degraded = append(s.degraded, problem)
 }
 

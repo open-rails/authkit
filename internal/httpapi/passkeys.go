@@ -13,13 +13,13 @@ func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Req
 	if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
 		var req map[string]json.RawMessage
 		if err := decodeJSON(r, &req); err != nil || req == nil || len(req) != 0 {
-			fail(w, errmodel.CodeInvalidRequest)
+			s.fail(w, errmodel.CodeInvalidRequest)
 			return
 		}
 	}
 	assertion, err := s.svc.BeginPasskeyLogin(r.Context())
 	if err != nil {
-		serverErr(w, "passkey_failed", err)
+		s.serverErr(w, "passkey_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, assertion)
@@ -28,16 +28,16 @@ func (s *Service) handlePasskeyLoginBeginPOST(w http.ResponseWriter, r *http.Req
 func (s *Service) handlePasskeyLoginFinishPOST(w http.ResponseWriter, r *http.Request) {
 	body, err := readSmallBody(r)
 	if err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	result, err := s.svc.FinishPasskeyLogin(r.Context(), body, r.UserAgent(), parseIP(s.requestIP(r)))
 	if err != nil {
 		if errors.Is(err, errmodel.ErrTooManyAccounts) || errors.Is(err, errmodel.ErrTooManyDevices) {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
-		fail(w, errmodel.CodeInvalidCredentials)
+		s.fail(w, errmodel.CodeInvalidCredentials)
 		return
 	}
 

@@ -6,6 +6,7 @@ package redislimiter
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"maps"
 	"strconv"
 	"strings"
@@ -28,8 +29,9 @@ type Limiter struct {
 }
 
 // New builds a Redis sliding-window limiter whose keys live under prefix (the
-// deployment namespace, #307): <prefix><key>:<bucket>.
-func New(rdb redis.UniversalClient, limits map[string]ratelimit.Limit, prefix string) (*Limiter, error) {
+// deployment namespace, #307): <prefix><key>:<bucket>. log hears of Redis
+// failing and recovering.
+func New(rdb redis.UniversalClient, limits map[string]ratelimit.Limit, prefix string, log *slog.Logger) (*Limiter, error) {
 	if rdb == nil {
 		return nil, fmt.Errorf("ratelimit: Redis client required")
 	}
@@ -37,7 +39,7 @@ func New(rdb redis.UniversalClient, limits map[string]ratelimit.Limit, prefix st
 	if err != nil {
 		return nil, err
 	}
-	return &Limiter{rdb: rdb, limits: maps.Clone(limits), prefix: prefix, fallback: fallback, gate: redisfallback.New(
+	return &Limiter{rdb: rdb, limits: maps.Clone(limits), prefix: prefix, fallback: fallback, gate: redisfallback.New(log,
 		"authkit: Redis rate limiting failed; each process limits on its own until Redis recovers",
 		"authkit: Redis rate limiting recovered; budgets are shared again")}, nil
 }

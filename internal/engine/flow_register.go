@@ -8,7 +8,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -115,7 +114,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		}
 		if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.SMSAvailable() {
 			if _, err := s.sendPhoneVerificationToUser(ctx, phone, account.ID); err != nil {
-				slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
+				s.log.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 			}
 		}
 		return s.registeredSession(ctx, in, out, account)
@@ -156,7 +155,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	}
 	if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.EmailAvailable() {
 		if _, err := s.requestEmailVerification(ctx, email); err != nil {
-			slog.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
+			s.log.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
 		}
 	}
 	return s.registeredSession(ctx, in, out, account)

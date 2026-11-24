@@ -26,8 +26,8 @@ const defaultBootstrapApplyName = "default"
 // ParseBootstrapManifestYAML parses and structurally validates a manifest,
 // with no catalog or environment: each root_role must be a root role
 // (`root:admin`), and ApplyBootstrapManifest checks it against the catalog.
-// An unknown key is logged as a warning, with its path, and ignored.
-func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
+// An unknown key is logged on log as a warning, with its path, and ignored.
+func ParseBootstrapManifestYAML(raw []byte, log *slog.Logger) (iam.BootstrapManifest, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return iam.BootstrapManifest{}, err
@@ -37,7 +37,7 @@ func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
 		return iam.BootstrapManifest{}, err
 	}
 	for _, path := range unknownYAMLKeys(&doc, reflect.TypeFor[iam.BootstrapManifest](), "") {
-		slog.Warn("authkit: bootstrap manifest: ignoring unknown key", "path", path)
+		log.Warn("authkit: bootstrap manifest: ignoring unknown key", "path", path)
 	}
 	if len(manifest.Users) == 0 && len(manifest.RemoteApplications) == 0 {
 		return iam.BootstrapManifest{}, errmodel.ErrInvalidBootstrapManifest

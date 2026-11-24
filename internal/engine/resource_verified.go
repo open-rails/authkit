@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
@@ -86,7 +86,7 @@ func (s *Engine) AuthenticateResource(r *http.Request) (auth.Verified, error) {
 		if err := s.RecordRemoteUserClaims(r.Context(), app.GroupID, app.Issuer, cl.Subject, RemoteUserClaims{
 			Email: cl.Email, EmailVerified: cl.EmailVerified, Name: cl.Name, Username: cl.Username, UpdatedAt: cl.UpdatedAt,
 		}); err != nil {
-			slog.WarnContext(r.Context(), "authkit: recording a trusted issuer's contact claims failed", "issuer", app.Issuer, "error", err)
+			s.log.WarnContext(r.Context(), "authkit: recording a trusted issuer's contact claims failed", "issuer", app.Issuer, "error", err)
 		}
 	}
 	if access.Application == nil && cl.Kind == verify.TokenUser && id.SelfInvoked() && id.Email == "" && id.Username == "" {

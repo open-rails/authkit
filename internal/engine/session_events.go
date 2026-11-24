@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	stdlog "log"
 	"strconv"
 	"strings"
 	"time"
@@ -95,7 +94,7 @@ func (s *Engine) logSessionEvent(ctx context.Context, e authflow.AuthSessionEven
 		UserAgent:  e.UserAgent,
 	})
 	if err != nil {
-		stdlog.Printf("authkit: error: failed to record session event %s for user %q: %v", e.Event, e.UserID, err)
+		s.log.ErrorContext(ctx, "authkit: recording a session event failed", "event", e.Event, "user_id", e.UserID, "error", err)
 	}
 }
 

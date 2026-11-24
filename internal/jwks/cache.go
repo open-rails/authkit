@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sort"
 	"sync"
@@ -62,13 +63,13 @@ type flight struct {
 }
 
 // New returns a cache fetching with client (nil: a timeout-bounded client
-// that may reach private addresses) under policy o.
-func New(client *http.Client, o cache.Options) *Cache {
+// that may reach private addresses) under policy o, logging on log.
+func New(client *http.Client, o cache.Options, log *slog.Logger) *Cache {
 	if client == nil {
 		client = netguard.Client(netguard.DefaultTimeout, true)
 	}
 	c := &Cache{client: client, opts: o, health: map[string]*health{}}
-	c.keys = cachepolicy.New(o, c.load)
+	c.keys = cachepolicy.New(o, log, c.load)
 	return c
 }
 

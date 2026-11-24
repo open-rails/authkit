@@ -22,8 +22,10 @@ import (
 // River, the permission groups and the
 // request authenticator. ctx bounds the boot-time database work. It fails
 // only on what AuthKit cannot run safely with; a survivable problem switches
-// off the feature it concerns and is reported by Probes.
+// off the feature it concerns and is reported by Probes. deps.Logger is set:
+// authkit.New resolved it.
 func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, err error) {
+	log := deps.Logger
 	norm, degraded, err := config.Normalize(cfg, deps)
 	if err != nil {
 		return nil, err
@@ -38,14 +40,15 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	// #232: the TOTP key is the explicit override or <Keys.Path>/totp.key;
 	// without either, TOTP is unavailable. The engine reads Config, so the
 	// resolved key is written back into it.
-	if norm.TwoFactor.TOTPSecretKey, err = resolveTOTPSecretKey(norm); err != nil {
+	if norm.TwoFactor.TOTPSecretKey, err = resolveTOTPSecretKey(norm, log); err != nil {
 		return nil, err
 	}
-	src, owned, err := engineKeySource(norm.Keys, deps.KeySource)
+	src, owned, err := engineKeySource(norm.Keys, deps.KeySource, log)
 	if err != nil {
 		return nil, err
 	}
 	s := &Engine{
+		log:               log,
 		cfg:               norm,
 		keys:              src,
 		ownedKeySource:    owned,
@@ -69,15 +72,15 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		s.degrade(problem)
 	}
 	if deps.Postgres != nil {
-		if err := waitForPostgres(ctx, deps.Postgres); err != nil {
+		if err := waitForPostgres(ctx, log, deps.Postgres); err != nil {
 			return nil, err
 		}
 		if norm.Database.SkipMigrations {
-			if err := validateMigrations(ctx, deps.Postgres, norm.Database); err != nil {
+			if err := validateMigrations(ctx, log, deps.Postgres, norm.Database); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{LegacyTenantID: norm.DefaultTenantID}); err != nil {
+			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{LegacyTenantID: norm.DefaultTenantID, Logger: log}); err != nil {
 				return nil, err
 			}
 		}
@@ -87,13 +90,13 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 			if err := notifypg.Validate(ctx, deps.Postgres, norm.Notifications.Schema); err != nil {
 				return nil, err
 			}
-			if err := notificationBindingMigrations(ctx, deps.Postgres, norm.Notifications.Schema, true); err != nil {
+			if err := notificationBindingMigrations(ctx, log, deps.Postgres, norm.Notifications.Schema, true); err != nil {
 				return nil, err
 			}
 			if err := notificationConfiguredBindings(ctx, deps.Postgres, norm.Database, norm.Notifications, norm.DefaultTenantID, false); err != nil {
 				return nil, err
 			}
-		} else if err := MigrateNotifications(ctx, deps.Postgres, norm.Database, norm.Notifications, norm.DefaultTenantID); err != nil {
+		} else if err := MigrateNotifications(ctx, log, deps.Postgres, norm.Database, norm.Notifications, norm.DefaultTenantID); err != nil {
 			return nil, err
 		}
 	}
@@ -108,7 +111,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if problem := s.secondFactorProblem(); problem != nil {
 		s.degrade(problem)
 	} else if s.signs && s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.cfg.TwoFactor.TOTPSecretKey) == 0 {
-		slog.Warn("authkit: TOTP is offered but has no key, so it is unavailable", "path", filepath.Join(totpKeysDir(s.cfg), totpKeyFilename))
+		s.log.Warn("authkit: TOTP is offered but has no key, so it is unavailable", "path", filepath.Join(totpKeysDir(s.cfg), totpKeyFilename))
 	}
 	if err := s.initRiver(ctx, deps.Postgres); err != nil {
 		return nil, err
@@ -150,7 +153,7 @@ const postgresBootWait = 30 * time.Second
 // waitForPostgres pings pool with backoff until it answers, ctx ends or
 // postgresBootWait passes: a database restarting beside AuthKit is waited
 // for, one that stays down fails the boot.
-func waitForPostgres(ctx context.Context, pool *pgxpool.Pool) error {
+func waitForPostgres(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool) error {
 	ctx, cancel := context.WithTimeout(ctx, postgresBootWait)
 	defer cancel()
 	start, wait := time.Now(), 250*time.Millisecond
@@ -160,11 +163,11 @@ func waitForPostgres(ctx context.Context, pool *pgxpool.Pool) error {
 		done()
 		if err == nil {
 			if attempt > 1 {
-				slog.Info("authkit: PostgreSQL answers", "attempts", attempt)
+				log.Info("authkit: PostgreSQL answers", "attempts", attempt)
 			}
 			return nil
 		}
-		slog.Warn("authkit: PostgreSQL does not answer; retrying", "attempt", attempt, "error", err)
+		log.Warn("authkit: PostgreSQL does not answer; retrying", "attempt", attempt, "error", err)
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("authkit: PostgreSQL unreachable after %d attempts over %s: %w", attempt, time.Since(start).Round(time.Millisecond), err)
@@ -179,7 +182,7 @@ func waitForPostgres(ctx context.Context, pool *pgxpool.Pool) error {
 // keys and no AllowEphemeralDevKeys opt-in, construction fails. The source is
 // read per operation, never snapshotted, so a hot-reloading file source is
 // observed for the engine's lifetime (#238). owned is closed with the engine.
-func engineKeySource(c config.KeysConfig, host keys.Source) (_ keys.Source, owned *keys.FileSource, _ error) {
+func engineKeySource(c config.KeysConfig, host keys.Source, log *slog.Logger) (_ keys.Source, owned *keys.FileSource, _ error) {
 	switch {
 	case host != nil:
 		return host, nil, nil
@@ -188,7 +191,7 @@ func engineKeySource(c config.KeysConfig, host keys.Source) (_ keys.Source, owne
 		// verification, permission reads and the (empty) JWKS work.
 		return keys.Static{}, nil, nil
 	}
-	src, err := resolveKeySource(c.Path, c.AllowEphemeralDevKeys)
+	src, err := resolveKeySource(c.Path, c.AllowEphemeralDevKeys, log)
 	if err != nil {
 		return nil, nil, fmt.Errorf("authkit: failed to resolve JWT signing keys (set Keys.Path to a directory containing keys.json, provide Deps.KeySource, or — for development only — set Keys.AllowEphemeralDevKeys): %w", err)
 	}

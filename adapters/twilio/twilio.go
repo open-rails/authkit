@@ -54,14 +54,14 @@ type changeWarner struct {
 	last string
 }
 
-// warn records state and logs msg when state is new and not "".
-func (w *changeWarner) warn(ctx context.Context, state, msg string, args ...any) {
+// warn records state and logs msg on log when state is new and not "".
+func (w *changeWarner) warn(ctx context.Context, log *slog.Logger, state, msg string, args ...any) {
 	w.mu.Lock()
 	changed := state != w.last
 	w.last = state
 	w.mu.Unlock()
 	if changed && state != "" {
-		slog.WarnContext(ctx, msg, args...)
+		log.WarnContext(ctx, msg, args...)
 	}
 }
 
