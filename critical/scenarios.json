@@ -37,6 +37,7 @@
   "AK-J05-C11": "history import bounds batches and rejects transaction options before writes",
   "AK-J05-C12": "history import returns partial database progress and cancellation retries safely",
   "AK-J05-C13": "history import and account deletion serialize in both lock orderings without inserting after deletion",
+  "AK-J05-C14": "a session ends 30 days after sign-in by default; a refresh keeps its deadline and gives a deadline-less session one",
   "AK-J06-C01": "password reset email and SMS",
   "AK-J06-C02": "wrong/past/used reset proof",
   "AK-J06-C03": "change password/email/phone and remove phone",

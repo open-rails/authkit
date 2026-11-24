@@ -149,8 +149,8 @@ type TokenConfig struct {
 	// AccessTokenDuration is the access-token lifetime; 0 defaults to 15
 	// minutes, the longest a revoked session's token passes stateless checks.
 	AccessTokenDuration time.Duration `yaml:"access_token_duration"`
-	// RefreshTokenDuration is the refresh-session lifetime; 0 or less means
-	// sessions do not expire by age.
+	// RefreshTokenDuration is the refresh-session lifetime from sign-in: 0
+	// defaults to 30 days; a negative value means sessions do not expire by age.
 	RefreshTokenDuration time.Duration `yaml:"refresh_token_duration"`
 	// SessionMaxPerUser caps concurrent refresh sessions per user, evicting
 	// the oldest. 0 defaults to 3; a negative value means unlimited.

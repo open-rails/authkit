@@ -475,6 +475,35 @@ func TestCriticalSessions(t *testing.T) {
 			t.Fatal("lost-response retry forked the rotation chain")
 		}
 	})
+	t.Run("AK-J05-C14_sessions_end_30_days_after_sign_in_by_default", func(t *testing.T) {
+		u := f.user(t)
+		signed := f.signIn(t, u)
+		deadline := func() time.Time {
+			live, err := f.auth.Sessions(t.Context(), u.ID)
+			noError(t, err)
+			if len(live) != 1 || live[0].ExpiresAt == nil {
+				t.Fatalf("session state = %+v, want one session with a deadline", live)
+			}
+			return *live[0].ExpiresAt
+		}
+		first := deadline()
+		if d := time.Until(first); d < 30*24*time.Hour-time.Minute || d > 30*24*time.Hour {
+			t.Fatalf("default session deadline is %s away, want 30 days", d)
+		}
+		next := tokensFrom(t, f.call(t, "POST", "/token", "", map[string]string{"grant_type": "refresh_token", "refresh_token": *signed.RefreshToken}), u.ID)
+		if !deadline().Equal(first) {
+			t.Fatal("a refresh moved the session's deadline")
+		}
+		claims, err := f.auth.Verify(t.Context(), next.AccessToken)
+		noError(t, err)
+		// A session an earlier release opened has no deadline; its next refresh sets one.
+		_, err = f.pool.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, "refresh_sessions"}.Sanitize()+" SET expires_at = NULL WHERE id = $1", claims.SessionID)
+		noError(t, err)
+		tokensFrom(t, f.call(t, "POST", "/token", "", map[string]string{"grant_type": "refresh_token", "refresh_token": *next.RefreshToken}), u.ID)
+		if d := time.Until(deadline()); d < 30*24*time.Hour-time.Minute {
+			t.Fatalf("a deadline-less session's refresh set a deadline %s away, want 30 days", d)
+		}
+	})
 	t.Run("AK-J05-C02_revoke_other_then_all_sessions", func(t *testing.T) {
 		u := f.user(t)
 		one, two := f.signIn(t, u), f.signIn(t, u)

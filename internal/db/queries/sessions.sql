@@ -30,6 +30,8 @@ WHERE h.token_hash = $1 AND s.issuer = $2 AND s.revoked_at IS NULL
 -- no history. The row's latest seal still re-delivers the same successor to
 -- concurrent holders of the immediate predecessor.
 --
+-- A session opened without a deadline gets one from expires_at, when given.
+--
 -- The session's history older than 90 days goes. A copied token is caught when
 -- its second holder presents it; a thief who refreshes first is caught when the
 -- victim's client next refreshes, so a victim away longer than 90 days no
@@ -38,7 +40,8 @@ WITH rotated AS (
   UPDATE refresh_sessions
   SET current_token_hash = sqlc.arg(new_token_hash), last_used_at = now(),
       user_agent = sqlc.arg(user_agent), ip_addr = sqlc.arg(ip_addr),
-      previous_successor_sealed = sqlc.arg(previous_successor_sealed), previous_rotated_at = now()
+      previous_successor_sealed = sqlc.arg(previous_successor_sealed), previous_rotated_at = now(),
+      expires_at = COALESCE(expires_at, sqlc.narg(expires_at)::timestamptz)
   WHERE id = sqlc.arg(id) AND current_token_hash = sqlc.arg(expected_current_token_hash)
     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
   RETURNING id
