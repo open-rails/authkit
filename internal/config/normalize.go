@@ -278,6 +278,9 @@ func normalizeToken(t *TokenConfig) error {
 	if t.SessionMaxPerUser == 0 {
 		t.SessionMaxPerUser = 3
 	}
+	if t.RefreshTokenDuration == 0 {
+		t.RefreshTokenDuration = 30 * 24 * time.Hour
+	}
 	if t.RefreshRotationGrace == 0 {
 		t.RefreshRotationGrace = 30 * time.Second
 	}

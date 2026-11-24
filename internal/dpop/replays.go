@@ -20,7 +20,10 @@ const (
 	sweepEvery = time.Minute
 )
 
-var errReplaysFull = errors.New("dpop: in-memory replay store is full")
+var (
+	errReplaysFull = errors.New("dpop: in-memory replay store is full")
+	errRedisDown   = errors.New("dpop: Redis replay store unavailable")
+)
 
 // Store spends single-use keys for every replica: Claim records key as spent
 // for ttl and reports false when it already was (verify.ReplayStore).
@@ -29,9 +32,10 @@ type Store interface {
 }
 
 // Replays records spent single-use proofs (DPoP proofs, JWT-bearer
-// assertions) until they expire: in the host's Store when given, whose
-// errors refuse; else in Redis, shared by every replica; else in this
-// process's memory (one node), which also takes over while Redis fails.
+// assertions) until they expire: in the host's Store when given, else in
+// Redis, shared by every replica, else in this process's memory (one node).
+// A failing Store or Redis refuses the proof: a spend another replica cannot
+// see is no spend.
 type Replays struct {
 	store Store
 	rdb   redis.UniversalClient
@@ -50,7 +54,7 @@ func NewReplays(rdb redis.UniversalClient, store Store) *Replays {
 		store = nil
 	}
 	return &Replays{store: store, rdb: rdb, spent: map[string]time.Time{}, swept: time.Now(), gate: redisfallback.New(
-		"authkit: Redis replay store failed; each process records spent proofs on its own until Redis recovers",
+		"authkit: Redis replay store failed; single-use proofs are refused until Redis recovers",
 		"authkit: Redis replay store recovered")}
 }
 
@@ -61,11 +65,13 @@ func (r *Replays) Claim(ctx context.Context, key string, ttl time.Duration) (boo
 		return r.store.Claim(ctx, key, ttl)
 	}
 	if r.rdb != nil {
-		if claimed, ok := redisfallback.Run(ctx, r.gate, func(ctx context.Context) (bool, error) {
+		claimed, ok := redisfallback.Run(ctx, r.gate, func(ctx context.Context) (bool, error) {
 			return r.rdb.SetNX(ctx, replayPrefix+key, 1, ttl).Result()
-		}); ok {
-			return claimed, nil
+		})
+		if !ok {
+			return false, errRedisDown
 		}
+		return claimed, nil
 	}
 	return r.claimInMemory(key, ttl)
 }

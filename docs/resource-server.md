@@ -77,7 +77,7 @@ With `Config.Resource`, the token endpoint is mounted even without an authorizat
 
 - **Validation, for every token any instance verifies:** a bound token (`cnf.jkt`) is accepted only with a fresh proof of its key (RFC 9449 §7), never as Bearer (§7.2).
 - **Proofs and nonces:**
-  - Spent proofs are kept in `Deps.Replays`, else `Deps.Redis`, else in memory (one node).
+  - Spent proofs are kept in `Deps.Replays`, else `Deps.Redis`, else in memory (one node). While that store fails, proofs are refused.
   - A proof must carry a server nonce (RFC 9449 §9). A proof without one gets `401 use_dpop_nonce` with a `DPoP-Nonce` to retry with. Nonces are kept in `Deps.Redis`, else in memory, so there is no key to configure.
   - `Deps.ResourceHosts` lets a proof name a host other than `public_url` that the host vouches for, such as a tenant's API host.
 - **Issuance (`sign_in.dpop`):**

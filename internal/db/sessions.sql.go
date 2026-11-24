@@ -302,8 +302,9 @@ WITH rotated AS (
   UPDATE refresh_sessions
   SET current_token_hash = $2, last_used_at = now(),
       user_agent = $3, ip_addr = $4,
-      previous_successor_sealed = $5, previous_rotated_at = now()
-  WHERE id = $6 AND current_token_hash = $1
+      previous_successor_sealed = $5, previous_rotated_at = now(),
+      expires_at = COALESCE(expires_at, $6::timestamptz)
+  WHERE id = $7 AND current_token_hash = $1
     AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
   RETURNING id
 ), pruned AS (
@@ -320,6 +321,7 @@ type SessionRotateParams struct {
 	UserAgent                *string
 	IpAddr                   *string
 	PreviousSuccessorSealed  []byte
+	ExpiresAt                *time.Time
 	ID                       string
 }
 
@@ -327,6 +329,8 @@ type SessionRotateParams struct {
 // writer; an insertion failure rolls back the rotation, and a lost CAS inserts
 // no history. The row's latest seal still re-delivers the same successor to
 // concurrent holders of the immediate predecessor.
+//
+// A session opened without a deadline gets one from expires_at, when given.
 //
 // The session's history older than 90 days goes. A copied token is caught when
 // its second holder presents it; a thief who refreshes first is caught when the
@@ -339,6 +343,7 @@ func (q *Queries) SessionRotate(ctx context.Context, arg SessionRotateParams) (i
 		arg.UserAgent,
 		arg.IpAddr,
 		arg.PreviousSuccessorSealed,
+		arg.ExpiresAt,
 		arg.ID,
 	)
 	if err != nil {

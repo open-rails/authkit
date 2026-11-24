@@ -9,6 +9,7 @@ import (
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -253,9 +254,10 @@ func (s *Engine) sendPhone2FASetupCode(ctx context.Context, userID, phone, code 
 	hash := secret.Hash(code)
 	// Store code in ephemeral store for 10 minutes, purpose: "2fa_setup"
 	if s.useEphemeralStore() {
-		if err := s.storePhoneVerification(ctx, "2fa_setup", phone, userID, hash, "", 10*time.Minute); err != nil {
+		if err := s.storePhoneVerification(ctx, "2fa_setup", phone, userID, hash, "", phone2FASetupTTL); err != nil {
 			return err
 		}
+		_ = s.ephemDel(ctx, keyPhone2FASetupAttempts+userID)
 	} else {
 		return fmt.Errorf("ephemeral store not configured")
 	}
@@ -270,20 +272,29 @@ func (s *Engine) sendPhone2FASetupCode(ctx context.Context, userID, phone, code 
 	return nil
 }
 
-// verifyPhone2FASetupCode checks the code for 2FA phone setup.
+// verifyPhone2FASetupCode checks the code for 2FA phone setup. Like the email
+// setup it keeps the code on a miss, and the attempt cap burns it
+// (ErrCodeExpired).
 func (s *Engine) verifyPhone2FASetupCode(ctx context.Context, userID, phone, code string) (bool, error) {
-	hash := secret.Hash(code)
-	if s.useEphemeralStore() {
-		uid, err := s.consumePhoneVerification(ctx, "2fa_setup", phone, hash)
-		if err != nil {
-			return false, err
-		}
-		if uid != userID {
-			return false, jwt.ErrTokenUnverifiable
-		}
-		return true, nil
+	if !s.useEphemeralStore() {
+		return false, fmt.Errorf("ephemeral store not configured")
 	}
-	return false, fmt.Errorf("ephemeral store not configured")
+	uid, err := s.consumePhoneVerification(ctx, "2fa_setup", phone, secret.Hash(code))
+	if err == nil && uid != userID {
+		err = jwt.ErrTokenUnverifiable
+	}
+	if errors.Is(err, jwt.ErrTokenUnverifiable) {
+		if s.recordFailedAttempt(ctx, keyPhone2FASetupAttempts+userID, phone2FASetupTTL, maxPhone2FASetupAttempts) {
+			s.deletePhoneVerification(ctx, phoneVerificationKey("2fa_setup", phone))
+			return false, errmodel.ErrCodeExpired
+		}
+		return false, err
+	}
+	if err != nil {
+		return false, err
+	}
+	_ = s.ephemDel(ctx, keyPhone2FASetupAttempts+userID)
+	return true, nil
 }
 
 const (
@@ -291,6 +302,10 @@ const (
 	keyEmail2FASetupAttempts = "2fa:email-setup:attempts:"
 	email2FASetupTTL         = 10 * time.Minute
 	maxEmail2FASetupAttempts = 5
+
+	keyPhone2FASetupAttempts = "2fa:phone-setup:attempts:"
+	phone2FASetupTTL         = 10 * time.Minute
+	maxPhone2FASetupAttempts = 5
 )
 
 type email2FASetupData struct {
