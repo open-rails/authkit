@@ -541,9 +541,10 @@ type LanguageConfig struct {
 //	{BasePath}/oidc/{provider}/...       browser OIDC
 //	{BasePath}/.well-known/jwks.json     JWKS
 //
-// Exactly what sits in front of AuthKit must be declared (TrustedProxies,
-// CloudflareProxies, DirectPeerIP or Deps.ClientIP), or every client shares
-// one proxy's per-IP rate-limit bucket.
+// What sits in front of AuthKit must be declared, exactly once: the proxies
+// (TrustedProxies, with CloudflareProxies where Cloudflare fronts the
+// origin), DirectPeerIP, or Deps.ClientIP. Undeclared, every client shares
+// one proxy's per-IP rate-limit bucket; New refuses none and several.
 type HTTPConfig struct {
 	// Groups selects the mounted route groups. Nil mounts the default API
 	// surface plus browser OIDC; non-nil mounts exactly the named groups.

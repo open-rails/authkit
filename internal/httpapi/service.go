@@ -27,8 +27,6 @@ type Service struct {
 	replays             *dpop.Replays // spent DPoP proofs: Deps.Redis, else memory
 	closers             []func()      // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
-	clientIPExplicit    bool                         // Deps.ClientIP: host owns the strategy; proxy sets are not composed
-	directPeerIP        bool                         // Config.DirectPeerIP: host asserts no proxy in front (ak#299)
 	undeclaredProxyOnce sync.Once                    // one-shot tripwire: private peer carrying forwarded headers
 	unknownAddressOnce  sync.Once                    // one-shot tripwire: no client address at all
 	trustedProxies      []netip.Prefix               // Config.TrustedProxies: X-Forwarded-For walk

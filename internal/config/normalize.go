@@ -687,8 +687,17 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 	if _, err := ParseCIDRs("Cloudflare proxy", h.CloudflareProxies); err != nil {
 		return err
 	}
-	if d.ClientIP == nil && !h.DirectPeerIP && len(h.TrustedProxies) == 0 && len(h.CloudflareProxies) == 0 {
+	postures := 0
+	for _, set := range []bool{len(h.TrustedProxies) > 0 || len(h.CloudflareProxies) > 0, h.DirectPeerIP, d.ClientIP != nil} {
+		if set {
+			postures++
+		}
+	}
+	switch {
+	case postures == 0:
 		return errors.New("authkit: a client-IP posture is required — set HTTPConfig.TrustedProxies/CloudflareProxies for the proxies in front, DirectPeerIP to assert there are none, or Deps.ClientIP; behind an undeclared proxy every client shares one rate-limit bucket")
+	case postures > 1:
+		return errors.New("authkit: declare one client-IP posture, not several — HTTPConfig.TrustedProxies/CloudflareProxies for the proxies in front, DirectPeerIP for none, or Deps.ClientIP for the host's own")
 	}
 	if err := ratelimit.ValidateLimits(h.RateLimits); err != nil {
 		return err

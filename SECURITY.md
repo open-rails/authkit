@@ -36,6 +36,6 @@ Optional provider, passkey, device-key, OAuth federation/consent and directory s
 ## Your part
 
 - Serve AuthKit over HTTPS.
-- Declare exactly what sits in front of it (`HTTPConfig.TrustedProxies`, `CloudflareProxies` or `DirectPeerIP`). A wrong answer puts every client in one rate-limit budget, or lets clients choose their own address.
+- Declare exactly what sits in front of it, once: its proxies (`HTTPConfig.TrustedProxies`, with `CloudflareProxies` where Cloudflare fronts it), `DirectPeerIP` for none, or your own `Deps.ClientIP`. A wrong answer puts every client in one rate-limit budget, or lets clients choose their own address.
 - Running more than one replica, set `Deps.Redis`. Otherwise, and while Redis is down, each process keeps its own rate-limit budgets.
 - Keep the key directory (`KeysConfig.Path`: `keys.json` and `totp.key`) readable only by your server. See [keys](docs/keys.md).
