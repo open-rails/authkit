@@ -99,10 +99,27 @@ func Validate(p config.PasswordPolicy, pw string, identifiers ...string) error {
 			return ErrContainsIdentifier
 		}
 	}
-	if !p.AllowCommon && IsCommon(lower) {
+	if !p.AllowCommon && common(p, lower) {
 		return ErrTooCommon
 	}
 	return nil
+}
+
+// common reports whether lower, or lower without its punctuation and spaces
+// ("change-me" as "changeme"), is on the blocklist. The stripped form counts
+// only when it is still MinLength long, so a short common core inside
+// punctuation is not a match.
+func common(p config.PasswordPolicy, lower string) bool {
+	if IsCommon(lower) {
+		return true
+	}
+	core := strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return r
+		}
+		return -1
+	}, lower)
+	return core != lower && utf8.RuneCountInString(core) >= p.MinLength && IsCommon(core)
 }
 
 func missingClasses(p config.PasswordPolicy, pw string) []string {

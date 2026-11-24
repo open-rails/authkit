@@ -17,6 +17,7 @@
   "AK-J03-C04": "verification wrong account/purpose/tenant, expiry and replay",
   "AK-J03-C05": "abandon and restart registration",
   "AK-J03-C06": "taken email or phone registers like a fresh one and only its owner is told",
+  "AK-J03-C07": "a common password is refused at sign-up and password change whatever its case, punctuation and spaces",
   "AK-J04-C01": "valid and invalid identifier/password",
   "AK-J04-C02": "banned/deleted/unverified outcomes",
   "AK-J04-C03": "device limit and confirmation",

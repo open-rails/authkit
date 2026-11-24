@@ -352,7 +352,9 @@ type PasswordPolicy struct {
 	RequireDigit     bool `yaml:"require_digit"`
 	RequireSymbol    bool `yaml:"require_symbol"`
 	// AllowCommon admits passwords on AuthKit's embedded common-password
-	// blocklist, which the zero value refuses.
+	// blocklist, which the zero value refuses. The match ignores case, and
+	// punctuation and spaces while MinLength characters remain: "Change.Me"
+	// is "changeme".
 	AllowCommon bool `yaml:"allow_common"`
 }
 
