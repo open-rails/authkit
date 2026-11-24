@@ -4,7 +4,10 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/open-rails/authkit/keys"
@@ -54,5 +57,46 @@ func rsaPEM(t *testing.T) pemPair {
 	return pemPair{
 		private: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
 		public:  string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pub})),
+	}
+}
+
+func TestReloadNeverSwapsDevelopmentKeysForProvisioned(t *testing.T) {
+	dir := t.TempDir()
+	write := func(kid string, development bool) {
+		t.Helper()
+		data, err := json.Marshal(map[string]any{"active_key_id": kid, "active_private_key_pem": rsaPEM(t).private, "development": development})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "keys.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("provisioned", false)
+	src, err := keys.Watch(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	if src.Development() {
+		t.Fatal("unmarked keys.json reported as development")
+	}
+	write("development", true)
+	if err := src.Reload(); err == nil || src.ActiveSigner().KID() != "provisioned" || src.Development() {
+		t.Fatalf("development keys replaced provisioned ones: %v", err)
+	}
+
+	write("development", true)
+	dev, err := keys.Watch(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dev.Close()
+	if !dev.Development() {
+		t.Fatal("marked keys.json not reported as development")
+	}
+	write("provisioned", false)
+	if err := dev.Reload(); err != nil || dev.Development() || dev.ActiveSigner().KID() != "provisioned" {
+		t.Fatalf("provisioned keys did not replace development ones: %v", err)
 	}
 }

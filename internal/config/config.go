@@ -226,19 +226,14 @@ const (
 )
 
 // KeysConfig controls signing-key resolution when Deps.KeySource is nil.
-// Explicit paths are host-owned. Development-only default paths use the local
-// state directory (XDG_STATE_HOME, otherwise ~/.local/state).
 type KeysConfig struct {
 	// Path is the directory holding keys.json (hot-reloaded on rotation) and
-	// totp.key. Empty defaults to /vault/auth in production, or a stable
-	// per-issuer local state directory with AllowEphemeralDevKeys.
+	// totp.key. Empty is /vault/auth, or for a loopback Token.Issuer
+	// $XDG_STATE_HOME/authkit/development/<issuer SHA-256> (falling back to
+	// ~/.local/state). For a loopback issuer AuthKit generates whichever of
+	// the two is missing and reuses it across restarts, marked as development
+	// keys, which no other issuer loads. Any other issuer never generates.
 	Path string `yaml:"path"`
-	// AllowEphemeralDevKeys generates an RSA signing key when Path holds no
-	// keys.json, and a TOTP key when it holds no totp.key. Despite the legacy
-	// name, both keys are always persisted and reused across restarts. Empty
-	// Path uses $XDG_STATE_HOME/authkit/development/<issuer SHA-256>, falling
-	// back to ~/.local/state. Development only; never enabled automatically.
-	AllowEphemeralDevKeys bool `yaml:"allow_ephemeral_dev_keys"`
 	// VerifyOnly builds AuthKit with no signer: minting returns
 	// iam.ErrSigningNotConfigured, verification and permission reads work, and
 	// JWKS serves an empty set. Key resolution is skipped.

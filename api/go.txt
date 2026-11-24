@@ -350,7 +350,6 @@ pkg authkit, type InvitationsConfig struct
 pkg authkit, type InvitationsConfig struct, Disabled bool `yaml:"disabled"`
 pkg authkit, type KeysConfig = config.KeysConfig
 pkg authkit, type KeysConfig struct
-pkg authkit, type KeysConfig struct, AllowEphemeralDevKeys bool `yaml:"allow_ephemeral_dev_keys"`
 pkg authkit, type KeysConfig struct, Path string `yaml:"path"`
 pkg authkit, type KeysConfig struct, VerifyOnly bool `yaml:"verify_only"`
 pkg authkit, type LanguageConfig = config.LanguageConfig
@@ -1942,6 +1941,7 @@ pkg authkit/keys, func StaticFromPEM(string, string, map[string]string) (Static,
 pkg authkit/keys, func Watch(string, *slog.Logger) (*FileSource, error)
 pkg authkit/keys, method (*FileSource) ActiveSigner() Signer
 pkg authkit/keys, method (*FileSource) Close()
+pkg authkit/keys, method (*FileSource) Development() bool
 pkg authkit/keys, method (*FileSource) PublicKeys() map[string]crypto.PublicKey
 pkg authkit/keys, method (*FileSource) Reload() error
 pkg authkit/keys, method (Static) ActiveSigner() Signer

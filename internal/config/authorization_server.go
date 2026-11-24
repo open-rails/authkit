@@ -552,6 +552,13 @@ func loopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// LoopbackURL reports whether raw is a URL on a loopback host (localhost,
+// 127.0.0.0/8, [::1]), as an http issuer must be: a local deployment.
+func LoopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && loopbackHost(u.Hostname())
+}
+
 // NormalizeClientURIs is the redirect URI rule for a client registered at
 // run time: absolute https (http only on loopback), exact, no fragment.
 func NormalizeClientURIs(uris []string) ([]string, error) { return normalizeClientURIs(uris) }

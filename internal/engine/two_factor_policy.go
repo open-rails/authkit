@@ -91,7 +91,7 @@ func (s *Engine) secondFactorProblem() error {
 	}
 	var fixes []string
 	if s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.cfg.TwoFactor.TOTPSecretKey) == 0 {
-		fixes = append(fixes, fmt.Sprintf("put a 16, 24 or 32-byte key at %s (or set TwoFactor.TOTPSecretKey)", filepath.Join(totpKeysDir(s.cfg), totpKeyFilename)))
+		fixes = append(fixes, fmt.Sprintf("put a 16, 24 or 32-byte key at %s (or set TwoFactor.TOTPSecretKey)", filepath.Join(s.cfg.Keys.Path, totpKeyFilename)))
 	}
 	if s.twoFactorMethodConfigured(iam.TwoFactorEmail) {
 		fixes = append(fixes, "set a healthy Deps.Email")

@@ -47,7 +47,7 @@ type FileSource struct {
 	path     string // directory containing keys.json
 	interval time.Duration
 	log      *slog.Logger
-	cur      atomic.Pointer[Static]
+	cur      atomic.Pointer[fileKeys]
 
 	mu      sync.Mutex // serializes Reload and guards lastMod
 	lastMod time.Time
@@ -57,10 +57,10 @@ type FileSource struct {
 }
 
 // Watch loads <path>/keys.json, the envelope {active_key_id,
-// active_private_key_pem, public_keys: {kid: pem}}, and re-reads it every
-// 10s when it changed. It errors when path holds no valid keys.json, or one
-// that is group- or world-writable. Close stops the watch; reloads are logged
-// on log (nil is slog.Default()).
+// active_private_key_pem, public_keys: {kid: pem}, development}, and re-reads
+// it every 10s when it changed. It errors when path holds no valid keys.json,
+// or one that is group- or world-writable. Close stops the watch; reloads are
+// logged on log (nil is slog.Default()).
 func Watch(path string, log *slog.Logger) (*FileSource, error) {
 	return watch(path, defaultKeyReloadInterval, logx.Or(log))
 }
@@ -69,12 +69,12 @@ func watch(path string, interval time.Duration, log *slog.Logger) (*FileSource, 
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("key directory required")
 	}
-	static, err := loadStaticFromFile(log, path)
+	loaded, err := loadFile(log, path)
 	if err != nil {
 		return nil, err
 	}
 	r := &FileSource{path: path, interval: interval, log: log, done: make(chan struct{})}
-	r.cur.Store(static)
+	r.cur.Store(loaded)
 	if mod, modErr := r.keyFileModTime(); modErr == nil {
 		r.lastMod = mod
 	}
@@ -86,6 +86,10 @@ func (r *FileSource) ActiveSigner() Signer { return r.cur.Load().ActiveSigner() 
 func (r *FileSource) PublicKeys() map[string]crypto.PublicKey {
 	return r.cur.Load().PublicKeys()
 }
+
+// Development reports whether keys.json is marked "development": true, as
+// AuthKit marks the keys it generates for a loopback issuer.
+func (r *FileSource) Development() bool { return r.cur.Load().development }
 
 func (r *FileSource) keyFilePath() string { return filepath.Join(r.path, "keys.json") }
 
@@ -99,15 +103,19 @@ func (r *FileSource) keyFileModTime() (time.Time, error) {
 
 // Reload re-reads keys.json, validates it, and atomically swaps it in. On any
 // read/parse/validation failure it KEEPS the current keystore and returns the
-// error — it never serves a partial or empty key set.
+// error — it never serves a partial or empty key set. Development keys never
+// replace provisioned ones.
 func (r *FileSource) Reload() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	static, err := loadStaticFromFile(r.log, r.path)
+	loaded, err := loadFile(r.log, r.path)
 	if err != nil {
 		return err
 	}
-	r.cur.Store(static)
+	if loaded.development && !r.cur.Load().development {
+		return fmt.Errorf("%s now holds development keys: refusing them in place of provisioned keys", r.keyFilePath())
+	}
+	r.cur.Store(loaded)
 	return nil
 }
 
@@ -154,9 +162,15 @@ func (r *FileSource) pollLoop() {
 	}
 }
 
-// loadStaticFromFile loads the keys.json envelope under path:
-// {active_key_id, active_private_key_pem, public_keys: {kid: pem}}.
-func loadStaticFromFile(log *slog.Logger, path string) (*Static, error) {
+// fileKeys is one load of keys.json.
+type fileKeys struct {
+	Static
+	development bool
+}
+
+// loadFile loads the keys.json envelope under path: {active_key_id,
+// active_private_key_pem, public_keys: {kid: pem}, development}.
+func loadFile(log *slog.Logger, path string) (*fileKeys, error) {
 	data, err := keyfile.Read(log, path, "keys.json")
 	if err != nil {
 		return nil, fmt.Errorf("read keys.json under %s: %w", path, err)
@@ -165,6 +179,7 @@ func loadStaticFromFile(log *slog.Logger, path string) (*Static, error) {
 		ActiveKeyID         string            `json:"active_key_id"`
 		ActivePrivateKeyPEM string            `json:"active_private_key_pem"`
 		PublicKeys          map[string]string `json:"public_keys"`
+		Development         bool              `json:"development"`
 	}
 	if err := json.Unmarshal(data, &keyData); err != nil {
 		return nil, fmt.Errorf("failed to parse keys.json: %w", err)
@@ -173,7 +188,7 @@ func loadStaticFromFile(log *slog.Logger, path string) (*Static, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ks, nil
+	return &fileKeys{Static: ks, development: keyData.Development}, nil
 }
 
 // StaticFromPEM builds a Static source from the active signing key (kid and
