@@ -194,7 +194,6 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) {
 	// Every callback response carries the flow result (tokens, error, popup
 	// document); none may be cached.
-	w.Header().Set("Cache-Control", "no-store")
 	name := r.PathValue("provider")
 	p, ok := s.provider(name)
 	if !ok {
@@ -302,7 +301,6 @@ func (s *Service) emitBrowserResult(w http.ResponseWriter, r *http.Request, sd *
 		s.failBrowserFlow(w, r, sd, provider, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	if sd.StepUpUserID != "" {
 		http.Redirect(w, r, stepUpReturnURL(sd.StepUpReturnTo, url.Values{"code": {code}}), http.StatusFound)
 		return

@@ -406,14 +406,16 @@ SELECT g.id, g.persona, g.created_at, g.deleted_at, g.tenant_id, a.role
 FROM group_remote_application_roles a JOIN permission_groups g ON g.id = a.permission_group_id
 WHERE a.remote_application_id = $1 AND g.deleted_at IS NULL
   AND ($2::text = '' OR (g.persona, g.id) > ($2::text, NULLIF($3::text, '')::uuid))
+  AND ($4::text = '' OR g.tenant_id IS NULL OR g.tenant_id = $4::text::uuid)
 ORDER BY g.persona, g.id
-LIMIT $4::bigint
+LIMIT $5::bigint
 `
 
 type GroupsOfApplicationPageParams struct {
 	SubjectID    string
 	AfterPersona string
 	AfterID      string
+	TenantID     string
 	PageLimit    int64
 }
 
@@ -427,6 +429,7 @@ func (q *Queries) GroupsOfApplicationPage(ctx context.Context, arg GroupsOfAppli
 		arg.SubjectID,
 		arg.AfterPersona,
 		arg.AfterID,
+		arg.TenantID,
 		arg.PageLimit,
 	)
 	if err != nil {
@@ -459,14 +462,16 @@ SELECT g.id, g.persona, g.created_at, g.deleted_at, g.tenant_id, a.role
 FROM group_user_roles a JOIN permission_groups g ON g.id = a.permission_group_id
 WHERE a.user_id = $1 AND g.deleted_at IS NULL
   AND ($2::text = '' OR (g.persona, g.id) > ($2::text, NULLIF($3::text, '')::uuid))
+  AND ($4::text = '' OR g.tenant_id IS NULL OR g.tenant_id = $4::text::uuid)
 ORDER BY g.persona, g.id
-LIMIT $4::bigint
+LIMIT $5::bigint
 `
 
 type GroupsOfUserPageParams struct {
 	SubjectID    string
 	AfterPersona string
 	AfterID      string
+	TenantID     string
 	PageLimit    int64
 }
 
@@ -476,12 +481,14 @@ type GroupsOfUserPageRow struct {
 }
 
 // GroupsOfUserPage and GroupsOfApplicationPage list the live groups a subject
-// holds a role in, by persona then id.
+// holds a role in, by persona then id: only root and tenant_id's when it is
+// set.
 func (q *Queries) GroupsOfUserPage(ctx context.Context, arg GroupsOfUserPageParams) ([]GroupsOfUserPageRow, error) {
 	rows, err := q.db.Query(ctx, groupsOfUserPage,
 		arg.SubjectID,
 		arg.AfterPersona,
 		arg.AfterID,
+		arg.TenantID,
 		arg.PageLimit,
 	)
 	if err != nil {
@@ -675,8 +682,9 @@ WHERE g.persona <> 'root' AND ($1::text = '' OR g.persona = $1::text)
        AND a.enabled AND a.permission_group_id = r.permission_group_id
        AND (a.trust_root <> 'user' OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.registered_by))
        AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id = a.permission_group_id AND control.deleted_at IS NULL)))
+  AND ($6::text = '' OR g.tenant_id = $6::text::uuid)
 ORDER BY g.id
-LIMIT $6::bigint
+LIMIT $7::bigint
 `
 
 type PermissionGroupsPageParams struct {
@@ -685,13 +693,15 @@ type PermissionGroupsPageParams struct {
 	Ownerless      bool
 	After          string
 	MfaPersonas    []string
+	TenantID       string
 	PageLimit      int64
 }
 
-// PermissionGroupsPage lists non-root groups oldest first. ownerless keeps
-// live groups no owner counts for under the last-owner rule: a usable user
-// (MFA-enrolled in an mfa_personas group), or, where owners need no MFA, an
-// enabled application of the group itself whose registrar is usable.
+// PermissionGroupsPage lists non-root groups oldest first, only tenant_id's
+// when it is set. ownerless keeps live groups no owner counts for under the
+// last-owner rule: a usable user (MFA-enrolled in an mfa_personas group), or,
+// where owners need no MFA, an enabled application of the group itself whose
+// registrar is usable.
 func (q *Queries) PermissionGroupsPage(ctx context.Context, arg PermissionGroupsPageParams) ([]PermissionGroup, error) {
 	rows, err := q.db.Query(ctx, permissionGroupsPage,
 		arg.Persona,
@@ -699,6 +709,7 @@ func (q *Queries) PermissionGroupsPage(ctx context.Context, arg PermissionGroups
 		arg.Ownerless,
 		arg.After,
 		arg.MfaPersonas,
+		arg.TenantID,
 		arg.PageLimit,
 	)
 	if err != nil {

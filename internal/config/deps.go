@@ -98,8 +98,8 @@ type Deps struct {
 	// may name https://<host> when it reports true for the request's Host.
 	// No header is trusted otherwise.
 	ResourceHosts func(ctx context.Context, host string) (bool, error)
-	// ClientIP extracts the client address, replacing the proxy handling of
-	// HTTPConfig.
+	// ClientIP extracts the client address. It is the host's own client-IP
+	// posture: New refuses it beside HTTPConfig's proxies or DirectPeerIP.
 	ClientIP func(*http.Request) string
 	// RequestTenant selects an existing native account directory before HTTP
 	// guards consume credentials, sender proofs or rate limits. It must resolve

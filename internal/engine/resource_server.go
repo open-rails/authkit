@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,12 +14,14 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/cachepolicy"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/verify"
+	"github.com/open-rails/helpers/cache"
 )
 
 // The resource server (Config.Resource) verifies the RFC 9068 access tokens
@@ -78,6 +81,10 @@ type resourceServer struct {
 	// metadata fetches issuer metadata (RFC 8414) for applications without
 	// a jwks_uri, through the same guarded client as their keys.
 	metadata *http.Client
+	// jwksURIs is each such issuer's discovered jwks_uri, under the issuer
+	// keys' cache policy: one fetch at a time, none again within a failed
+	// one's backoff.
+	jwksURIs *cache.Cache[string, string]
 
 	mu sync.Mutex
 	// registered is when each trusted issuer's keys were last given to v:
@@ -99,6 +106,7 @@ func (s *Engine) newResourceServer() (*resourceServer, error) {
 		opts = append(opts, verify.WithPublicHosts(s.resourceHosts))
 	}
 	rs := &resourceServer{s: s, v: verify.NewVerifier(opts...), assertions: verify.NewVerifier(verify.WithHTTPClient(client)), metadata: client, registered: map[string]time.Time{}}
+	rs.jwksURIs = cachepolicy.New(cachepolicy.IssuerMetadata(), rs.discoverAll)
 	if err := rs.v.AddIssuer(s.cfg.Token.Issuer, []string{rc.ID}, verify.IssuerOptions{KeySource: s.keys, IsLocal: true}); err != nil {
 		return nil, err
 	}
@@ -214,9 +222,10 @@ func (rs *resourceServer) register(ctx context.Context, app iam.RemoteApplicatio
 	if app.Mode == iam.RemoteApplicationModeJWKS || len(app.PublicKeys) == 0 {
 		uri := app.JWKSURI
 		if uri == "" {
-			var err error
-			if uri, err = rs.discover(ctx, app.Issuer); err != nil {
-				return errmodel.E(errmodel.CodeIssuerKeysUnavailable, errmodel.WithCause(err))
+			found, err := rs.jwksURIs.Get(ctx, []string{app.Issuer})
+			var ok bool
+			if uri, ok = found[app.Issuer]; !ok {
+				return errmodel.E(errmodel.CodeIssuerKeysUnavailable, errmodel.WithCause(cmp.Or(err, errNoMetadata)))
 			}
 		}
 		keys = verify.IssuerOptions{JWKSURI: uri}
@@ -233,6 +242,23 @@ func (rs *resourceServer) register(ctx context.Context, app iam.RemoteApplicatio
 	rs.registered[app.Issuer] = app.UpdatedAt
 	rs.mu.Unlock()
 	return nil
+}
+
+var errNoMetadata = errors.New("issuer metadata unavailable")
+
+// discoverAll is jwksURIs' load: each issuer's discovered jwks_uri.
+func (rs *resourceServer) discoverAll(ctx context.Context, issuers []string) (map[string]string, error) {
+	out := make(map[string]string, len(issuers))
+	var errs []error
+	for _, issuer := range issuers {
+		uri, err := rs.discover(ctx, issuer)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		out[issuer] = uri
+	}
+	return out, errors.Join(errs...)
 }
 
 // discover reads issuer's jwks_uri from its authorization server metadata

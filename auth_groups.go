@@ -31,7 +31,7 @@ func (a *Client) RemoveGroupMember(ctx context.Context, who auth.Identity, ref i
 // GroupRoles returns the direct role of each subject holding one in the group,
 // for any number of subjects. Subjects without a role are absent.
 func (a *Client) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []iam.Subject) (map[iam.Subject]iam.Role, error) {
-	return a.ops.GroupRoles(a.operationContext(ctx), ref, subjects)
+	return a.ops.GroupRoles(a.groupContext(ctx), ref, subjects)
 }
 
 // Custom roles. A group of a persona declared with CustomRoles defines roles of
@@ -43,13 +43,13 @@ func (a *Client) GroupRoles(ctx context.Context, ref iam.GroupRef, subjects []ia
 // ListGroupRoles returns the roles assignable in the group: those its
 // persona declares, then the custom roles it defines, by name.
 func (a *Client) ListGroupRoles(ctx context.Context, ref iam.GroupRef) ([]iam.GroupRole, error) {
-	return a.ops.ListGroupRoles(a.operationContext(ctx), ref)
+	return a.ops.ListGroupRoles(a.groupContext(ctx), ref)
 }
 
 // GroupRole returns one role assignable in the group; any other is
 // iam.ErrRoleNotFound.
 func (a *Client) GroupRole(ctx context.Context, ref iam.GroupRef, role iam.Role) (iam.GroupRole, error) {
-	return a.ops.GroupRole(a.operationContext(ctx), ref, role)
+	return a.ops.GroupRole(a.groupContext(ctx), ref, role)
 }
 
 // CreateGroupRole defines a custom role in the group. A name it already uses
@@ -78,35 +78,37 @@ func (a *Client) DeleteGroupRole(ctx context.Context, who auth.Identity, ref iam
 // Groups. A persona is a type of permission group (channel, org, merchant); a
 // group is one instance of it, addressed by ID; root is the persona with
 // exactly one group, the whole site. Reads take no identity: the host is the
-// trust boundary.
+// trust boundary. A tenant view (ForTenant) reads, deletes and purges only its
+// tenant's groups (and reads root); another tenant's is iam.ErrGroupNotFound,
+// or absent from a list.
 
 // Group reads one group, a soft-deleted one included, with DeletedAt set.
 // Absence is iam.ErrGroupNotFound.
 func (a *Client) Group(ctx context.Context, ref iam.GroupRef) (iam.Group, error) {
-	return a.ops.Group(a.operationContext(ctx), ref)
+	return a.ops.Group(a.groupContext(ctx), ref)
 }
 
 // Groups reads any number of groups by id, soft-deleted ones included.
 // Unknown ids are absent.
 func (a *Client) Groups(ctx context.Context, ids []string) (map[string]iam.Group, error) {
-	return a.ops.Groups(a.operationContext(ctx), ids)
+	return a.ops.Groups(a.groupContext(ctx), ids)
 }
 
 // ListGroups lists the groups of a persona, oldest first, a page at a time.
 func (a *Client) ListGroups(ctx context.Context, q iam.GroupQuery) (iam.ListPage[iam.Group], error) {
-	return a.ops.ListGroups(a.operationContext(ctx), q)
+	return a.ops.ListGroups(a.groupContext(ctx), q)
 }
 
 // ListGroupMembers lists the subjects holding a role in a group, a page at a
 // time. InTx reads the host transaction's own writes without another connection.
 func (a *Client) ListGroupMembers(ctx context.Context, ref iam.GroupRef, q iam.MemberQuery, opts ...Option) (iam.ListPage[iam.GroupMember], error) {
-	return a.ops.ListGroupMembers(a.operationContext(ctx), ref, q, opts...)
+	return a.ops.ListGroupMembers(a.groupContext(ctx), ref, q, opts...)
 }
 
 // ListMemberships lists the live groups a subject holds a role in, a page at
 // a time.
 func (a *Client) ListMemberships(ctx context.Context, s iam.Subject, p iam.PageRequest) (iam.ListPage[iam.Membership], error) {
-	return a.ops.ListMemberships(a.operationContext(ctx), s, p)
+	return a.ops.ListMemberships(a.groupContext(ctx), s, p)
 }
 
 // Group lifecycle. A group guards an entity of your app (a channel); the app
@@ -128,14 +130,14 @@ func (a *Client) CreateGroup(ctx context.Context, g iam.NewGroup, opts ...Option
 // DeleteGroup soft-deletes a group: it stops resolving and granting at once,
 // while its rows stay until PurgeGroup. Deleting a deleted group is a no-op.
 func (a *Client) DeleteGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
-	return a.ops.DeleteGroup(a.operationContext(ctx), ref, opts...)
+	return a.ops.DeleteGroup(a.groupContext(ctx), ref, opts...)
 }
 
 // PurgeGroup permanently deletes a group, live or soft-deleted, with every
 // role, API key, invitation and application in it. Purging an unknown group
 // is a no-op.
 func (a *Client) PurgeGroup(ctx context.Context, ref iam.GroupRef, opts ...Option) error {
-	return a.ops.PurgeGroup(a.operationContext(ctx), ref, opts...)
+	return a.ops.PurgeGroup(a.groupContext(ctx), ref, opts...)
 }
 
 // Can reports whether identity holds perm in the group, checked live: a banned

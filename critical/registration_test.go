@@ -283,6 +283,18 @@ func TestCriticalRegistration(t *testing.T) {
 			t.Fatal("a sender without account_exists copy got no reset link")
 		}
 	})
+	t.Run("AK-J03-C07_common_password_is_refused_whatever_its_case_and_separators", func(t *testing.T) {
+		signUp := func(i int, password string) response {
+			return f.call(t, "POST", "/register", "", map[string]string{"identifier": fmt.Sprintf("common-attempt-%d@example.com", i), "username": fmt.Sprintf("commonattempt%d", i), "password": password})
+		}
+		for i, password := range []string{"changeme", "change-me", "Change.Me", "CHANGE ME", "Pass_Word-1"} {
+			signUp(i, password).want(t, http.StatusBadRequest, "password_too_common")
+		}
+		signUp(9, "Tr4il-Mix-Quokka").want(t, http.StatusAccepted, "")
+		u := f.user(t)
+		session := f.signIn(t, u)
+		f.call(t, "PUT", "/me/password", session.AccessToken, map[string]string{"new_password": "Change-Me"}).want(t, http.StatusBadRequest, "password_too_common")
+	})
 }
 
 // refuseAccountExists is a host sender with no copy for account_exists.

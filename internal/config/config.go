@@ -137,8 +137,9 @@ type Config struct {
 
 // TokenConfig is the JWT issuing/verification contract plus session limits.
 type TokenConfig struct {
-	// Issuer is this deployment's JWT issuer (required), for example
-	// "https://myapp.com". Its path, if any, is where the HTTP surface lives.
+	// Issuer is this deployment's JWT issuer (required), an https URL such
+	// as "https://myapp.com"; http only on a loopback host (localhost,
+	// 127.0.0.1, [::1]). Its path, if any, is where the HTTP surface lives.
 	Issuer string `yaml:"issuer"`
 	// IssuedAudiences are the audiences every issued token carries (at least
 	// one).
@@ -247,7 +248,8 @@ type KeysConfig struct {
 // FrontendConfig describes host-owned frontend routes.
 type FrontendConfig struct {
 	// BaseURL builds absolute links (password reset, verification, invites).
-	// Empty defaults to Token.Issuer when that is a URL.
+	// Empty defaults to Token.Issuer. Like it, it is an https URL, or http on
+	// a loopback host; its scheme decides whether cookies are Secure.
 	BaseURL string `yaml:"base_url"`
 	// OIDCReturnPath is the SPA route AuthKit redirects to after it finishes a
 	// browser sign-in with an identity provider (not the provider callback,
@@ -350,7 +352,9 @@ type PasswordPolicy struct {
 	RequireDigit     bool `yaml:"require_digit"`
 	RequireSymbol    bool `yaml:"require_symbol"`
 	// AllowCommon admits passwords on AuthKit's embedded common-password
-	// blocklist, which the zero value refuses.
+	// blocklist, which the zero value refuses. The match ignores case, and
+	// punctuation and spaces while MinLength characters remain: "Change.Me"
+	// is "changeme".
 	AllowCommon bool `yaml:"allow_common"`
 }
 
@@ -541,9 +545,10 @@ type LanguageConfig struct {
 //	{BasePath}/oidc/{provider}/...       browser OIDC
 //	{BasePath}/.well-known/jwks.json     JWKS
 //
-// Exactly what sits in front of AuthKit must be declared (TrustedProxies,
-// CloudflareProxies, DirectPeerIP or Deps.ClientIP), or every client shares
-// one proxy's per-IP rate-limit bucket.
+// What sits in front of AuthKit must be declared, exactly once: the proxies
+// (TrustedProxies, with CloudflareProxies where Cloudflare fronts the
+// origin), DirectPeerIP, or Deps.ClientIP. Undeclared, every client shares
+// one proxy's per-IP rate-limit bucket; New refuses none and several.
 type HTTPConfig struct {
 	// Groups selects the mounted route groups. Nil mounts the default API
 	// surface plus browser OIDC; non-nil mounts exactly the named groups.

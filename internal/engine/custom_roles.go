@@ -119,7 +119,7 @@ func (s *Engine) ListGroupRoles(ctx context.Context, ref iam.GroupRef) ([]iam.Gr
 		return nil, err
 	}
 	st := s.groupStore()
-	g, err := s.resolveGroup(ctx, st, ref)
+	g, err := s.viewGroup(ctx, st, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (s *Engine) GroupRole(ctx context.Context, ref iam.GroupRef, role iam.Role)
 		return iam.GroupRole{}, err
 	}
 	st := s.groupStore()
-	g, err := s.resolveGroup(ctx, st, ref)
+	g, err := s.viewGroup(ctx, st, ref)
 	if err != nil {
 		return iam.GroupRole{}, err
 	}

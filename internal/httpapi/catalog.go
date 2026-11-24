@@ -96,6 +96,10 @@ type RouteSpec struct {
 	// MFAEnrollmentExempt marks the 2FA enroll/challenge/verify surface a
 	// forced-enrollment-gated user must still reach (#243).
 	MFAEnrollmentExempt bool
+	// CacheControl is the Cache-Control of the route's successful answers.
+	// Empty is no-store, every answer's default; only public metadata
+	// names another.
+	CacheControl string
 	// Query, Request: the query string and the JSON body (zero values; nil
 	// for none). Responses: every success outcome.
 	Query   any
@@ -114,6 +118,12 @@ func handle(f func(*Service, http.ResponseWriter, *http.Request)) func(*Service)
 	return func(s *Service) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { f(s, w, r) })
 	}
+}
+
+// rootGated checks root permission perm in front of f, for a route whose
+// tier is not AuthPermission and whose operation takes no identity.
+func rootGated(perm iam.Perm, f func(*Service, http.ResponseWriter, *http.Request)) func(*Service) http.Handler {
+	return func(s *Service) http.Handler { return s.requirePermission(iam.RootGroup(), perm, handle(f)(s)) }
 }
 
 func groupOp(op GroupOp) func(*Service) http.Handler {
@@ -147,12 +157,12 @@ func Catalog() []RouteSpec {
 	signedIn := replyOK(AuthResult{})
 	usersRead := ident.RootUsersRead.String()
 	return []RouteSpec{
-		{Method: GET, Path: iam.JWKSPath, Surface: SurfaceBase, Group: auth, Auth: public, Bucket: RLJWKSRead,
+		{Method: GET, Path: iam.JWKSPath, Surface: SurfaceBase, Group: auth, Auth: public, Bucket: RLJWKSRead, CacheControl: "public, max-age=300, must-revalidate",
 			Responses: replyOK(keys.JWKS{}), serve: func(s *Service) http.Handler { return s.JWKSHandler() }},
 
 		// Signing in. Every answer that signs in, or names the next step, is
 		// an AuthResult.
-		{Method: GET, Path: "/capabilities", Group: auth, Auth: public, Bucket: RLCapabilitiesRead,
+		{Method: GET, Path: "/capabilities", Group: auth, Auth: public, Bucket: RLCapabilitiesRead, CacheControl: "public, max-age=300",
 			Responses: replyOK(Capabilities{}), serve: handle((*Service).handleCapabilitiesGET)},
 		{Method: POST, Path: "/token", Group: auth, Auth: public, Bucket: RLTokenRefresh,
 			Request: TokenRefreshRequest{}, Responses: signedIn, serve: handle((*Service).handleAuthTokenPOST)},
@@ -394,12 +404,13 @@ func Catalog() []RouteSpec {
 
 		// The tenant directory (#471). A tenant's ID is stable; its slug is a
 		// renamable public name, and a former name keeps resolving for a while.
-		{Method: POST, Path: "/admin/tenants", Group: admin, Auth: permission, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
-			Request: TenantCreateRequest{}, Responses: replyCreated(iam.Tenant{}), serve: handle((*Service).handleAdminTenantCreatePOST)},
+		// Writes, like the directory's, are for a person who signed in recently.
+		{Method: POST, Path: "/admin/tenants", Group: admin, Auth: session, StepUp: true, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
+			Request: TenantCreateRequest{}, Responses: replyCreated(iam.Tenant{}), serve: rootGated(ident.RootTenantsManage, (*Service).handleAdminTenantCreatePOST)},
 		{Method: GET, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: permission, Perm: ident.RootTenantsRead.String(), Bucket: RLAdminRead,
 			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantGET)},
-		{Method: PATCH, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: permission, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
-			Request: TenantRenameRequest{}, Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantPATCH)},
+		{Method: PATCH, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: session, StepUp: true, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
+			Request: TenantRenameRequest{}, Responses: replyOK(iam.Tenant{}), serve: rootGated(ident.RootTenantsManage, (*Service).handleAdminTenantPATCH)},
 		{Method: GET, Path: "/admin/tenants/by-slug/{slug}", Group: admin, Auth: permission, Perm: ident.RootTenantsRead.String(), Bucket: RLAdminRead,
 			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantBySlugGET)},
 
@@ -491,9 +502,9 @@ func Catalog() []RouteSpec {
 		// #430: the authorization server's protocol endpoints, beneath the
 		// issuer's path. Errors are OAuth's {error, error_description}; the
 		// browser endpoints redirect.
-		{Method: GET, Path: iam.OpenIDConfigurationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer,
+		{Method: GET, Path: iam.OpenIDConfigurationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer, CacheControl: "public, max-age=300",
 			Responses: replyOK(OAuthServerMetadata{}), serve: handle((*Service).handleOAuthMetadata)},
-		{Method: GET, Path: iam.AuthorizationServerMetadataPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer,
+		{Method: GET, Path: iam.AuthorizationServerMetadataPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer, CacheControl: "public, max-age=300",
 			Responses: replyOK(OAuthServerMetadata{}), serve: handle((*Service).handleOAuthMetadata)},
 		{Method: GET, Path: iam.OAuthAuthorizePath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthAuthorize, MountedWhen: FeatureAuthorizationServer,
 			Query: OAuthAuthorizeParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthAuthorize)},

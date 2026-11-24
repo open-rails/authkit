@@ -32,7 +32,6 @@ func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oi
 		return
 	}
 	code := browserErrorCode(err)
-	w.Header().Set("Cache-Control", "no-store")
 	if sd != nil && strings.TrimSpace(sd.StepUpUserID) != "" {
 		http.Redirect(w, r, stepUpReturnURL(sd.StepUpReturnTo, url.Values{"error": {code}}), http.StatusFound)
 		return
@@ -81,7 +80,6 @@ func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oi
 func writePopupDocument(w http.ResponseWriter, html []byte) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(html)
 }

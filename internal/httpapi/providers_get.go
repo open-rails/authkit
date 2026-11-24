@@ -17,7 +17,6 @@ func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, r *http.Request) 
 	caps.Paths = MountPaths{API: layout.api, OIDC: nullableString(layout.oidc), JWKS: nullableString(layout.jwks)}
 	body, _ := json.Marshal(caps)
 	sum := sha256.Sum256(body)
-	w.Header().Set("Cache-Control", "public, max-age=300")
 	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:])+`"`)
 	writeJSON(w, http.StatusOK, caps)
 }
