@@ -9,6 +9,7 @@ import { useMessages } from "#authui/i18n/context"
 import { useCapabilities } from "#authui/react/context"
 import { useLogin } from "#authui/react/useLogin"
 import { AuthUiRoot } from "#authui/scope"
+import { Captcha } from "./Captcha.tsx"
 import { useSignedIn, type SignInHostProps } from "./host.ts"
 import { identifierKind, normalizeIdentifier } from "./identifier.ts"
 import type { LoginController } from "./labels.ts"
@@ -45,6 +46,7 @@ export function ContactSignIn(props: ContactSignInProps) {
           defaultPhoneCountry={props.defaultPhoneCountry}
         />
       )}
+      <Captcha />
     </AuthUiRoot>
   )
 }

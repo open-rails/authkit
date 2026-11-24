@@ -42,6 +42,10 @@ type Deps struct {
 	Email EmailSender
 	// SMS delivers text messages, like Email (Client.SMSAvailable).
 	SMS SMSSender
+	// Captcha checks the bot challenge a browser solves before a start that
+	// texts or emails a code to an address it names (/passwordless/start,
+	// /register): adapters/captcha.New. Nil asks for none.
+	Captcha CaptchaVerifier
 
 	// Entitlements returns the names of users' active entitlements (billing
 	// tiers), keyed by user id; ids without any are absent. Admin views show
@@ -102,6 +106,11 @@ type Deps struct {
 	// ClientIP extracts the client address. It is the host's own client-IP
 	// posture: New refuses it beside HTTPConfig's proxies or DirectPeerIP.
 	ClientIP func(*http.Request) string
+	// RequestClient names the app or merchant a request comes through, such
+	// as the merchant whose checkout embeds the sign-in: every text message
+	// it triggers spends that client's sms_client budget. It must name only
+	// what the host trusts; "" (or nil) spends none.
+	RequestClient func(*http.Request) string
 	// RequestTenant selects an existing native account directory before HTTP
 	// guards consume credentials, sender proofs or rate limits. It must resolve
 	// only host-trusted assignments; request headers alone grant no authority.
@@ -134,8 +143,21 @@ type EmailSender interface {
 
 // SMSSender delivers text messages; adapters/twilio.NewSMS returns one.
 type SMSSender interface {
+	// Send delivers msg. A number it or its provider will not text is
+	// iam.RefuseSMSDestination: that number's answer, not the sender's
+	// health.
 	Send(ctx context.Context, msg iam.SMSMessage) error
 	// CheckHealth reports, without sending, whether messages can be delivered
 	// now: nil when healthy, or when the provider can't tell.
 	CheckHealth(ctx context.Context) error
+}
+
+// CaptchaVerifier checks bot challenges; adapters/captcha.New returns one.
+type CaptchaVerifier interface {
+	// Widget is what the browser renders: the provider and its site key.
+	Widget() iam.CaptchaWidget
+	// Verify checks the token the widget gave, solved at remoteIP; a token
+	// passes once. A refused token is iam.ErrCaptchaFailed; any other error
+	// means the provider could not tell.
+	Verify(ctx context.Context, token, remoteIP string) error
 }

@@ -59,6 +59,9 @@ type PasswordlessStartRequest struct {
 	ReturnTo          string `json:"return_to"`
 	PreferredLanguage string `json:"preferred_language"`
 	InviteCode        string `json:"invite_code"`
+	// CaptchaToken is the bot challenge's answer, required when
+	// capabilities name a captcha.
+	CaptchaToken string `json:"captcha_token"`
 }
 
 // CodeChallenge answers a start that may send a code: the challenge a code
@@ -134,6 +137,9 @@ type RegisterRequest struct {
 	InviteCode string `json:"invite_code"`
 	// Agreements are the documents the sign-up accepts (Config.Agreements).
 	Agreements []iam.AgreementRef `json:"agreements"`
+	// CaptchaToken is the bot challenge's answer, required when
+	// capabilities name a captcha.
+	CaptchaToken string `json:"captcha_token"`
 }
 
 // AgreementsRequest accepts documents at their current versions.
@@ -447,6 +453,9 @@ type Capabilities struct {
 	// Agreements are the documents users accept, at their current versions.
 	Agreements []iam.Agreement `json:"agreements"`
 	SMS        SMSCapabilities `json:"sms"`
+	// Captcha is the bot challenge /passwordless/start and /register
+	// require (Deps.Captcha); null when none.
+	Captcha *iam.CaptchaWidget `json:"captcha"`
 	// DPoP is SignIn.DPoP: optional (each client chooses) or required (a
 	// sign-in proves a DPoP key, RFC 9449).
 	DPoP  string     `json:"dpop"`

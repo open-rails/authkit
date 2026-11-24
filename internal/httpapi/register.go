@@ -32,6 +32,9 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
+	if !s.humanProven(w, r, req.CaptchaToken) {
+		return
+	}
 	out, err := s.svc.Register(r.Context(), authflow.RegisterInput{
 		Identifier: identifier, Username: req.Username, Password: req.Password,
 		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.InviteCode,

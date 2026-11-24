@@ -23,6 +23,7 @@ import { AuthUiRoot } from "#authui/scope"
 import { Button } from "#authui/ui/button"
 import { InputGroupButton } from "#authui/ui/input-group"
 import { Spinner } from "#authui/ui/spinner"
+import { Captcha } from "./Captcha.tsx"
 import { useCooldown } from "./cooldown.ts"
 import { useSignedIn, type SignInHostProps } from "./host.ts"
 import { usePasswordPolicy } from "./password.ts"
@@ -122,7 +123,12 @@ export function RegisterForm(props: RegisterFormProps) {
   } else {
     body = <RegisterFields {...props} register={register} login={login} />
   }
-  return <AuthUiRoot className={props.className}>{body}</AuthUiRoot>
+  return (
+    <AuthUiRoot className={props.className}>
+      {body}
+      <Captcha />
+    </AuthUiRoot>
+  )
 }
 
 type Check = { key: string; out: Availability }

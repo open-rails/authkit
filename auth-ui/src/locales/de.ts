@@ -659,6 +659,12 @@ export const de: AuthUiMessageBundle = {
     consent_revocation_refused: "Diese App kann noch nicht getrennt werden.",
     phone_country_not_allowed:
       "An Nummern in diesem Land können keine SMS gesendet werden.",
+    phone_number_not_allowed:
+      "An diese Nummer können keine SMS gesendet werden. Verwende eine Mobilnummer oder deine E-Mail-Adresse.",
+    captcha_failed:
+      "Bestätige, dass du kein Roboter bist, und versuche es erneut.",
+    captcha_unavailable:
+      "Die Prüfung, dass du kein Roboter bist, ist gerade nicht verfügbar. Versuche es gleich noch einmal.",
     authorization_request_not_found:
       "Diese Anmeldeanfrage ist abgelaufen. Kehren Sie zur App zurück und versuchen Sie es erneut.",
     network_error:

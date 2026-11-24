@@ -31,6 +31,10 @@ const (
 	keyPasswordless         = "passwordless:challenge:" // +<handle>
 	keyPasswordlessLink     = "passwordless:link:"      // +<linkHash> -> handle
 	keyPasswordlessFailures = "passwordless:failures:"  // +<handle>
+	// The text's spends of the unconfirmed-text budgets, given back when its
+	// code is proven. Apart from the challenge, which is claimed once and
+	// never written again.
+	keyPasswordlessSMS = "passwordless:sms:" // +<handle>
 )
 
 type passwordlessChallenge struct {
@@ -163,12 +167,17 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 	if linkToken != "" {
 		linkURL = s.passwordlessURL(channel, linkToken, rec.ReturnTo)
 	}
-	if err := s.sendPasswordlessChallenge(ctx, rec, code, linkURL); err != nil {
+	sendCtx, receipt := withSMSReceipt(ctx)
+	if err := s.sendPasswordlessChallenge(sendCtx, rec, code, linkURL); err != nil {
 		s.deletePasswordlessChallenge(ctx, rec)
 		if withheld(err) {
 			return result, nil
 		}
 		return authflow.PasswordlessStartResult{}, err
+	}
+	if len(*receipt) > 0 {
+		// Best effort: without it the text stays counted.
+		_ = s.ephemSetJSON(ctx, keyPasswordlessSMS+rec.handle, *receipt, defaultPasswordlessTTL)
 	}
 	result.Sent, result.Code, result.LinkURL = true, code, linkURL
 	return result, nil
@@ -239,6 +248,10 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 	account, err := s.consumePasswordlessChallenge(ctx, rec, accountRegistration{Agreements: agreements, IP: in.IP, UserAgent: in.UserAgent})
 	if err != nil {
 		return authflow.LoginOutcome{}, err
+	}
+	var spends []smsSpend
+	if ok, _ := s.ephemConsumeJSON(ctx, keyPasswordlessSMS+rec.handle, &spends); ok {
+		s.refundSMS(ctx, spends)
 	}
 	method := "email"
 	if rec.Channel == passwordlessChannelSMS {

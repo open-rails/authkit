@@ -22,6 +22,9 @@ func (s *Service) handlePasswordlessStartPOST(w http.ResponseWriter, r *http.Req
 		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
+	if !s.humanProven(w, r, req.CaptchaToken) {
+		return
+	}
 	// The address's send quota is the engine's, and never refuses.
 	out, err := s.svc.StartPasswordless(r.Context(), authflow.PasswordlessStartRequest{
 		Identifier:         identifier,

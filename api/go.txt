@@ -236,6 +236,10 @@ pkg authkit, type AuthorizationServerConfig struct, Clients []config.OAuthClient
 pkg authkit, type AuthorizationServerConfig struct, GroupClients config.GroupClientsConfig `yaml:"group_clients"`
 pkg authkit, type AuthorizationServerConfig struct, RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl"`
 pkg authkit, type AuthorizationServerConfig struct, Resources []config.ResourceServerConfig `yaml:"resources"`
+pkg authkit, type CaptchaVerifier = config.CaptchaVerifier
+pkg authkit, type CaptchaVerifier interface
+pkg authkit, type CaptchaVerifier interface, Verify(context.Context, string, string) error
+pkg authkit, type CaptchaVerifier interface, Widget() iam.CaptchaWidget
 pkg authkit, type Client struct
 pkg authkit, type Config = config.Config
 pkg authkit, type Config struct
@@ -286,6 +290,7 @@ pkg authkit, type DatabaseConfig struct, Schema string `yaml:"schema"`
 pkg authkit, type DatabaseConfig struct, SkipMigrations bool `yaml:"skip_migrations"`
 pkg authkit, type Deps = config.Deps
 pkg authkit, type Deps struct
+pkg authkit, type Deps struct, Captcha config.CaptchaVerifier
 pkg authkit, type Deps struct, ClientIP func(*http.Request) string
 pkg authkit, type Deps struct, ConsentRevocationCheck func(context.Context, string, string) error
 pkg authkit, type Deps struct, DeletionCheck func(context.Context, string) error
@@ -302,6 +307,7 @@ pkg authkit, type Deps struct, Postgres *pgxpool.Pool
 pkg authkit, type Deps struct, Providers []provider.Provider
 pkg authkit, type Deps struct, Redis redis.UniversalClient
 pkg authkit, type Deps struct, Replays verify.ReplayStore
+pkg authkit, type Deps struct, RequestClient func(*http.Request) string
 pkg authkit, type Deps struct, RequestTenant func(*http.Request) (iam.TenantID, error)
 pkg authkit, type Deps struct, ResourceHosts func(context.Context, string) (bool, error)
 pkg authkit, type Deps struct, SMS config.SMSSender
@@ -598,6 +604,20 @@ pkg authkit, type Verifier struct
 pkg authkit, var ErrMigrationsRequired error
 pkg authkit, var ErrNotificationScopeConflict error
 pkg authkit, var ErrNotificationsDisabled error
+pkg authkit/adapters/captcha, const HCaptcha Provider = "hcaptcha"
+pkg authkit/adapters/captcha, const Turnstile Provider = "turnstile"
+pkg authkit/adapters/captcha, func New(Config) (*Verifier, error)
+pkg authkit/adapters/captcha, method (*Verifier) Verify(context.Context, string, string) error
+pkg authkit/adapters/captcha, method (*Verifier) Widget() iam.CaptchaWidget
+pkg authkit/adapters/captcha, type Config struct
+pkg authkit/adapters/captcha, type Config struct, Client *http.Client
+pkg authkit/adapters/captcha, type Config struct, Hostnames []string
+pkg authkit/adapters/captcha, type Config struct, Provider Provider
+pkg authkit/adapters/captcha, type Config struct, Secret string
+pkg authkit/adapters/captcha, type Config struct, SiteKey string
+pkg authkit/adapters/captcha, type Config struct, VerifyURL string
+pkg authkit/adapters/captcha, type Provider string
+pkg authkit/adapters/captcha, type Verifier struct
 pkg authkit/adapters/fiber, const RouteNamePrefix untyped string = "authkit."
 pkg authkit/adapters/fiber, func Mount(*fiber.App, Surface) error
 pkg authkit/adapters/fiber, func Optional(verify.Authenticator) fiber.Handler
@@ -1118,6 +1138,7 @@ pkg authkit/iam, func PinnedTo(auth.Identity, string) auth.Identity
 pkg authkit/iam, func PublicDisplayName(map[string]PublicUser, string) string
 pkg authkit/iam, func RefuseConsentRevocation(string) error
 pkg authkit/iam, func RefuseDeletion(string) error
+pkg authkit/iam, func RefuseSMSDestination(string) error
 pkg authkit/iam, func RemoteApplicationSubject(string) Subject
 pkg authkit/iam, func RootGroup() GroupRef
 pkg authkit/iam, func RootPersona() Persona
@@ -1283,6 +1304,9 @@ pkg authkit/iam, type BootstrapUserPassword struct, Enforce bool `json:"enforce"
 pkg authkit/iam, type BootstrapUserPassword struct, Plaintext string `json:"plaintext" yaml:"plaintext"`
 pkg authkit/iam, type BootstrapUserPassword struct, ResetRequired bool `json:"reset_required" yaml:"reset_required"`
 pkg authkit/iam, type BootstrapUserPassword struct, embedded PasswordHash
+pkg authkit/iam, type CaptchaWidget struct
+pkg authkit/iam, type CaptchaWidget struct, Provider string `json:"provider"`
+pkg authkit/iam, type CaptchaWidget struct, SiteKey string `json:"site_key"`
 pkg authkit/iam, type ContactChange struct
 pkg authkit/iam, type ContactChange struct, Field ContactField
 pkg authkit/iam, type ContactChange struct, NewValue string
@@ -1881,6 +1905,7 @@ pkg authkit/iam, var ErrAccountRecoveryExpired Error
 pkg authkit/iam, var ErrAgreementRequired Error
 pkg authkit/iam, var ErrCannotTargetSelf Error
 pkg authkit/iam, var ErrCannotUnlinkLastLoginMethod Error
+pkg authkit/iam, var ErrCaptchaFailed Error
 pkg authkit/iam, var ErrConsentRequired Error
 pkg authkit/iam, var ErrConsentRevocationRefused Error
 pkg authkit/iam, var ErrContactNotVerified Error
@@ -1922,6 +1947,7 @@ pkg authkit/iam, var ErrRoleLimitReached Error
 pkg authkit/iam, var ErrRoleNotAssignable Error
 pkg authkit/iam, var ErrRoleNotEditable Error
 pkg authkit/iam, var ErrRoleNotFound Error
+pkg authkit/iam, var ErrSMSDestinationRefused Error
 pkg authkit/iam, var ErrSessionRevoked Error
 pkg authkit/iam, var ErrSigningNotConfigured Error
 pkg authkit/iam, var ErrSingleTenant Error

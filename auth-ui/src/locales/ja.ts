@@ -633,6 +633,9 @@ export const ja: AuthUiMessageBundle = {
     deletion_refused: "このアカウントはまだ削除できません。",
     consent_revocation_refused: "このアプリはまだ連携を解除できません。",
     phone_country_not_allowed: "この国の番号にはSMSを送信できません。",
+    phone_number_not_allowed: "この番号にはSMSを送信できません。携帯電話番号かメールアドレスを使用してください。",
+    captcha_failed: "ロボットでないことの確認を完了してから、もう一度お試しください。",
+    captcha_unavailable: "ロボットでないことの確認は現在利用できません。しばらくしてからもう一度お試しください。",
     authorization_request_not_found:
       "このログインリクエストは期限切れです。アプリに戻ってもう一度お試しください。",
     network_error:

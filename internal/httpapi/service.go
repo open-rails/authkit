@@ -34,6 +34,8 @@ type Service struct {
 	cloudflareProxies   []netip.Prefix               // Config.CloudflareProxies: + CF-Connecting-IP fallback
 	providers           map[string]provider.Provider // validated, keyed by Name()
 	smsSender           bool                         // Deps.SMS set: phone-only accounts' devices are recognized
+	captcha             config.CaptchaVerifier       // Deps.Captcha: code starts prove a human
+	requestClient       func(*http.Request) string   // Deps.RequestClient: sms_client's key
 }
 
 // rateLimited spends one request of bucket's budget for the client address

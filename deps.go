@@ -13,4 +13,7 @@ type (
 	// SMSSender delivers text messages and reports whether it can
 	// (adapters/twilio.NewSMS).
 	SMSSender = config.SMSSender
+	// CaptchaVerifier checks the bot challenge a browser solved
+	// (adapters/captcha.New).
+	CaptchaVerifier = config.CaptchaVerifier
 )

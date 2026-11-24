@@ -180,8 +180,14 @@ export type Capabilities = {
   languages: string[]
   agreements: Agreement[]
   sms: SMSCapabilities
+  captcha: CaptchaWidget | null
   dpop: string
   paths: MountPaths
+}
+
+export type CaptchaWidget = {
+  provider: string
+  site_key: string
 }
 
 export type ChannelCapabilities = {
@@ -732,6 +738,7 @@ export type PasswordlessStartRequest = {
   return_to?: string
   preferred_language?: string
   invite_code?: string
+  captcha_token?: string
 }
 
 export type PermissionSet = {
@@ -816,6 +823,7 @@ export type RegisterRequest = {
   password?: string
   invite_code?: string
   agreements?: AgreementRef[]
+  captcha_token?: string
 }
 
 export type RegistrationCapabilities = {

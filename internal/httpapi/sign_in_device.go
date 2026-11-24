@@ -55,11 +55,16 @@ func (s *Service) withSignInDevice(next http.Handler) http.Handler {
 	})
 }
 
-// withClientAddress attaches the request's rate-limit address for the
-// engine's own limits (text messages).
+// withClientAddress attaches the request's rate-limit address, and the
+// client it comes through (Deps.RequestClient), for the engine's own limits
+// (text messages).
 func (s *Service) withClientAddress(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r.WithContext(authflow.WithClientAddress(r.Context(), s.addressKey(r))))
+		ctx := authflow.WithClientAddress(r.Context(), s.addressKey(r))
+		if s.requestClient != nil {
+			ctx = authflow.WithRequestClient(ctx, strings.TrimSpace(s.requestClient(r)))
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
