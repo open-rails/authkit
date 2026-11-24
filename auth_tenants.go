@@ -18,8 +18,9 @@ import (
 // and name is safe; the ID under another name is iam.ErrTenantConflict, and a
 // name another tenant holds, now or as an unexpired former name, is
 // iam.ErrTenantNameTaken. A single-tenant deployment (Config.Tenancy)
-// refuses it with iam.ErrSingleTenant. Native calls are a trusted host
-// interface; HTTP provisioning requires root:tenants:manage.
+// refuses any ID but its own tenant's with iam.ErrSingleTenant. Native calls
+// are a trusted host interface; HTTP provisioning requires
+// root:tenants:manage.
 func (a *Client) CreateTenant(ctx context.Context, tenant iam.Tenant) error {
 	return a.engine.CreateTenant(ctx, tenant)
 }

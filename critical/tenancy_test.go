@@ -146,6 +146,15 @@ func TestCriticalTenancy(t *testing.T) {
 		if view.TenantID() != f.tenant {
 			t.Fatal("the deployment's own tenant was not selectable")
 		}
+		// Matching provisioning of its own tenant stays a no-op; another name
+		// for it is the conflict it always was.
+		own, err := f.auth.Tenant(t.Context(), f.tenant)
+		noError(t, err)
+		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: f.tenant, Slug: own.Slug}))
+		if err := f.auth.CreateTenant(t.Context(), iam.Tenant{ID: f.tenant, Slug: "renamed-by-create"}); !errors.Is(err, iam.ErrTenantConflict) {
+			t.Fatalf("CreateTenant(own ID, another name) = %v, want ErrTenantConflict", err)
+		}
+		f.call(t, "POST", "/admin/tenants", fresh, map[string]any{"id": f.tenant.String(), "slug": own.Slug}).want(t, http.StatusCreated, "")
 		if ids := f.tenantIDs(t); len(ids) != 1 {
 			t.Fatalf("a single-tenant deployment holds %v", ids)
 		}

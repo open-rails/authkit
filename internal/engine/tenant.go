@@ -137,14 +137,14 @@ func (s *Engine) Tenant(ctx context.Context, id iam.TenantID) (iam.Tenant, error
 }
 
 // CreateTenant is idempotent for the same ID and name; the same ID under
-// another name is iam.ErrTenantConflict. A single-tenant deployment refuses
-// it: its one tenant is Migrate's.
+// another name is iam.ErrTenantConflict. A single-tenant deployment's one
+// tenant is Migrate's: only that ID passes, as matching provisioning does.
 func (s *Engine) CreateTenant(ctx context.Context, tenant iam.Tenant) error {
-	if s.cfg.Tenancy == config.TenancySingle {
-		return fmt.Errorf("authkit: CreateTenant: this deployment is single-tenant; set Config.Tenancy to TenancyMulti for more tenants: %w", iam.ErrSingleTenant)
-	}
 	if tenant.ID.IsZero() {
 		return iam.ErrTenantRequired
+	}
+	if s.cfg.Tenancy == config.TenancySingle && tenant.ID != s.cfg.DefaultTenantID {
+		return fmt.Errorf("authkit: CreateTenant: this deployment is single-tenant; set Config.Tenancy to TenancyMulti for more tenants: %w", iam.ErrSingleTenant)
 	}
 	slug := iam.NormalizeTenantSlug(tenant.Slug)
 	if err := iam.ValidateTenantSlug(slug); err != nil {

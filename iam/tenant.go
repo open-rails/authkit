@@ -28,7 +28,7 @@ var (
 	// another name.
 	ErrTenantConflict Error = errmodel.E(errmodel.CodeTenantConflict)
 	// ErrSingleTenant refuses a tenant other than a single-tenant
-	// deployment's own, and CreateTenant there: more need TenancyMulti.
+	// deployment's own, to select or create: more need TenancyMulti.
 	ErrSingleTenant Error = errmodel.E(errmodel.CodeSingleTenant)
 )
 

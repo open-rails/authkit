@@ -18,12 +18,12 @@ storage path, role or authentication credential.
 
 ### Single-tenant (the default)
 
-An app serving one business sets nothing: no tenant ID, no `CreateTenant` call. `Migrate` (and `New`, which runs it) gives a fresh database its one tenant, a new UUIDv7 with its canonical permission group, and adopts the tenant an existing database already holds. Every account operation acts in it, and `Client.TenantID` reports it, for example to hand to ContentKit or OpenRails.
+An app serving one business sets nothing: no tenant ID, no `CreateTenant` call (one for its own tenant is a harmless no-op). `Migrate` (and `New`, which runs it) gives a fresh database its one tenant, a new UUIDv7 with its canonical permission group, and adopts the tenant an existing database already holds. Every account operation acts in it, and `Client.TenantID` reports it, for example to hand to ContentKit or OpenRails.
 
 - An existing app upgrades with its `DefaultTenantID` setting or without it, then deletes it. A setting that names another tenant than the database's refuses to start.
 - A fresh database whose tenant ID must match another system's (a ContentKit business UUID) keeps `DefaultTenantID` (or `MigrationOptions.LegacyTenantID` for a separate `Migrate` step) for its first start: the tenant is created under that ID.
 - A database holding more than one tenant refuses to start and to migrate: the data contradicts the mode. Such a deployment is multi-tenant.
-- `CreateTenant` is refused with `iam.ErrSingleTenant` (HTTP 403 `single_tenant`), and `ForTenant` or `Deps.RequestTenant` selects only the deployment's tenant.
+- `CreateTenant` of another ID is refused with `iam.ErrSingleTenant` (HTTP 403 `single_tenant`); of the deployment's own ID it is the idempotent no-op matching provisioning always is. `ForTenant` or `Deps.RequestTenant` selects only the deployment's tenant.
 
 ### Multi-tenant
 
