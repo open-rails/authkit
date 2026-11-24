@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -253,6 +254,54 @@ func TestCriticalTransport(t *testing.T) {
 			} else {
 				r.want(t, 429, "")
 			}
+		}
+	})
+	t.Run("AK-J31-C08_every_answer_is_no_store_but_public_metadata", func(t *testing.T) {
+		f := fullSurfaceFixture(t)
+		public := map[string]string{
+			"GET " + iam.JWKSPath:                        "public, max-age=300, must-revalidate",
+			"GET " + f.auth.APIBase() + "/capabilities":  "public, max-age=300",
+			"GET " + iam.OpenIDConfigurationPath:         "public, max-age=300",
+			"GET " + iam.AuthorizationServerMetadataPath: "public, max-age=300",
+		}
+		// Redirects are answers too; following them would leave the deployment.
+		client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		param := regexp.MustCompile(`\{[a-z_]+\}`)
+		checked := 0
+		for _, route := range f.auth.Routes() {
+			if route.Method == http.MethodHead {
+				continue
+			}
+			path := param.ReplaceAllString(strings.ReplaceAll(route.Path, "{provider}", "unconfigured"), iam.NewTenantID().String())
+			body := "{}"
+			if route.Method == http.MethodGet || route.Method == http.MethodDelete || route.Method == http.MethodOptions {
+				body = ""
+			}
+			r := wire(t, client, route.Method, f.server.URL+path, "", "application/json", body, nil)
+			want := "no-store"
+			if policy, ok := public[route.Method+" "+route.Path]; ok {
+				r.want(t, http.StatusOK, "")
+				want = policy
+				delete(public, route.Method+" "+route.Path)
+			}
+			if got := r.header.Get("Cache-Control"); got != want {
+				t.Errorf("%s %s answered %d with Cache-Control %q, want %q", route.Method, path, r.status, got, want)
+			}
+			checked++
+		}
+		if len(public) != 0 || checked < 100 {
+			t.Fatalf("checked %d routes; public metadata not mounted: %v", checked, public)
+		}
+		f.call(t, "GET", "/no-such-route", "", nil).want(t, http.StatusNotFound, "")
+		if got := f.call(t, "GET", "/no-such-route", "", nil).header.Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("unmatched API path answered Cache-Control %q", got)
+		}
+		// The answer that shows an API key's secret once.
+		group, owner, _ := f.ownedGroup(t)
+		r := f.call(t, "POST", "/groups/"+group.ID+"/api-keys", f.signIn(t, owner).AccessToken, map[string]string{"name": "shown once", "role": f.reader.String()})
+		r.want(t, http.StatusCreated, "")
+		if got := r.header.Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("API key secret answered Cache-Control %q", got)
 		}
 	})
 	t.Run("AK-J31-C07_external_module_can_build_shipped_public_boundaries", func(t *testing.T) {

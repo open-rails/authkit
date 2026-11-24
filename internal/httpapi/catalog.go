@@ -96,6 +96,10 @@ type RouteSpec struct {
 	// MFAEnrollmentExempt marks the 2FA enroll/challenge/verify surface a
 	// forced-enrollment-gated user must still reach (#243).
 	MFAEnrollmentExempt bool
+	// CacheControl is the Cache-Control of the route's successful answers.
+	// Empty is no-store, every answer's default; only public metadata
+	// names another.
+	CacheControl string
 	// Query, Request: the query string and the JSON body (zero values; nil
 	// for none). Responses: every success outcome.
 	Query   any
@@ -147,12 +151,12 @@ func Catalog() []RouteSpec {
 	signedIn := replyOK(AuthResult{})
 	usersRead := ident.RootUsersRead.String()
 	return []RouteSpec{
-		{Method: GET, Path: iam.JWKSPath, Surface: SurfaceBase, Group: auth, Auth: public, Bucket: RLJWKSRead,
+		{Method: GET, Path: iam.JWKSPath, Surface: SurfaceBase, Group: auth, Auth: public, Bucket: RLJWKSRead, CacheControl: "public, max-age=300, must-revalidate",
 			Responses: replyOK(keys.JWKS{}), serve: func(s *Service) http.Handler { return s.JWKSHandler() }},
 
 		// Signing in. Every answer that signs in, or names the next step, is
 		// an AuthResult.
-		{Method: GET, Path: "/capabilities", Group: auth, Auth: public, Bucket: RLCapabilitiesRead,
+		{Method: GET, Path: "/capabilities", Group: auth, Auth: public, Bucket: RLCapabilitiesRead, CacheControl: "public, max-age=300",
 			Responses: replyOK(Capabilities{}), serve: handle((*Service).handleCapabilitiesGET)},
 		{Method: POST, Path: "/token", Group: auth, Auth: public, Bucket: RLTokenRefresh,
 			Request: TokenRefreshRequest{}, Responses: signedIn, serve: handle((*Service).handleAuthTokenPOST)},
@@ -491,9 +495,9 @@ func Catalog() []RouteSpec {
 		// #430: the authorization server's protocol endpoints, beneath the
 		// issuer's path. Errors are OAuth's {error, error_description}; the
 		// browser endpoints redirect.
-		{Method: GET, Path: iam.OpenIDConfigurationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer,
+		{Method: GET, Path: iam.OpenIDConfigurationPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer, CacheControl: "public, max-age=300",
 			Responses: replyOK(OAuthServerMetadata{}), serve: handle((*Service).handleOAuthMetadata)},
-		{Method: GET, Path: iam.AuthorizationServerMetadataPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer,
+		{Method: GET, Path: iam.AuthorizationServerMetadataPath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthMetadata, MountedWhen: FeatureAuthorizationServer, CacheControl: "public, max-age=300",
 			Responses: replyOK(OAuthServerMetadata{}), serve: handle((*Service).handleOAuthMetadata)},
 		{Method: GET, Path: iam.OAuthAuthorizePath, Surface: SurfaceOAuth, Group: as, Auth: public, Bucket: RLOAuthAuthorize, MountedWhen: FeatureAuthorizationServer,
 			Query: OAuthAuthorizeParams{}, Responses: oauthRedirectReply, serve: handle((*Service).handleOAuthAuthorize)},

@@ -50,7 +50,6 @@ func (s *Service) handleMe2FASetupPOST(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	setup := TwoFactorSetup{Method: out.Method}
 	switch out.Kind {
 	case authflow.TwoFactorEnrollCodeSent:
@@ -103,7 +102,6 @@ func (s *Service) handleMe2FAFactorsPOST(w http.ResponseWriter, r *http.Request)
 	if auth.Status != "" {
 		created.Auth = &auth
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusCreated, created)
 }
 
@@ -195,7 +193,6 @@ func (s *Service) handleMe2FABackupCodesPOST(w http.ResponseWriter, r *http.Requ
 		writeError(w, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, BackupCodes{BackupCodes: backupCodes})
 }
 

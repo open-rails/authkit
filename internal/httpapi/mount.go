@@ -124,7 +124,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 	}
 	for _, spec := range Catalog() {
 		if path := joinRoutePath(base, spec.Path); spec.Surface == SurfaceBase && !skip(spec.Method, path) {
-			register(spec.Method+" "+path, svc.rateLimitedRoute(spec.Bucket, spec.serve(svc)), iam.Route{Method: spec.Method, Path: path, Group: spec.Group, Auth: spec.Auth, Permission: spec.Perm})
+			register(spec.Method+" "+path, svc.rateLimitedRoute(spec.Bucket, cacheControl(spec.CacheControl, spec.serve(svc))), iam.Route{Method: spec.Method, Path: path, Group: spec.Group, Auth: spec.Auth, Permission: spec.Perm})
 			layout.jwks = path
 		}
 	}
@@ -183,6 +183,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 	if opts.RefreshCookie {
 		result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
 	}
+	result.handler = noStore(result.handler)
 	return result, nil
 }
 

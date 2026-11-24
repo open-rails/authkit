@@ -11,17 +11,16 @@ import (
 	"github.com/open-rails/authkit/keys"
 )
 
-// ServeJWKS writes ks with the caching contract a CDN-fronted JWKS needs:
-// ETag and Cache-Control on every answer, the 304 included (RFC 7232 requires
-// the validator there); If-None-Match matched per RFC 7232 §3.2 ("*", lists,
-// weak "W/"); and nosniff.
+// ServeJWKS writes ks with the validator a CDN-fronted JWKS needs: an ETag
+// on every answer, the 304 included (RFC 7232 requires it there);
+// If-None-Match matched per RFC 7232 §3.2 ("*", lists, weak "W/"); and
+// nosniff. The route sets its Cache-Control.
 func ServeJWKS(w http.ResponseWriter, r *http.Request, ks keys.JWKS) {
 	b, _ := json.Marshal(ks)
 	sum := sha256.Sum256(b)
 	etag := `"` + hex.EncodeToString(sum[:]) + `"`
 
 	h := w.Header()
-	h.Set("Cache-Control", "public, max-age=300, must-revalidate")
 	h.Set("ETag", etag)
 	h.Set("X-Content-Type-Options", "nosniff")
 	if inm := r.Header.Get("If-None-Match"); inm != "" && etagMatches(inm, etag) {

@@ -109,6 +109,7 @@
   "AK-J31-C05": "cookie origin/CSRF, CORS and proxy spoofing",
   "AK-J31-C06": "per-bucket429 and optional provider/sender/Redis outage",
   "AK-J31-C07": "public package import/exports artifact smoke",
+  "AK-J31-C08": "every mounted route answers Cache-Control: no-store, refusals and unknown paths included, except JWKS, capabilities and authorization server metadata, and the API key mint shows its secret no-store",
   "AK-J32-C01": "expired proof/session/token refused before sweep",
   "AK-J32-C02": "terminal key/invite retention boundary",
   "AK-J32-C03": "live and pending records survive sweeps",

@@ -29,6 +29,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - `HTTPConfig.Exclude` drops individual routes the host serves itself.
 - `Client.Routes()` lists what is mounted.
 - `Deps.Wrap` decorates each handler: logging, tracing, CORS. AuthKit sets no CORS headers of its own.
+- Every answer is `Cache-Control: no-store`, refusals and unknown paths included, except the successful answers of the public metadata: JWKS (`public, max-age=300, must-revalidate`), `/capabilities` and the authorization server's metadata documents (`public, max-age=300`).
 
 ## Browsers
 

@@ -12,11 +12,9 @@ func (s *Service) handleUsernameGenerateGET(w http.ResponseWriter, r *http.Reque
 		writeError(w, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, UsernameCandidate{Username: name})
 }
 func (s *Service) handleUsernameAvailabilityGET(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
 	var q UsernameQuery
 	if !readQuery(w, r, &q) {
 		return
@@ -33,6 +31,5 @@ func (s *Service) handleUsernameAvailabilityGET(w http.ResponseWriter, r *http.R
 		}
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, AvailabilityField{Available: true})
 }
