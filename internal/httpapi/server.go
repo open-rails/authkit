@@ -44,6 +44,9 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		wrap:      deps.Wrap,
 		replays:   dpop.NewReplays(deps.Redis, deps.Replays, deps.Logger),
 		smsSender: deps.SMS != nil,
+		captcha:   deps.Captcha,
+
+		requestClient: deps.RequestClient,
 	}
 	// Normalize admitted exactly one client-IP posture.
 	s.trustedProxies, _ = config.ParseCIDRs("trusted proxy", h.TrustedProxies)

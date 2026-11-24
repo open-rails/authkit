@@ -192,9 +192,11 @@ func emailDeliveryError(err error) error {
 	return fmt.Errorf("%w: %w", errmodel.ErrEmailDeliveryFailed, err)
 }
 
+// smsDeliveryError is a failed send's answer: the number's refusal as it
+// is, any other failure sms_delivery_failed.
 func smsDeliveryError(err error) error {
-	if err == nil {
-		return nil
+	if err == nil || errors.Is(err, iam.ErrSMSDestinationRefused) {
+		return err
 	}
 	return fmt.Errorf("%w: %w", errmodel.ErrSMSDeliveryFailed, err)
 }

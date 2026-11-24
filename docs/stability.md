@@ -21,7 +21,7 @@ The covered API is every exported identifier of the packages below, with its doc
 | `devicekey` | the device-key client, its signing domains and capabilities |
 | `notify` | account notification types and the scoped `Publisher` contract |
 | `adapters/gin`, `adapters/fiber` | mounting on Gin or Fiber, and the middleware |
-| `adapters/smtp`, `adapters/twilio` | the email (SMTP) and SMS (Twilio) senders |
+| `adapters/smtp`, `adapters/twilio`, `adapters/captcha` | the email (SMTP) and SMS (Twilio) senders, and the bot challenge (Turnstile, hCaptcha) |
 | `auth`, `userinfo` | provider-neutral authentication and user-directory contracts; standard library only |
 | `auth/authtest`, `userinfo/userinfotest` | conformance checks for custom host implementations |
 | `authtest` | test helpers for hosts |

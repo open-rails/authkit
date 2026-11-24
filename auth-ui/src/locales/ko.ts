@@ -627,6 +627,9 @@ export const ko: AuthUiMessageBundle = {
     consent_revocation_refused: "이 앱은 아직 연결을 해제할 수 없습니다.",
     phone_country_not_allowed:
       "이 국가의 번호로는 문자 메시지를 보낼 수 없습니다.",
+    phone_number_not_allowed: "이 번호로는 문자 메시지를 보낼 수 없습니다. 휴대폰 번호나 이메일을 사용하세요.",
+    captcha_failed: "로봇이 아님을 확인한 뒤 다시 시도하세요.",
+    captcha_unavailable: "로봇이 아님을 확인하는 기능을 지금 사용할 수 없습니다. 잠시 후 다시 시도하세요.",
     authorization_request_not_found:
       "이 로그인 요청이 만료되었습니다. 앱으로 돌아가 다시 시도하세요.",
     network_error:

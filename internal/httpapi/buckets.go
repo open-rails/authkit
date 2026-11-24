@@ -116,6 +116,12 @@ const (
 	RLSMSAccount = "sms_account"
 	RLSMSAddress = "sms_address"
 	RLSMSCountry = "sms_country"
+	// Unconfirmed codes texted to a number someone typed, per block of
+	// 10,000 numbers and per requesting client (Deps.RequestClient): a code
+	// sign-in that proves the number gives its text back, so only traffic
+	// that never converts counts.
+	RLSMSRange  = "sms_range"
+	RLSMSClient = "sms_client"
 
 	// Solana SIWS authentication
 	RLSolanaChallenge = "solana_challenge"
@@ -174,6 +180,8 @@ var buckets = map[string]ratelimit.Limit{
 	RLSMSAccount: {Limit: 30, Window: time.Hour},
 	RLSMSAddress: {Limit: 20, Window: time.Hour},
 	RLSMSCountry: {Limit: 1000, Window: time.Hour},
+	RLSMSRange:   {Limit: 20, Window: time.Hour},
+	RLSMSClient:  {Limit: 100, Window: time.Hour},
 
 	// They issue a secret. An OIDC start issues the flow's state.
 	RL2FASetupTOTP:       {Limit: 6, Window: time.Hour},

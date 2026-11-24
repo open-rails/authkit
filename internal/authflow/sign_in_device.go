@@ -32,6 +32,20 @@ func ClientAddressFrom(ctx context.Context) string {
 	return a
 }
 
+type requestClientKey struct{}
+
+// WithRequestClient attaches the app or merchant a request comes through
+// (Deps.RequestClient), whose budget its text messages spend.
+func WithRequestClient(ctx context.Context, client string) context.Context {
+	return context.WithValue(ctx, requestClientKey{}, client)
+}
+
+// RequestClientFrom is the client WithRequestClient attached, or "".
+func RequestClientFrom(ctx context.Context) string {
+	c, _ := ctx.Value(requestClientKey{}).(string)
+	return c
+}
+
 // WithSignInDevice attaches the request's device to ctx.
 func WithSignInDevice(ctx context.Context, d SignInDevice) context.Context {
 	return context.WithValue(ctx, signInDeviceKey{}, d)
