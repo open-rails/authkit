@@ -2,15 +2,59 @@ package critical_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/keys"
 	riverkit "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
 )
+
+// writeKeyFile writes a key file and gives it mode, whatever the umask.
+func writeKeyFile(t *testing.T, dir, name string, data []byte, mode os.FileMode) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	noError(t, os.WriteFile(path, data, 0o600))
+	noError(t, os.Chmod(path, mode))
+}
+
+// keysJSON is a keys.json whose active key is a fresh RSA key named kid.
+func keysJSON(t *testing.T, kid string) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	noError(t, err)
+	data, err := json.Marshal(map[string]any{
+		"active_key_id":          kid,
+		"active_private_key_pem": string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
+		"public_keys":            map[string]string{},
+	})
+	noError(t, err)
+	return data
+}
+
+// startRefused asserts New refuses cfg/deps, naming why.
+func startRefused(t *testing.T, cfg authkit.Config, deps authkit.Deps, reason string) {
+	t.Helper()
+	client, err := authkit.New(t.Context(), cfg, deps)
+	if client != nil {
+		_ = client.Close(context.Background())
+	}
+	if err == nil || !strings.Contains(err.Error(), reason) {
+		t.Fatalf("New = %v, want a refusal naming %q", err, reason)
+	}
+}
 
 func TestCriticalRuntime(t *testing.T) {
 	t.Run("AK-J01-C01_concurrent_boot_preserves_one_authority", func(t *testing.T) {
@@ -110,6 +154,44 @@ func TestCriticalRuntime(t *testing.T) {
 		case <-fleet.Stopped():
 			t.Fatal("AuthKit closed its host-owned River fleet")
 		default:
+		}
+	})
+	t.Run("AK-J01-C05_writable_key_files_refuse_startup_and_reload", func(t *testing.T) {
+		f := newFixture(t)
+		deps := f.deps
+		deps.KeySource = nil
+		cfg := f.cfg
+		for _, mode := range []os.FileMode{0o620, 0o602} {
+			dir := t.TempDir()
+			writeKeyFile(t, dir, "keys.json", keysJSON(t, "writable"), mode)
+			cfg.Keys = authkit.KeysConfig{Path: dir}
+			startRefused(t, cfg, deps, "group/world-writable")
+		}
+		dir := t.TempDir()
+		writeKeyFile(t, dir, "keys.json", keysJSON(t, "readonly"), 0o440)
+		writeKeyFile(t, dir, "totp.key", []byte(base64.StdEncoding.EncodeToString(make([]byte, 32))), 0o660)
+		cfg.Keys = authkit.KeysConfig{Path: dir}
+		cfg.TwoFactor.TOTPSecretKey = nil
+		startRefused(t, cfg, deps, "group/world-writable")
+		noError(t, os.Chmod(filepath.Join(dir, "totp.key"), 0o440))
+		client, err := authkit.New(t.Context(), cfg, deps)
+		noError(t, err)
+		noError(t, client.Close(context.Background()))
+
+		// A rotation rendered writable keeps serving the last good keys.
+		dir = t.TempDir()
+		writeKeyFile(t, dir, "keys.json", keysJSON(t, "first"), 0o600)
+		src, err := keys.Watch(dir)
+		noError(t, err)
+		t.Cleanup(src.Close)
+		writeKeyFile(t, dir, "keys.json", keysJSON(t, "second"), 0o660)
+		if err := src.Reload(); err == nil || src.ActiveSigner().KID() != "first" {
+			t.Fatalf("writable keys.json was swapped in: %v, active %s", err, src.ActiveSigner().KID())
+		}
+		noError(t, os.Chmod(filepath.Join(dir, "keys.json"), 0o600))
+		noError(t, src.Reload())
+		if src.ActiveSigner().KID() != "second" {
+			t.Fatal("corrected keys.json was not loaded")
 		}
 	})
 }

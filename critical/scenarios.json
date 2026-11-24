@@ -3,6 +3,7 @@
   "AK-J01-C02": "existing-schema restart and skip-migration validation",
   "AK-J01-C03": "missing signer or PostgreSQL refuses startup",
   "AK-J01-C04": "borrowed pool/fleet and tenant-view lifetime",
+  "AK-J01-C05": "a group- or world-writable keys.json or totp.key refuses startup, and a reload to a writable keys.json keeps the last good keys",
   "AK-J02-C01": "two tenants sharing email/username; allowed public-user projection returns the scoped public identity without private contact or credential fields",
   "AK-J02-C02": "bootstrap repeat and last-owner constraints",
   "AK-J02-C03": "failed import/transaction rollback and retry",

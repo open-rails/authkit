@@ -4,13 +4,14 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	stdlog "log"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/keyfile"
 )
 
 // TOTP secret-encryption key as first-class vault key material (#148). The key
@@ -42,7 +43,7 @@ func resolveTOTPSecretKey(cfg config.Config) ([]byte, error) {
 	if cfg.Keys.AllowEphemeralDevKeys && strings.TrimSpace(cfg.Keys.Path) == "" {
 		return nil, fmt.Errorf("authkit: development key directory must be resolved for the issuer")
 	}
-	key, err := loadTOTPKey(filepath.Join(totpKeysDir(cfg), totpKeyFilename))
+	key, err := loadTOTPKey(totpKeysDir(cfg))
 	if key == nil && err == nil && cfg.Keys.AllowEphemeralDevKeys {
 		return ephemeralTOTPKey(totpKeysDir(cfg))
 	}
@@ -63,30 +64,18 @@ func ephemeralTOTPKey(dir string) ([]byte, error) {
 	if err := createDevelopmentKey(path, []byte(base64.StdEncoding.EncodeToString(key))); err != nil {
 		return nil, fmt.Errorf("authkit: persist dev TOTP key %s: %w", path, err)
 	}
-	return loadTOTPKey(path)
+	return loadTOTPKey(dir)
 }
 
-// loadTOTPKey reads a totp.key file; a missing one is (nil, nil).
-func loadTOTPKey(path string) ([]byte, error) {
-	info, err := os.Stat(path)
-	if os.IsNotExist(err) {
+// loadTOTPKey reads dir's totp.key; a missing one is (nil, nil).
+func loadTOTPKey(dir string) ([]byte, error) {
+	path := filepath.Join(dir, totpKeyFilename)
+	raw, err := keyfile.Read(dir, totpKeyFilename)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("authkit: stat TOTP key %s: %w", path, err)
-	}
-	// Group-read is allowed: a Kubernetes secret volume with fsGroup mounts it
-	// 0440, the only way a non-root pod reads it.
-	mode := info.Mode().Perm()
-	if mode&0o022 != 0 {
-		return nil, fmt.Errorf("authkit: TOTP key %s is group/world-writable (%#o) — refuse to load (expected 0600, 0400 or 0440)", path, mode)
-	}
-	if mode&0o004 != 0 {
-		stdlog.Printf("authkit: warning: TOTP key %s is world-readable (%#o); expected 0600, 0400 or 0440", path, mode)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("authkit: read TOTP key %s: %w", path, err)
+		return nil, fmt.Errorf("authkit: TOTP key: %w", err)
 	}
 	key, err := decodeTOTPKeyBytes(raw)
 	if err != nil {
