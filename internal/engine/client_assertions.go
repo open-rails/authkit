@@ -63,7 +63,7 @@ func (s *Engine) AuthenticateClientAssertion(ctx context.Context, client authflo
 	exp, ok := jose.Time(claims, "exp")
 	jti := jose.String(claims, "jti")
 	switch {
-	case jose.String(claims, "sub") != client.ID:
+	case jose.String(claims, "iss") != client.ID, jose.String(claims, "sub") != client.ID:
 		return invalid
 	case !ok || exp.After(now.Add(5*time.Minute+authflow.AssertionSkew)):
 		return invalid
