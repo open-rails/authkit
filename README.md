@@ -426,7 +426,7 @@ func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 The rest is ordinary app code (our channel and post handlers), not AuthKit. The whole program is one file: [examples/reddit/main.go](examples/reddit/main.go).
 
 For groups declared by application configuration, an explicit migration command
-can call `authkit.EnsureGroups(ctx, pool, cfg, groups)` after `authkit.Migrate`.
+can call `authkit.EnsureGroups(ctx, pool, cfg, groups, logger)` after `authkit.Migrate`.
 Supply the usual database, roles and default tenant in `cfg`, and stable IDs in
 `[]iam.NewGroup`. It creates missing ownerless groups without an AuthKit runtime,
 signing keys, senders or workers. Existing live groups and their assignments stay

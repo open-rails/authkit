@@ -20,12 +20,12 @@ func (s *Service) handleOAuthAuthorizationGET(w http.ResponseWriter, r *http.Req
 	id := strings.TrimSpace(r.PathValue("authorization_id"))
 	a, err := s.svc.OAuthAuthorization(r.Context(), id)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	client, _, err := s.svc.OAuthClient(r.Context(), a.ClientID)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	out := OAuthAuthorizationRequest{
@@ -70,17 +70,17 @@ func (s *Service) handleOAuthAuthorizationApprovePOST(w http.ResponseWriter, r *
 	if !claims.IsUser() || claims.SessionID == "" {
 		// Only a user's own session may approve: a device key stands on no
 		// session the code could carry.
-		fail(w, errmodel.CodeForbidden)
+		s.fail(w, errmodel.CodeForbidden)
 		return
 	}
 	var req OAuthApproveRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	target, err := s.svc.ApproveOAuthAuthorization(r.Context(), claims.UserID, claims.SessionID, r.PathValue("authorization_id"), req.Consent)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, OAuthAuthorizationResult{RedirectTo: target})
@@ -89,12 +89,12 @@ func (s *Service) handleOAuthAuthorizationApprovePOST(w http.ResponseWriter, r *
 func (s *Service) handleOAuthAuthorizationDeclinePOST(w http.ResponseWriter, r *http.Request) {
 	var req OAuthAuthorizationDeclineRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	target, err := s.svc.DeclineOAuthAuthorization(r.Context(), r.PathValue("authorization_id"), req.Error)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, OAuthAuthorizationResult{RedirectTo: target})

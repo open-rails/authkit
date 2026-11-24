@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -72,7 +71,7 @@ func (s *Engine) sweepDeletionsNow(ctx context.Context) {
 		return s.scheduleAccountCleanupTx(ctx, tx, []string{s.cfg.Token.Issuer}, time.Now())
 	})
 	if err != nil {
-		slog.WarnContext(ctx, "authkit: account batch not queued now; it runs at its own time", "error", err)
+		s.log.WarnContext(ctx, "authkit: account batch not queued now; it runs at its own time", "error", err)
 	}
 }
 
@@ -173,7 +172,7 @@ func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) (auth
 	proof.DeletionID, proof.Version = "", current.CredentialVersion
 	out, err := s.finishFirstFactor(ctx, proof)
 	if err != nil {
-		slog.WarnContext(ctx, "authkit: restored account's sign-in did not finish", "user_id", user.ID, "error", err)
+		s.log.WarnContext(ctx, "authkit: restored account's sign-in did not finish", "user_id", user.ID, "error", err)
 		return restored, nil
 	}
 	return out, nil

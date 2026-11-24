@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -159,7 +158,7 @@ func (s *Engine) watchSender(ctx context.Context, channel string, check func(con
 		closed := h.record(started, err)
 		wait := s.cfg.SenderHealthInterval
 		if err != nil {
-			slog.WarnContext(ctx, "authkit: "+channel+" health check failed; a second failed check in a row closes its flows until a check passes", "error", err, "flows_closed", closed)
+			s.log.WarnContext(ctx, "authkit: "+channel+" health check failed; a second failed check in a row closes its flows until a check passes", "error", err, "flows_closed", closed)
 			if !closed {
 				wait = s.cfg.SenderHealthRecheck
 			}

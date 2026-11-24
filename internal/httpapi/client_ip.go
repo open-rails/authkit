@@ -37,8 +37,9 @@ func DefaultClientIP() ClientIPFunc {
 //
 // Hosts that pass a cloudflare set must also lock the origin down to Cloudflare
 // ingress; otherwise a client that reaches the origin directly is its own peer
-// and both headers are ignored, which is the safe outcome.
-func ClientIPFromForwardedHeaders(trusted, cloudflare []netip.Prefix) ClientIPFunc {
+// and both headers are ignored, which is the safe outcome. The first
+// disagreement between the two headers is logged on log.
+func ClientIPFromForwardedHeaders(trusted, cloudflare []netip.Prefix, log *slog.Logger) ClientIPFunc {
 	var disagreeOnce sync.Once
 	return func(r *http.Request) string {
 		peer := remoteIP(r)
@@ -66,7 +67,7 @@ func ClientIPFromForwardedHeaders(trusted, cloudflare []netip.Prefix) ClientIPFu
 		case xff.IsValid():
 			if cf.IsValid() && cf != xff {
 				disagreeOnce.Do(func() {
-					slog.Default().Warn("authkit: X-Forwarded-For and CF-Connecting-IP disagree; using X-Forwarded-For",
+					log.Warn("authkit: X-Forwarded-For and CF-Connecting-IP disagree; using X-Forwarded-For",
 						slog.String("x_forwarded_for", xff.String()), slog.String("cf_connecting_ip", cf.String()))
 				})
 			}

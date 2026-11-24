@@ -710,7 +710,7 @@ func (s *Engine) oauthAudit(_ context.Context, event, userID string, fields map[
 	for _, k := range slices.Sorted(maps.Keys(fields)) {
 		attrs = append(attrs, slog.String(k, fields[k]))
 	}
-	slog.Default().Info("authkit: oauth", attrs...)
+	s.log.Info("authkit: oauth", attrs...)
 }
 
 // pkceVerifies checks an RFC 7636 S256 verifier against its challenge.

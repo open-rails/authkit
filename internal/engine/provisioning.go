@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -94,7 +93,7 @@ func (s *Engine) pruneProvisioningTargets(ctx context.Context) error {
 	}
 	pruned, err := s.q.ProvisioningTargetsPrune(ctx, db.ProvisioningTargetsPruneParams{Issuer: s.cfg.Token.Issuer, Names: names})
 	for _, name := range pruned {
-		slog.InfoContext(ctx, "authkit: provisioning target no longer configured; forgotten with its pending changes", "target", name)
+		s.log.InfoContext(ctx, "authkit: provisioning target no longer configured; forgotten with its pending changes", "target", name)
 	}
 	return err
 }
@@ -361,7 +360,7 @@ func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) err
 // request; the next run waits out the backoff.
 func (s *Engine) provisioningFailed(ctx context.Context, t *provisioningTarget, row db.ProvisioningTarget, cause error) error {
 	retry := s.nowTime().Add(provisioningBackoff(int(row.Failures) + 1))
-	slog.WarnContext(ctx, "authkit: provisioning target unavailable; will retry", "target", t.name, "attempt", row.Failures+1, "retry_at", retry, "error", cause)
+	s.log.WarnContext(ctx, "authkit: provisioning target unavailable; will retry", "target", t.name, "attempt", row.Failures+1, "retry_at", retry, "error", cause)
 	msg := cause.Error()
 	return s.q.ProvisioningTargetFailed(ctx, db.ProvisioningTargetFailedParams{
 		Issuer: s.cfg.Token.Issuer, Name: t.name, RetryAt: &retry, LastError: &msg,

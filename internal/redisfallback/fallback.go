@@ -23,6 +23,7 @@ const (
 
 // Gate tracks one store's Redis.
 type Gate struct {
+	log               *slog.Logger
 	failure, recovery string
 	down              atomic.Bool
 	mu                sync.Mutex // guards backoff and retryAt
@@ -30,10 +31,10 @@ type Gate struct {
 	retryAt           time.Time
 }
 
-// New is a gate that logs failure and recovery when Redis fails and answers
-// again.
-func New(failure, recovery string) *Gate {
-	return &Gate{failure: failure, recovery: recovery}
+// New is a gate that logs failure and recovery on log when Redis fails and
+// answers again.
+func New(log *slog.Logger, failure, recovery string) *Gate {
+	return &Gate{log: log, failure: failure, recovery: recovery}
 }
 
 // Run runs cmd on Redis. ok is false when the caller must use its fallback:
@@ -100,7 +101,7 @@ func (g *Gate) failed(err error, probe bool) {
 	case !g.down.Load():
 		g.backoff = minBackoff
 		g.down.Store(true)
-		slog.Warn(g.failure, "error", err)
+		g.log.Warn(g.failure, "error", err)
 	case probe:
 		g.backoff = min(2*g.backoff, maxBackoff)
 	default:
@@ -116,6 +117,6 @@ func (g *Gate) recovered() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.down.Swap(false) {
-		slog.Info(g.recovery)
+		g.log.Info(g.recovery)
 	}
 }

@@ -12,18 +12,18 @@ import (
 func (s *Service) handleMePasswordPUT(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body PasswordChangeRequest
 	if err := decodeJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// Policy failures and hashing overload (503 server_busy) answer as
 	// themselves.
 	if err := s.svc.SetPasswordAfterFreshAuth(r.Context(), claims.UserID, body.NewPassword, keepCredential(claims)); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)

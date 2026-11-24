@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/logx"
 )
 
 // Authenticator authenticates requests: a *Verifier, or an *authkit.Client,
@@ -152,8 +153,9 @@ func liveGate(a Authority, check func(context.Context, Claims) error) func(http.
 // requires perm, checked live, in the group attached to the request
 // (WithGroup, or an adapter's SetGroup). The check includes the token's
 // session: once it is revoked the request is 401 session_revoked. A request
-// with no group fails closed: 500 internal_error, logged with its route. It
-// panics at construction on a perm a does not register.
+// with no group fails closed: 500 internal_error, logged with its route on
+// a's Logger when it has one (authkit.Client does). It panics at construction
+// on a perm a does not register.
 func RequirePermission(a Authority, perm iam.Perm) func(http.Handler) http.Handler {
 	return requirePermission(a, perm, iam.GroupRef{})
 }
@@ -173,6 +175,7 @@ func requirePermission(a Authority, perm iam.Perm, fixed iam.GroupRef) func(http
 		panic(fmt.Sprintf("authkit: RequirePermission: permission %q is not registered in any persona catalog", perm))
 	}
 	required := Required(a)
+	log := authorityLogger(a)
 	return func(next http.Handler) http.Handler {
 		return required(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ref, ok := fixed, !fixed.IsZero()
@@ -185,7 +188,7 @@ func requirePermission(a Authority, perm iam.Perm, fixed iam.GroupRef) func(http
 				if route == "" {
 					route = r.Method + " " + r.URL.Path
 				}
-				slog.ErrorContext(r.Context(), "authkit: RequirePermission found no group on the request; attach one with verify.WithGroup or the adapter's SetGroup before it, or use RequirePermissionOn",
+				log.ErrorContext(r.Context(), "authkit: RequirePermission found no group on the request; attach one with verify.WithGroup or the adapter's SetGroup before it, or use RequirePermissionOn",
 					"permission", perm.String(), "route", route)
 				iam.WriteError(w, errmodel.E(errmodel.CodeInternalError))
 				return
@@ -206,6 +209,15 @@ func requirePermission(a Authority, perm iam.Perm, fixed iam.GroupRef) func(http
 			}
 		}))
 	}
+}
+
+// authorityLogger is a's Logger when it has one (authkit.Client does), else
+// slog.Default().
+func authorityLogger(a Authority) *slog.Logger {
+	if l, ok := a.(interface{ Logger() *slog.Logger }); ok {
+		return logx.Or(l.Logger())
+	}
+	return logx.Or(nil)
 }
 
 type groupKey struct{}

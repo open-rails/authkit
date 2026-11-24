@@ -26,7 +26,7 @@ type clientAssertionVerifier struct {
 func (s *Engine) clientAssertionVerifier() *clientAssertionVerifier {
 	s.clientAssertionsOnce.Do(func() {
 		s.clientAssertions = &clientAssertionVerifier{
-			v:          verify.NewVerifier(verify.WithHTTPClient(netguard.Client(netguard.DefaultTimeout, s.cfg.Token.AllowPrivateNetworkJWKS))),
+			v:          verify.NewVerifier(verify.WithHTTPClient(netguard.Client(netguard.DefaultTimeout, s.cfg.Token.AllowPrivateNetworkJWKS)), verify.WithLogger(s.log)),
 			registered: map[string]time.Time{},
 		}
 	})

@@ -83,13 +83,13 @@ func remoteApplicationWire(a iam.RemoteApplication) RemoteApplication {
 }
 
 func (s *Service) groupRemoteAppsList(w http.ResponseWriter, r *http.Request, g iam.Group) {
-	p, ok := readPage(w, r)
+	p, ok := s.readPage(w, r)
 	if !ok {
 		return
 	}
 	page, err := s.svc.ListRemoteApplications(r.Context(), iam.GroupByID(g.ID), p)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	out := iam.ListPage[RemoteApplication]{Items: make([]RemoteApplication, 0, len(page.Items)), Next: page.Next, Total: page.Total}
@@ -104,28 +104,28 @@ func (s *Service) groupRemoteAppsList(w http.ResponseWriter, r *http.Request, g 
 func (s *Service) groupRemoteAppCreate(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	var body RemoteApplicationCreateRequest
 	if err := decodeJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	issuer := strings.TrimSpace(body.Issuer)
 	if issuer == "" {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("issuer"))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("issuer"))
 		return
 	}
 	_, err := s.svc.RemoteApplication(r.Context(), iam.AppByIssuer(issuer))
 	switch {
 	case err == nil:
-		writeError(w, iam.ErrRemoteApplicationIssuerConflict)
+		s.writeError(w, iam.ErrRemoteApplicationIssuerConflict)
 		return
 	case !errors.Is(err, iam.ErrRemoteApplicationNotFound):
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	app, err := s.svc.UpsertRemoteApplication(r.Context(), who, iam.GroupByID(g.ID), iam.RemoteApplication{
 		Issuer: issuer, JWKSURI: body.JWKSURI, PublicKeys: body.PublicKeys, Enabled: body.Enabled == nil || *body.Enabled,
 	})
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, remoteApplicationWire(app))
@@ -136,11 +136,11 @@ func (s *Service) groupRemoteAppCreate(w http.ResponseWriter, r *http.Request, g
 func (s *Service) groupRemoteAppUpdate(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	var body RemoteApplicationUpdateRequest
 	if err := decodeJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if body.JWKSURI != nil && body.PublicKeys != nil {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("public_keys"))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("public_keys"))
 		return
 	}
 	app, ok := s.groupRemoteApp(w, r, g)
@@ -160,7 +160,7 @@ func (s *Service) groupRemoteAppUpdate(w http.ResponseWriter, r *http.Request, g
 	}
 	out, err := s.svc.UpsertRemoteApplication(r.Context(), who, iam.GroupByID(g.ID), next)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, remoteApplicationWire(out))
@@ -168,7 +168,7 @@ func (s *Service) groupRemoteAppUpdate(w http.ResponseWriter, r *http.Request, g
 
 func (s *Service) groupRemoteAppDelete(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	if err := s.svc.DeleteRemoteApplication(r.Context(), who, iam.GroupByID(g.ID), r.PathValue("id")); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -182,7 +182,7 @@ func (s *Service) groupRemoteApp(w http.ResponseWriter, r *http.Request, g iam.G
 		err = iam.ErrRemoteApplicationNotFound
 	}
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return iam.RemoteApplication{}, false
 	}
 	return app, true

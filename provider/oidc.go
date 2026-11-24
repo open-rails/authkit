@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -50,7 +49,7 @@ type oidcProvider struct {
 }
 
 func (p *oidcProvider) useCache(o cache.Options) {
-	p.opts, p.disc = o, cachepolicy.New(o, p.load)
+	p.opts, p.disc = o, cachepolicy.New(o, p.log, p.load)
 }
 
 func (p *oidcProvider) SupportsStepUp() bool { return true }
@@ -169,12 +168,12 @@ func (p *oidcProvider) load(ctx context.Context, _ []string) (map[string]*discov
 	failing := p.lastErr != nil
 	if p.lastErr = err; err != nil {
 		if !failing {
-			slog.WarnContext(ctx, "authkit: identity provider discovery failed; its sign-ins answer provider_unavailable while it is retried", "provider", p.name, "error", err)
+			p.log.WarnContext(ctx, "authkit: identity provider discovery failed; its sign-ins answer provider_unavailable while it is retried", "provider", p.name, "error", err)
 		}
 		return nil, err
 	}
 	if failing {
-		slog.InfoContext(ctx, "authkit: identity provider discovery recovered", "provider", p.name)
+		p.log.InfoContext(ctx, "authkit: identity provider discovery recovered", "provider", p.name)
 	}
 	p.fetchedAt = cachepolicy.Now(p.opts)
 	// A fresh key set per discovery: the library's set never drops keys, so

@@ -1,8 +1,9 @@
 package httpapi
 
 import (
-	jwt "github.com/golang-jwt/jwt/v5"
 	"net/http"
+
+	jwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -12,7 +13,7 @@ import (
 func (s *Service) passkeyEnrollmentCaller(w http.ResponseWriter, r *http.Request) (authflow.TwoFactorEnrollInput, bool) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" || !claims.TwoFAEnrollment || claims.SessionID != "" || claims.JTI == "" {
-		fail(w, errmodel.CodeInvalidChallenge)
+		s.fail(w, errmodel.CodeInvalidChallenge)
 		return authflow.TwoFactorEnrollInput{}, false
 	}
 	return authflow.TwoFactorEnrollInput{UserID: claims.UserID, LoginChallenge: claims.JTI,
@@ -26,7 +27,7 @@ func (s *Service) handlePasskeyMFAEnrollBeginPOST(w http.ResponseWriter, r *http
 	}
 	creation, err := s.svc.BeginPasskeyMFAEnrollment(r.Context(), in)
 	if err != nil {
-		writeError(w, remap(err, map[error]errmodel.Code{jwt.ErrTokenUnverifiable: errmodel.CodeInvalidChallenge, jwt.ErrTokenInvalidClaims: errmodel.CodeInvalidChallenge}))
+		s.writeError(w, remap(err, map[error]errmodel.Code{jwt.ErrTokenUnverifiable: errmodel.CodeInvalidChallenge, jwt.ErrTokenInvalidClaims: errmodel.CodeInvalidChallenge}))
 		return
 	}
 	writeJSON(w, http.StatusOK, creation)
@@ -39,12 +40,12 @@ func (s *Service) handlePasskeyMFAEnrollFinishPOST(w http.ResponseWriter, r *htt
 	}
 	body, err := readSmallBody(r)
 	if err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	out, err := s.svc.FinishPasskeyMFAEnrollment(r.Context(), in, body)
 	if err != nil {
-		writeError(w, remap(err, map[error]errmodel.Code{jwt.ErrTokenUnverifiable: errmodel.CodeInvalidChallenge, jwt.ErrTokenInvalidClaims: errmodel.CodeInvalidChallenge}))
+		s.writeError(w, remap(err, map[error]errmodel.Code{jwt.ErrTokenUnverifiable: errmodel.CodeInvalidChallenge, jwt.ErrTokenInvalidClaims: errmodel.CodeInvalidChallenge}))
 		return
 	}
 	s.writeAuthResult(w, r, out, authExtras{})

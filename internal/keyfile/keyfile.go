@@ -13,11 +13,12 @@ import (
 )
 
 // Read reads the file name (one path segment) under dir. A group- or
-// world-writable file is refused; a world-readable one is read and logged.
+// world-writable file is refused; a world-readable one is read and logged on
+// log.
 // Group-read is allowed: a Kubernetes secret volume with fsGroup mounts its
 // files 0440, the only way a non-root pod reads them. A missing file is an
 // error satisfying errors.Is(err, fs.ErrNotExist).
-func Read(dir, name string) ([]byte, error) {
+func Read(log *slog.Logger, dir, name string) ([]byte, error) {
 	if clean := filepath.Clean(name); clean != name || name == "." || name == ".." || strings.ContainsRune(name, os.PathSeparator) {
 		return nil, fmt.Errorf("invalid key file name %q", name)
 	}
@@ -41,7 +42,7 @@ func Read(dir, name string) ([]byte, error) {
 		return nil, fmt.Errorf("%s is group/world-writable (%#o): refusing to load it (expected 0600, 0400 or 0440)", path, mode)
 	}
 	if mode&0o004 != 0 {
-		slog.Warn("authkit: key file is world-readable; expected 0600, 0400 or 0440", "path", path, "mode", fmt.Sprintf("%#o", mode))
+		log.Warn("authkit: key file is world-readable; expected 0600, 0400 or 0440", "path", path, "mode", fmt.Sprintf("%#o", mode))
 	}
 	return io.ReadAll(f)
 }

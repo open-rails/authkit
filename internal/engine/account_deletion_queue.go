@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -91,7 +90,7 @@ func (s *Engine) warnUnboundAccountIssuers(ctx context.Context) {
 	if err != nil || len(unbound) == 0 {
 		return
 	}
-	slog.WarnContext(ctx, "authkit: account deletion fails until these account issuers start against this database", "issuers", unbound)
+	s.log.WarnContext(ctx, "authkit: account deletion fails until these account issuers start against this database", "issuers", unbound)
 }
 
 // Fence a previously bound runtime after a quiescent schema switch. Holding

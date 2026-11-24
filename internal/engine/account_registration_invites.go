@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	stdlog "log"
 	"net/url"
 	"strings"
 	"time"
@@ -66,7 +65,7 @@ func (s *Engine) sendAccountRegistrationInviteEmail(ctx context.Context, email, 
 	// email must not fail the call — but it must be LOUD, or the recipient silently
 	// never hears about the invite (#223's original bug class).
 	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageInvite, To: email, Language: s.messageLanguage(ctx, ""), Link: inviteURL}); err != nil {
-		stdlog.Printf("authkit: error: account-registration invite email send failed (invite created; inviter still holds the URL): %v", err)
+		s.log.ErrorContext(ctx, "authkit: account-registration invite email failed; the invite exists and the inviter holds its URL", "error", err)
 	}
 }
 

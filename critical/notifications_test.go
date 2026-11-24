@@ -88,7 +88,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		u := f.user(t)
 		key, err := f.auth.CreateAPIKey(t.Context(), iam.SystemIdentity(), iam.GroupByID(f.tenant.String()), iam.NewAPIKey{Name: "legacy queue delivery", Role: role})
 		noError(t, err)
-		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return key.Secret, nil }}})
+		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return key.Secret, nil }}}, nil)
 		noError(t, err)
 		canonical := notificationChange(u.ID, "legacy:canonical", 1)
 		withProvenance := notificationChange(u.ID, "legacy:provenance", 1)
@@ -149,7 +149,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 				credentials.Add(1)
 				return "", errors.New("destination credential is offline")
 			},
-		}})
+		}}, nil)
 		noError(t, err)
 		publisher, err := delivery.Publisher("offline")
 		noError(t, err)
@@ -311,7 +311,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		lose.Store(true)
 		transport := &lostNotificationResponse{next: http.DefaultTransport, lose: &lose}
 		destinations := map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return key.Secret, nil }, HTTPClient: &http.Client{Transport: transport}}}
-		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, destinations)
+		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, destinations, nil)
 		noError(t, err)
 		sink, err := delivery.Publisher("accounts")
 		noError(t, err)
@@ -326,7 +326,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		noError(t, tx.Commit(t.Context()))
 		// Reconstruct the publisher/worker from configuration after the transaction
 		// committed; queued work must not depend on the original Go object.
-		restarted, err := authkit.NewNotificationDelivery(f.pool, f.schema, destinations)
+		restarted, err := authkit.NewNotificationDelivery(f.pool, f.schema, destinations, nil)
 		noError(t, err)
 		fleet, err := riverhelpers.New(t.Context(), f.pool, &river.Config{Schema: f.schema}, restarted.RiverJobs())
 		noError(t, err)
@@ -389,7 +389,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		cfg := f.cfg
 		cfg.Database.SkipMigrations = true
 		cfg.Notifications = &authkit.NotificationsConfig{Schema: f.schema, Scopes: map[string]string{f.tenant.String(): scope}, AppID: notificationApp, Producers: []authkit.NotificationProducer{{Name: "application", TenantID: f.tenant, Origin: notify.OriginScope{System: "application", Scope: "app"}, Visibility: notify.VisibilityApp, AppID: notificationApp}}}
-		noError(t, authkit.MigrateNotifications(t.Context(), f.pool, cfg))
+		noError(t, authkit.MigrateNotifications(t.Context(), f.pool, cfg, nil))
 		adopted, err := authkit.New(t.Context(), cfg, f.deps)
 		noError(t, err)
 		t.Cleanup(func() { noError(t, adopted.Close(context.Background())) })
@@ -609,7 +609,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}))
 		u := f.user(t)
 		destination := map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return "not-needed-for-queue", nil }}}
-		delivery, err := authkit.NewNotificationDelivery(source, f.schema, destination)
+		delivery, err := authkit.NewNotificationDelivery(source, f.schema, destination, nil)
 		noError(t, err)
 		sink, err := delivery.Publisher("accounts")
 		noError(t, err)
@@ -654,7 +654,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		u := f.user(t)
 		key, err := f.auth.CreateAPIKey(t.Context(), iam.SystemIdentity(), iam.GroupByID(f.tenant.String()), iam.NewAPIKey{Name: "large batch sender", Role: role})
 		noError(t, err)
-		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return key.Secret, nil }, HTTPClient: &http.Client{Timeout: time.Minute}}})
+		delivery, err := authkit.NewNotificationDelivery(f.pool, f.schema, map[string]authkit.RemoteNotificationConfig{"accounts": {BaseURL: f.server.URL + f.auth.APIBase(), Producer: "application", Token: func(context.Context) (string, error) { return key.Secret, nil }, HTTPClient: &http.Client{Timeout: time.Minute}}}, nil)
 		noError(t, err)
 		sink, err := delivery.Publisher("accounts")
 		noError(t, err)
@@ -804,7 +804,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 			n.Producers[i].PermissionGroupID = other.String()
 		}
 		cfg.Notifications = &n
-		if err := authkit.MigrateNotifications(t.Context(), f.pool, cfg); !errors.Is(err, authkit.ErrNotificationScopeConflict) {
+		if err := authkit.MigrateNotifications(t.Context(), f.pool, cfg, nil); !errors.Is(err, authkit.ErrNotificationScopeConflict) {
 			t.Fatalf("explicit migration aliased another tenant's inbox: %v", err)
 		}
 		cfg.Database.SkipMigrations = true

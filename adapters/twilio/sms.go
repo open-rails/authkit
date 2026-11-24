@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/logx"
 )
 
 const (
@@ -40,6 +42,8 @@ type SMSConfig struct {
 	// Render returns the body for msg, or false to use the built-in template
 	// for msg.Kind.
 	Render func(ctx context.Context, msg iam.SMSMessage) (string, bool)
+	// Logger receives CheckHealth's warnings (default slog.Default()).
+	Logger *slog.Logger
 }
 
 // SMS delivers AuthKit's text messages through the Twilio Messaging API and
@@ -53,6 +57,7 @@ type SMS struct {
 	client              *http.Client
 	pollInterval        time.Duration
 	render              func(context.Context, iam.SMSMessage) (string, bool)
+	log                 *slog.Logger
 
 	refusedWarning, unknownWarning changeWarner
 }
@@ -83,6 +88,7 @@ func NewSMS(cfg SMSConfig) (*SMS, error) {
 		client:              httpClient(cfg.Client),
 		pollInterval:        poll,
 		render:              cfg.Render,
+		log:                 logx.Or(cfg.Logger),
 	}, nil
 }
 

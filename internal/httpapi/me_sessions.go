@@ -13,12 +13,12 @@ import (
 func (s *Service) handleMeSessionsGET(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	sessions, err := s.svc.Sessions(r.Context(), cl.UserID)
 	if err != nil {
-		serverErr(w, "failed_to_list", err)
+		s.serverErr(w, "failed_to_list", err)
 		return
 	}
 	for i := range sessions {
@@ -32,17 +32,17 @@ func (s *Service) handleMeSessionsGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleMeSessionDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	sid := strings.TrimSpace(r.PathValue("id"))
 	if sid == "" {
-		fail(w, errmodel.CodeMissingSessionID)
+		s.fail(w, errmodel.CodeMissingSessionID)
 		return
 	}
 	ctx := authflow.WithSessionRevokeReason(r.Context(), authflow.SessionRevokeReasonUserRevoke)
 	if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, sid); err != nil {
-		serverErr(w, "failed_to_revoke", err)
+		s.serverErr(w, "failed_to_revoke", err)
 		return
 	}
 	noContent(w)
@@ -53,7 +53,7 @@ func (s *Service) handleMeSessionDELETE(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleMeSessionsDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var keep *string
@@ -62,7 +62,7 @@ func (s *Service) handleMeSessionsDELETE(w http.ResponseWriter, r *http.Request)
 	}
 	ctx := authflow.WithSessionRevokeReason(r.Context(), authflow.SessionRevokeReasonUserRevokeAll)
 	if err := s.svc.RevokeIssuerSessions(ctx, cl.UserID, keep); err != nil {
-		serverErr(w, "failed_to_revoke_all", err)
+		s.serverErr(w, "failed_to_revoke_all", err)
 		return
 	}
 	noContent(w)
@@ -73,16 +73,16 @@ func (s *Service) handleMeSessionsDELETE(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleMeSessionEventsGET(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	q, ok := readSessionEventQuery(w, r)
+	q, ok := s.readSessionEventQuery(w, r)
 	if !ok {
 		return
 	}
 	page, err := s.svc.ListSessionEvents(r.Context(), cl.UserID, q)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	list(w, page)

@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -182,7 +181,7 @@ func (s *Engine) notifyAccountExists(ctx context.Context, channel, target string
 		if err := s.sendEmail(ctx, msg); !senderRefused(err, errmodel.ErrEmailDeliveryFailed) {
 			return err
 		}
-		slog.Warn("account_exists email refused by the sender, sending password_reset instead", "user_id", u.ID)
+		s.log.Warn("account_exists email refused by the sender, sending password_reset instead", "user_id", u.ID)
 		msg.Kind = iam.MessagePasswordReset
 		return s.sendEmail(ctx, msg)
 	}
@@ -196,7 +195,7 @@ func (s *Engine) notifyAccountExists(ctx context.Context, channel, target string
 	} else if !senderRefused(err, errmodel.ErrSMSDeliveryFailed) {
 		return err
 	}
-	slog.Warn("account_exists SMS refused by the sender, sending password_reset instead", "user_id", u.ID)
+	s.log.Warn("account_exists SMS refused by the sender, sending password_reset instead", "user_id", u.ID)
 	msg.Kind = iam.MessagePasswordReset
 	if err := s.sendSMS(ctx, msg); !withheld(err) {
 		return err

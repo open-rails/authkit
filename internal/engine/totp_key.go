@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -33,7 +34,7 @@ func validTOTPKeyLen(n int) bool { return n == 16 || n == 24 || n == 32 }
 // be enrolled. Invalid material (wrong length, bad encoding, unsafe
 // permissions) is a hard construction error, the same rigor as JWT signing
 // keys.
-func resolveTOTPSecretKey(cfg config.Config) ([]byte, error) {
+func resolveTOTPSecretKey(cfg config.Config, log *slog.Logger) ([]byte, error) {
 	if len(cfg.TwoFactor.TOTPSecretKey) > 0 {
 		if !validTOTPKeyLen(len(cfg.TwoFactor.TOTPSecretKey)) {
 			return nil, fmt.Errorf("authkit: TwoFactor.TOTPSecretKey must be 16, 24, or 32 bytes, got %d", len(cfg.TwoFactor.TOTPSecretKey))
@@ -43,16 +44,16 @@ func resolveTOTPSecretKey(cfg config.Config) ([]byte, error) {
 	if cfg.Keys.AllowEphemeralDevKeys && strings.TrimSpace(cfg.Keys.Path) == "" {
 		return nil, fmt.Errorf("authkit: development key directory must be resolved for the issuer")
 	}
-	key, err := loadTOTPKey(totpKeysDir(cfg))
+	key, err := loadTOTPKey(log, totpKeysDir(cfg))
 	if key == nil && err == nil && cfg.Keys.AllowEphemeralDevKeys {
-		return ephemeralTOTPKey(totpKeysDir(cfg))
+		return ephemeralTOTPKey(log, totpKeysDir(cfg))
 	}
 	return key, err
 }
 
 // ephemeralTOTPKey retains its historical name, but development keys are now
 // always persisted so restarts keep authenticator enrollments.
-func ephemeralTOTPKey(dir string) ([]byte, error) {
+func ephemeralTOTPKey(log *slog.Logger, dir string) ([]byte, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, fmt.Errorf("authkit: development TOTP key directory is required")
 	}
@@ -64,13 +65,13 @@ func ephemeralTOTPKey(dir string) ([]byte, error) {
 	if err := createDevelopmentKey(path, []byte(base64.StdEncoding.EncodeToString(key))); err != nil {
 		return nil, fmt.Errorf("authkit: persist dev TOTP key %s: %w", path, err)
 	}
-	return loadTOTPKey(dir)
+	return loadTOTPKey(log, dir)
 }
 
 // loadTOTPKey reads dir's totp.key; a missing one is (nil, nil).
-func loadTOTPKey(dir string) ([]byte, error) {
+func loadTOTPKey(log *slog.Logger, dir string) ([]byte, error) {
 	path := filepath.Join(dir, totpKeyFilename)
-	raw, err := keyfile.Read(dir, totpKeyFilename)
+	raw, err := keyfile.Read(log, dir, totpKeyFilename)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}

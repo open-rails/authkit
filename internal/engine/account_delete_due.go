@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"time"
 
@@ -80,7 +79,7 @@ func (s *Engine) scheduleAccountCleanupTx(ctx context.Context, tx pgx.Tx, issuer
 		if err != nil {
 			return err
 		}
-		if err := scheduleDue(ctx, tx, client, accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: issuer}, at); err != nil {
+		if err := s.scheduleDue(ctx, tx, client, accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: issuer}, at); err != nil {
 			return err
 		}
 	}
@@ -98,7 +97,7 @@ func (s *Engine) catchUpAccountCleanup(ctx context.Context) error {
 		return err
 	}
 	return pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error {
-		return scheduleDue(ctx, tx, s.maintenance.producer, accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer}, at)
+		return s.scheduleDue(ctx, tx, s.maintenance.producer, accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer}, at)
 	})
 }
 
@@ -128,7 +127,7 @@ func (s *Engine) deleteDueAccounts(ctx context.Context) (*time.Time, error) {
 			// checks the current state again. Concurrent sweeps, restores and
 			// callback completions therefore cannot bypass the recovery window.
 			if err := s.finalizeAccountDeletion(ctx, record.ID, record.State == "finalizing"); err != nil {
-				slog.ErrorContext(ctx, "authkit: due account deletion failed; will retry", "deletion_id", record.ID, "error", err)
+				s.log.ErrorContext(ctx, "authkit: due account deletion failed; will retry", "deletion_id", record.ID, "error", err)
 				failed = earliest(failed, record.PurgeAt)
 			}
 			cursor.AfterPurgeAt, cursor.AfterID = record.PurgeAt, record.ID
@@ -174,7 +173,7 @@ func (s *Engine) completeDueAccountCleanups(ctx context.Context, dueAt time.Time
 				return nil, err
 			}
 			if err := s.runAccountCleanup(ctx, row.ID); err != nil {
-				slog.ErrorContext(ctx, "authkit: account cleanup failed; will retry", "cleanup_id", row.ID, "error", err)
+				s.log.ErrorContext(ctx, "authkit: account cleanup failed; will retry", "cleanup_id", row.ID, "error", err)
 				failed = earliest(failed, row.PurgeAt)
 			}
 			after = row.ID

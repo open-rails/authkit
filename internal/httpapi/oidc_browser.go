@@ -56,13 +56,13 @@ func (s *Service) handleOIDCLoginGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOIDCLoginStartPOST(w http.ResponseWriter, r *http.Request) {
 	var req OIDCLoginStartRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// The response sets the flow's state cookie; a cross-site page must not
 	// bind a flow into this browser.
 	if !s.cookieOriginAllowed(r) {
-		fail(w, errmodel.CodeOriginNotAllowed)
+		s.fail(w, errmodel.CodeOriginNotAllowed)
 		return
 	}
 	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{login: &loginStart{
@@ -77,7 +77,7 @@ func (s *Service) handleOIDCLinkStartPOST(w http.ResponseWriter, r *http.Request
 	}
 	freshness, err := s.svc.SessionFreshness(r.Context(), claims.UserID, claims.SessionID, time.Now())
 	if err != nil || freshness.StepUpRequiredForSensitiveOps {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	s.startProviderFlow(w, r, r.PathValue("provider"), flowStart{link: &authflow.ExternalLinkAuthorization{UserID: claims.UserID, SessionID: claims.SessionID, AuthenticatedAt: freshness.LastAuthenticatedAt}})
@@ -95,7 +95,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 			s.failBrowserFlow(w, r, nil, name, err)
 			return
 		}
-		writeError(w, err)
+		s.writeError(w, err)
 	}
 	p, ok := s.provider(name)
 	if !ok {
@@ -206,7 +206,7 @@ func (s *Service) handleOIDCCallbackGET(w http.ResponseWriter, r *http.Request) 
 	// flow expects it (popup message / step-up return / frontend fragment).
 	params := callbackParams(r)
 	if qErr := params.Get("error"); qErr != "" {
-		logIdPCallbackError(name, r)
+		s.logIdPCallbackError(name, r)
 		errSD := s.recoverCallbackState(w, r, p)
 		s.failBrowserFlow(w, r, errSD, name, providerCallbackError(qErr))
 		return
@@ -335,17 +335,17 @@ func (s *Service) putOIDCResult(r *http.Request, res AuthResult) (string, error)
 func (s *Service) handleOIDCExchangePOST(w http.ResponseWriter, r *http.Request) {
 	var req OIDCExchangeRequest
 	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Code) == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	raw, ok, err := s.svc.ConsumeOIDCResult(r.Context(), strings.TrimSpace(req.Code))
 	if err != nil {
-		serverErr(w, "oidc_result_lookup_failed", err)
+		s.serverErr(w, "oidc_result_lookup_failed", err)
 		return
 	}
 	var res AuthResult
 	if !ok || json.Unmarshal(raw, &res) != nil {
-		fail(w, errmodel.CodeInvalidState)
+		s.fail(w, errmodel.CodeInvalidState)
 		return
 	}
 	writeAuthResult(w, res)

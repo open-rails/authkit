@@ -7,9 +7,8 @@ import (
 	"net/http"
 )
 
-// logInternalError records a swallowed internal handler error to the
-// host-controlled slog default (#143: no public error-logger hook). Details stay
-// server-side — clients only ever see the generic error envelope.
+// logInternalError records a swallowed internal handler error on Deps.Logger.
+// Details stay server-side: clients only ever see the generic error envelope.
 func (s *Service) logInternalError(r *http.Request, route, stage, code string, err error) {
 	if err == nil {
 		return
@@ -24,7 +23,7 @@ func (s *Service) logInternalError(r *http.Request, route, stage, code string, e
 			path = r.URL.Path
 		}
 	}
-	slog.Default().ErrorContext(ctx, "authkit: internal handler error",
+	s.log.ErrorContext(ctx, "authkit: internal handler error",
 		slog.String("route", route),
 		slog.String("stage", stage),
 		slog.String("code", code),

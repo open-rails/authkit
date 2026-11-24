@@ -181,7 +181,7 @@ func TestCriticalRuntime(t *testing.T) {
 		// A rotation rendered writable keeps serving the last good keys.
 		dir = t.TempDir()
 		writeKeyFile(t, dir, "keys.json", keysJSON(t, "first"), 0o600)
-		src, err := keys.Watch(dir)
+		src, err := keys.Watch(dir, nil)
 		noError(t, err)
 		t.Cleanup(src.Close)
 		writeKeyFile(t, dir, "keys.json", keysJSON(t, "second"), 0o660)

@@ -179,7 +179,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 		}
 	}
 
-	result.handler = withMountLayout(apiMisses(mux, api), layout)
+	result.handler = withMountLayout(svc.apiMisses(mux, api), layout)
 	if opts.RefreshCookie {
 		result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
 	}
@@ -202,7 +202,7 @@ func joinRoutePath(prefix, path string) string {
 // apiMisses answers a request beneath the API anchor that matches no route
 // with the JSON envelope: 404 not_found, or 405 method_not_allowed with the
 // Allow header ServeMux computed.
-func apiMisses(mux *http.ServeMux, api string) http.Handler {
+func (s *Service) apiMisses(mux *http.ServeMux, api string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h, pattern := mux.Handler(r)
 		if pattern != "" || (api != "/" && r.URL.Path != api && !strings.HasPrefix(r.URL.Path, api+"/")) {
@@ -213,10 +213,10 @@ func apiMisses(mux *http.ServeMux, api string) http.Handler {
 		h.ServeHTTP(probe, r)
 		switch probe.status {
 		case http.StatusNotFound:
-			fail(w, errmodel.CodeNotFound)
+			s.fail(w, errmodel.CodeNotFound)
 		case http.StatusMethodNotAllowed:
 			w.Header().Set("Allow", probe.header.Get("Allow"))
-			fail(w, errmodel.CodeMethodNotAllowed)
+			s.fail(w, errmodel.CodeMethodNotAllowed)
 		default:
 			mux.ServeHTTP(w, r)
 		}

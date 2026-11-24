@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"log/slog"
 	"reflect"
 	"sync"
 	"time"
@@ -27,12 +28,13 @@ type StoredNonces struct {
 	swept  time.Time
 }
 
-// NewStoredNonces keeps nonces in rdb, or in memory when rdb is nil.
-func NewStoredNonces(rdb redis.UniversalClient) *StoredNonces {
+// NewStoredNonces keeps nonces in rdb, or in memory when rdb is nil; log
+// hears of rdb failing and recovering.
+func NewStoredNonces(rdb redis.UniversalClient, log *slog.Logger) *StoredNonces {
 	if v := reflect.ValueOf(rdb); rdb != nil && v.Kind() == reflect.Pointer && v.IsNil() {
 		rdb = nil
 	}
-	return &StoredNonces{rdb: rdb, issued: map[string]time.Time{}, swept: time.Now(), gate: redisfallback.New(
+	return &StoredNonces{rdb: rdb, issued: map[string]time.Time{}, swept: time.Now(), gate: redisfallback.New(log,
 		"authkit: Redis DPoP nonce store failed; each process issues nonces on its own until Redis recovers",
 		"authkit: Redis DPoP nonce store recovered")}
 }

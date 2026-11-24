@@ -15,7 +15,7 @@ import (
 func (s *Service) handleMeAgreementsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	s.writeUserAgreements(w, r, claims.UserID)
@@ -24,16 +24,16 @@ func (s *Service) handleMeAgreementsGET(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleMeAgreementsPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var req AgreementsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if err := s.svc.RecordAgreements(r.Context(), claims.UserID, req.Agreements, iam.AgreementInAccount, s.requestIP(r), r.UserAgent()); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	s.writeUserAgreements(w, r, claims.UserID)
@@ -42,12 +42,12 @@ func (s *Service) handleMeAgreementsPOST(w http.ResponseWriter, r *http.Request)
 func (s *Service) writeUserAgreements(w http.ResponseWriter, r *http.Request, userID string) {
 	accepted, err := s.svc.UserAgreements(r.Context(), userID)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	due, err := s.svc.AgreementsDue(r.Context(), userID)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, UserAgreements{Accepted: accepted, Due: due})

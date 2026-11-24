@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -56,7 +55,7 @@ const (
 // layer. It returns a normalized copy; normalizing that copy again changes
 // nothing. err is a problem AuthKit cannot run safely with; degraded lists
 // the survivable ones, each already handled by switching off or defaulting
-// only the feature it concerns.
+// only the feature it concerns. Warnings go to d.Logger, which New has set.
 func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	degrade := func(problem error) { degraded = append(degraded, problem) }
 	if c.Database.Schema, err = NormalizeSchema(c.Database.Schema); err != nil {
@@ -711,7 +710,7 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 		if c.Registration.Verification == iam.RegistrationVerificationRequired && !c.Registration.AllowMissingSenders {
 			degrade(fmt.Errorf("authkit: registration verification policy is %q but no email or SMS sender is configured; registration answers email_unavailable until one is", iam.RegistrationVerificationRequired))
 		} else {
-			slog.Warn("authkit: no email or SMS sender configured; verification delivery is disabled")
+			d.Logger.Warn("authkit: no email or SMS sender configured; verification delivery is disabled")
 		}
 	}
 	for _, cl := range c.AuthorizationServer.Clients {

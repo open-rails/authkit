@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	stdlog "log"
 	"net"
 	"slices"
 	"strings"
@@ -738,10 +737,10 @@ func (s *Engine) revokeReusedSessionEnsured(ctx context.Context, sessionID, user
 	if err := s.revokeReusedSession(ctx, sessionID, userID); err == nil {
 		return
 	} else {
-		stdlog.Printf("[authkit/security] error: session revoke failed after refresh-token reuse (session=%s user=%s); retrying: %v", sessionID, userID, err)
+		s.log.ErrorContext(ctx, "authkit: revoking a session after refresh-token reuse failed; retrying", "session_id", sessionID, "user_id", userID, "error", err)
 	}
 	if err := s.revokeReusedSession(ctx, sessionID, userID); err != nil {
-		stdlog.Printf("[authkit/security] CRITICAL: session revoke failed after retry (session=%s user=%s); stolen refresh tokens may remain valid — investigate immediately: %v", sessionID, userID, err)
+		s.log.ErrorContext(ctx, "authkit: CRITICAL: revoking a session after refresh-token reuse failed again; stolen refresh tokens may remain valid, investigate immediately", "session_id", sessionID, "user_id", userID, "error", err)
 	}
 }
 

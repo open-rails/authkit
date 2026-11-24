@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/jackc/pgx/v5"
@@ -21,7 +22,7 @@ var ErrNotificationsDisabled = errors.New("authkit: account notifications are di
 
 // MigrateNotifications installs only the optional AuthKit inbox. It never moves
 // or merges account scopes. Explicit Config.Scopes mappings adopt existing rows.
-func MigrateNotifications(ctx context.Context, pool *pgxpool.Pool, database config.DatabaseConfig, cfg *config.NotificationsConfig, defaultTenant ...iam.TenantID) error {
+func MigrateNotifications(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, database config.DatabaseConfig, cfg *config.NotificationsConfig, defaultTenant ...iam.TenantID) error {
 	if cfg == nil {
 		return nil
 	}
@@ -38,7 +39,7 @@ func MigrateNotifications(ctx context.Context, pool *pgxpool.Pool, database conf
 	if err := notifypg.Migrate(ctx, pool, normalized.Schema); err != nil {
 		return err
 	}
-	if err := notificationBindingMigrations(ctx, pool, normalized.Schema, false); err != nil {
+	if err := notificationBindingMigrations(ctx, log, pool, normalized.Schema, false); err != nil {
 		return err
 	}
 	var tenant iam.TenantID

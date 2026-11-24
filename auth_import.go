@@ -2,9 +2,11 @@ package authkit
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
+	"github.com/open-rails/authkit/internal/logx"
 )
 
 // Bootstrap, the first admin, bulk import and provider links. These are host
@@ -81,10 +83,10 @@ func (a *Client) ReconcileProvider(ctx context.Context, userID, expectedSubject 
 // ParseBootstrapManifestYAML parses a bootstrap manifest without a Client or
 // database, so a tool can check a file before connecting: it rejects empty
 // manifests, structurally invalid entries and a root_role of another persona.
-// An unknown key is logged as a warning, with its path (users[0].nickname),
-// and ignored. Client.ApplyBootstrapManifest checks the rest against its
-// Config: each root_role against Config.Roles, passwords against the policy,
-// jwks_uri against the network policy.
-func ParseBootstrapManifestYAML(raw []byte) (iam.BootstrapManifest, error) {
-	return engine.ParseBootstrapManifestYAML(raw)
+// An unknown key is logged on log (nil is slog.Default()) as a warning, with
+// its path (users[0].nickname), and ignored. Client.ApplyBootstrapManifest
+// checks the rest against its Config: each root_role against Config.Roles,
+// passwords against the policy, jwks_uri against the network policy.
+func ParseBootstrapManifestYAML(raw []byte, log *slog.Logger) (iam.BootstrapManifest, error) {
+	return engine.ParseBootstrapManifestYAML(raw, logx.Or(log))
 }

@@ -17,14 +17,14 @@ import (
 func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 	cl, err := callerClaims(r)
 	if err != nil || strings.TrimSpace(cl.UserID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	switch {
 	case strings.TrimSpace(cl.SessionID) != "":
 		ctx := authflow.WithSessionRevokeReason(r.Context(), authflow.SessionRevokeReasonLogout)
 		if err := s.svc.RevokeSessionByIDForUser(ctx, cl.UserID, cl.SessionID); err != nil {
-			serverErr(w, "failed_to_logout", err)
+			s.serverErr(w, "failed_to_logout", err)
 			return
 		}
 		// ak#271: the server-side session is gone, so the jar value must go
@@ -33,11 +33,11 @@ func (s *Service) handleLogoutDELETE(w http.ResponseWriter, r *http.Request) {
 	case strings.TrimSpace(cl.DeviceKeyID) != "":
 		// A key already gone (purged) is signed out too.
 		if err := s.svc.RevokeDeviceKey(r.Context(), cl.UserID, cl.DeviceKeyID, cl.DeviceKeyID); err != nil && !errors.Is(err, jwt.ErrTokenUnverifiable) {
-			serverErr(w, "failed_to_logout", err)
+			s.serverErr(w, "failed_to_logout", err)
 			return
 		}
 	default:
-		fail(w, errmodel.CodeMissingSidClaim)
+		s.fail(w, errmodel.CodeMissingSidClaim)
 		return
 	}
 	noContent(w)

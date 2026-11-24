@@ -21,11 +21,11 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		who, ok := verify.IdentityFromContext(r.Context())
 		if !ok {
-			fail(w, errmodel.CodeUnauthenticated)
+			s.fail(w, errmodel.CodeUnauthenticated)
 			return
 		}
-		if s := state(who); s.IsZero() {
-			fail(w, errmodel.CodeForbidden)
+		if st := state(who); st.IsZero() {
+			s.fail(w, errmodel.CodeForbidden)
 			return
 		}
 		allowed, err := s.svc.Can(r.Context(), who, group, perm)
@@ -40,15 +40,15 @@ func (s *Service) requirePermission(group iam.GroupRef, perm iam.Perm, next http
 			}
 		}
 		if errors.Is(err, iam.ErrSessionRevoked) {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		if err != nil {
-			serverErr(w, "database_error", err)
+			s.serverErr(w, "database_error", err)
 			return
 		}
 		if !allowed {
-			fail(w, errmodel.CodeForbidden)
+			s.fail(w, errmodel.CodeForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)

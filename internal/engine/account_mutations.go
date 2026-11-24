@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	stdlog "log"
 	"strings"
 	"time"
 
@@ -822,7 +821,7 @@ func (s *Engine) notifyMFAReset(ctx context.Context, userID string) {
 		return
 	}
 	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageMFAReset, To: *u.Email, Username: deref(u.Username), Language: s.userLanguage(ctx, userID)}); err != nil {
-		stdlog.Printf("[authkit/security] MFA reset notice failed for user %s: %v", userID, err)
+		s.log.ErrorContext(ctx, "authkit: MFA reset notice failed", "user_id", userID, "error", err)
 	}
 }
 

@@ -27,7 +27,7 @@ func (s *Service) handleMe2FASetupPOST(w http.ResponseWriter, r *http.Request) {
 	}
 	var req TwoFactorSetupRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	method, phone := strings.ToLower(strings.TrimSpace(req.Method)), derefTrim(req.PhoneNumber)
@@ -71,12 +71,12 @@ func (s *Service) handleMe2FAFactorsPOST(w http.ResponseWriter, r *http.Request)
 	}
 	var req TwoFactorFactorCreateRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	code := strings.TrimSpace(req.Code)
 	if code == "" {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("code"))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("code"))
 		return
 	}
 	method := strings.ToLower(strings.TrimSpace(req.Method))
@@ -96,7 +96,7 @@ func (s *Service) handleMe2FAFactorsPOST(w http.ResponseWriter, r *http.Request)
 		auth, err = s.freshAuthResult(w, r, claims.UserID, claims.SessionID)
 	}
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	if auth.Status != "" {
@@ -110,19 +110,19 @@ func (s *Service) handleMe2FAFactorsPOST(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleMe2FAFactorPATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var req TwoFactorFactorUpdateRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if req.Default {
 		factor, err := s.svc.SetDefault2FAFactor(r.Context(), claims.UserID, id)
 		if err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, authflow.WireFactor(factor))
@@ -130,7 +130,7 @@ func (s *Service) handleMe2FAFactorPATCH(w http.ResponseWriter, r *http.Request)
 	}
 	settings, err := s.svc.Get2FASettings(r.Context(), claims.UserID)
 	if err != nil {
-		fail(w, errmodel.CodeNotFound)
+		s.fail(w, errmodel.CodeNotFound)
 		return
 	}
 	for _, factor := range settings.Factors {
@@ -138,13 +138,13 @@ func (s *Service) handleMe2FAFactorPATCH(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		if factor.IsDefault {
-			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("default"))
+			s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("default"))
 			return
 		}
 		writeJSON(w, http.StatusOK, authflow.WireFactor(factor))
 		return
 	}
-	fail(w, errmodel.CodeNotFound)
+	s.fail(w, errmodel.CodeNotFound)
 }
 
 // handleMe2FAFactorDELETE removes a factor; the last one disables MFA and the
@@ -152,12 +152,12 @@ func (s *Service) handleMe2FAFactorPATCH(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleMe2FAFactorDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	err := s.svc.Disable2FAFactor(r.Context(), claims.UserID, strings.TrimSpace(r.PathValue("id")))
 	if err != nil && errmodel.CodeOf(err) != errmodel.CodeNotFound {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -167,11 +167,11 @@ func (s *Service) handleMe2FAFactorDELETE(w http.ResponseWriter, r *http.Request
 func (s *Service) handleMe2FADELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if err := s.svc.Disable2FA(r.Context(), claims.UserID); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -181,16 +181,16 @@ func (s *Service) handleMe2FADELETE(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleMe2FABackupCodesPOST(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if claims.SessionID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	backupCodes, err := s.svc.RegenerateBackupCodesForSession(r.Context(), claims.UserID, claims.SessionID)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, BackupCodes{BackupCodes: backupCodes})
@@ -203,12 +203,12 @@ func (s *Service) handleMe2FABackupCodesPOST(w http.ResponseWriter, r *http.Requ
 func (s *Service) enrollmentCaller(w http.ResponseWriter, r *http.Request) (verify.Claims, authflow.TwoFactorEnrollmentScope, bool) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return claims, authflow.TwoFactorEnrollmentScope{}, false
 	}
 	scope, err := s.svc.BeginTwoFactorEnrollment(r.Context(), claims.UserID, claims.TwoFAEnrollment, claims.SessionID)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return claims, scope, false
 	}
 	if !claims.TwoFAEnrollment {
@@ -219,7 +219,7 @@ func (s *Service) enrollmentCaller(w http.ResponseWriter, r *http.Request) (veri
 		// current MFA requirement.
 		claims.MFAEnrolled = scope.HasFactors
 		if err := s.svc.CheckRecentSignIn(r.Context(), claims); err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return claims, scope, false
 		}
 	}
@@ -241,9 +241,9 @@ func (s *Service) enrollTwoFactor(w http.ResponseWriter, r *http.Request, in aut
 	out, err := s.svc.EnrollTwoFactor(r.Context(), in)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenUnverifiable) || errors.Is(err, jwt.ErrTokenInvalidClaims) {
-			fail(w, errmodel.CodeInvalidChallenge)
+			s.fail(w, errmodel.CodeInvalidChallenge)
 		} else {
-			writeError(w, err)
+			s.writeError(w, err)
 		}
 		return out, false
 	}

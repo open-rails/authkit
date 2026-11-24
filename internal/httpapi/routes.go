@@ -19,7 +19,7 @@ import (
 func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 	return s.routes(SurfaceAPI, groups, func(route RouteSpec, h http.Handler) http.Handler {
 		if route.Auth != iam.AuthPermission {
-			h = rejectPersonalToken(h)
+			h = s.rejectPersonalToken(h)
 		}
 		personalAccount := route.Group == iam.RouteAccount && route.Path != "/me/permissions" && route.Path != "/me/groups"
 		if route.Auth != iam.AuthPublic && (personalAccount || route.Group == iam.RouteDeviceKeys || route.Group == iam.RouteAuth) {
@@ -34,10 +34,10 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 
 // Identity alone never grants a personal token access to account/session
 // endpoints. Only routes with an explicit permission gate admit this kind.
-func rejectPersonalToken(next http.Handler) http.Handler {
+func (s *Service) rejectPersonalToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if claims, err := callerClaims(r); err == nil && claims.Kind == verify.TokenPersonalAccessToken {
-			fail(w, errmodel.CodeForbidden)
+			s.fail(w, errmodel.CodeForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -57,7 +57,7 @@ func (s *Service) requireTenantAccount(next http.Handler, allowAnonymous bool) h
 			return
 		}
 		if !ok || !claims.IsUser() {
-			fail(w, errmodel.CodeForbidden)
+			s.fail(w, errmodel.CodeForbidden)
 			return
 		}
 		group, err := s.svc.AccountScope(r.Context())
@@ -66,24 +66,24 @@ func (s *Service) requireTenantAccount(next http.Handler, allowAnonymous bool) h
 			// signed source owner. This never chooses an administrative target.
 			id, parseErr := iam.ParseTenantID(claims.TenantID)
 			if parseErr != nil {
-				fail(w, errmodel.CodeForbidden)
+				s.fail(w, errmodel.CodeForbidden)
 				return
 			}
 			ctx := tenancy.With(r.Context(), id)
 			user, lookupErr := s.svc.User(ctx, iam.UserByID(claims.UserID))
 			if lookupErr != nil && !errors.Is(lookupErr, iam.ErrUserNotFound) {
-				writeError(w, lookupErr)
+				s.writeError(w, lookupErr)
 				return
 			}
 			if lookupErr != nil || user.Ban != nil {
-				fail(w, errmodel.CodeForbidden)
+				s.fail(w, errmodel.CodeForbidden)
 				return
 			}
 			r = r.WithContext(ctx)
 			group, err = s.svc.AccountScope(ctx)
 		}
 		if err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		owner := claims.TenantID
@@ -91,7 +91,7 @@ func (s *Service) requireTenantAccount(next http.Handler, allowAnonymous bool) h
 			owner = s.cfg.DefaultTenantID.String()
 		}
 		if owner == "" || owner != group.ID() {
-			fail(w, errmodel.CodeForbidden)
+			s.fail(w, errmodel.CodeForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -222,7 +222,7 @@ func isOIDCPath(path string) bool {
 // AuthPermission's own check (requirePermission, GroupHandler) runs the same
 // check through the identity's session binding.
 func (s *Service) authenticate(tier iam.RouteAuthTier, h http.Handler) http.Handler {
-	h = notGroupBound(h)
+	h = s.notGroupBound(h)
 	switch tier {
 	case iam.AuthOptional:
 		return verify.Optional(s.svc)(h)
@@ -236,10 +236,10 @@ func (s *Service) authenticate(tier iam.RouteAuthTier, h http.Handler) http.Hand
 
 // notGroupBound refuses a user's token bound to a group (a host's
 // group-bound mint): it is for a library's routes, never AuthKit's own API.
-func notGroupBound(next http.Handler) http.Handler {
+func (s *Service) notGroupBound(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if cl, err := callerClaims(r); err == nil && cl.Kind == verify.TokenUser && cl.Group != nil {
-			writeError(w, errmodel.E(errmodel.CodeForbidden))
+			s.writeError(w, errmodel.E(errmodel.CodeForbidden))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -256,7 +256,7 @@ func (s *Service) requireRecentSignIn(next http.Handler) http.Handler {
 			err = s.svc.CheckRecentSignIn(r.Context(), claims)
 		}
 		if err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		next.ServeHTTP(w, r)

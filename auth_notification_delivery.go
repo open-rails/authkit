@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/engine"
+	"github.com/open-rails/authkit/internal/logx"
 	"github.com/open-rails/authkit/notify"
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
@@ -52,11 +54,12 @@ type remoteNotificationPublisher struct {
 
 // NewNotificationDelivery binds a source database's River queue to trusted
 // destinations. The host migrates River and starts/stops its ordinary fleet.
-func NewNotificationDelivery(pool *pgxpool.Pool, riverSchema string, destinations map[string]RemoteNotificationConfig) (*NotificationDelivery, error) {
+// Its River producer logs on log (nil is slog.Default()).
+func NewNotificationDelivery(pool *pgxpool.Pool, riverSchema string, destinations map[string]RemoteNotificationConfig, log *slog.Logger) (*NotificationDelivery, error) {
 	if pool == nil || riverSchema == "" || len(destinations) == 0 {
 		return nil, errors.New("authkit: notification delivery needs source pool, River schema and destinations")
 	}
-	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Schema: riverSchema})
+	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Schema: riverSchema, Logger: logx.Or(log)})
 	if err != nil {
 		return nil, err
 	}

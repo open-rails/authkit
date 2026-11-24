@@ -138,7 +138,7 @@ func (s *Engine) fleetProducer(schema string) (*river.Client[pgx.Tx], error) {
 	if c, ok := s.fleetProducers.Load(schema); ok {
 		return c.(*river.Client[pgx.Tx]), nil
 	}
-	c, err := river.NewClient(riverpgxv5.New(s.pg), riverConfig(schema))
+	c, err := river.NewClient(riverpgxv5.New(s.pg), s.riverConfig(schema))
 	if err != nil {
 		return nil, err
 	}
