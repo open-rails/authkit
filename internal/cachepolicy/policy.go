@@ -23,6 +23,15 @@ var (
 		LoadTimeout: 5 * time.Second, FailureBackoff: 5 * time.Second}
 )
 
+// IssuerMetadata is a trusted issuer's RFC 8414 metadata (the jwks_uri of an
+// application registered without one), under IssuerKeys' bounds: a failed
+// fetch is not retried within FailureBackoff, and concurrent callers share one.
+func IssuerMetadata() cache.Options {
+	o := IssuerKeys
+	o.Name = "authkit_issuer_metadata"
+	return o
+}
+
 // IssuerKeysRefetchMin spaces the refetches an unknown kid or a failed
 // signature forces, so forged tokens cannot hammer an issuer.
 const IssuerKeysRefetchMin = 30 * time.Second

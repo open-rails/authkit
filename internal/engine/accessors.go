@@ -57,6 +57,7 @@ func (s *Engine) close(ctx context.Context) error {
 	if s.resource != nil {
 		s.resource.v.Close()
 		s.resource.assertions.Close()
+		s.resource.jwksURIs.Close()
 	}
 	riverPool, err := s.closeRiver(ctx)
 	if s.ownedKeySource != nil {
