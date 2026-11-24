@@ -195,5 +195,6 @@
   "AK-J41-C03": "a target's reconciliation runs at its interval and nothing runs between",
   "AK-J41-C04": "a change written while the provisioning listener is disconnected reaches the target when it reconnects",
   "AK-J42-C01": "a page PasskeyTopOrigin admits frames passkey creation and sign-in, a frame that names no page (Safari) passes on the RP origin alone, an unadmitted or non-https page is refused, and the creation window is served on the RP origin unframeable",
-  "AK-J42-C02": "without PasskeyTopOrigin no passkey ceremony passes in a cross-origin iframe, with or without topOrigin, while top-level ones do"
+  "AK-J42-C02": "without PasskeyTopOrigin no passkey ceremony passes in a cross-origin iframe, with or without topOrigin, while top-level ones do",
+  "AK-J43-C01": "with pairwise subjects one group's clients share a user's sub and sid, another group's differ, no client token names the user or session id, a refresh keeps them, VerifyIDToken, userinfo and the resource server map them back, discovery lists pairwise, and one group's ID token ends the shared sign-in"
 }

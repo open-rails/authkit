@@ -638,6 +638,10 @@ export const es: AuthUiMessageBundle = {
     errorTitle: "Error al iniciar sesión",
   },
   oauth: {
+    framedTitle: "Continúa a {client} en una ventana nueva",
+    framed:
+      "Por tu seguridad, el inicio de sesión y el permiso de acceso se hacen en su propia ventana, no dentro de otro sitio.",
+    openWindow: "Continuar en una ventana nueva",
     signInTo: "Inicia sesión para continuar en {client}",
     continuing: "Continuando a {client}…",
   },

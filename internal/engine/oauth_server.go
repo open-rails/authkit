@@ -283,18 +283,6 @@ func (s *Engine) OAuthUserInfo(ctx context.Context, accessToken, jkt string) (ma
 	if !slices.Contains(scopes, "openid") {
 		return nil, &authflow.OAuthError{Code: "insufficient_scope", Description: "the access token was not granted the openid scope", Status: 403}
 	}
-	ctx, err = s.oauthAccountContext(ctx, claims)
-	if err != nil {
-		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the access token belongs to another account directory")
-	}
-	userID, sessionID := jose.String(claims, "sub"), jose.String(claims, "sid")
-	if err := s.requireOAuthSignIn(ctx, userID, sessionID); err != nil {
-		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the sign-in the access token was issued for has ended")
-	}
-	u, err := s.getUserByID(ctx, userID)
-	if err != nil || u == nil {
-		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the user no longer exists")
-	}
 	client, ok, err := s.OAuthClient(ctx, jose.String(claims, "client_id"))
 	if err != nil {
 		return nil, err
@@ -302,7 +290,26 @@ func (s *Engine) OAuthUserInfo(ctx context.Context, accessToken, jkt string) (ma
 	if !ok {
 		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the access token's client is no longer registered")
 	}
-	out := map[string]any{"sub": userID}
+	sub := jose.String(claims, "sub")
+	userID, sessionID, err := s.clientAccount(ctx, client, sub, jose.String(claims, "sid"))
+	switch {
+	case errors.Is(err, errUnknownSubject):
+		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the sign-in the access token was issued for has ended")
+	case err != nil:
+		return nil, err
+	}
+	ctx, err = s.oauthAccountContext(ctx, userID, claims)
+	if err != nil {
+		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the access token belongs to another account directory")
+	}
+	if err := s.requireOAuthSignIn(ctx, userID, sessionID); err != nil {
+		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the sign-in the access token was issued for has ended")
+	}
+	u, err := s.getUserByID(ctx, userID)
+	if err != nil || u == nil {
+		return nil, authflow.NewOAuthError(authflow.OAuthInvalidToken, "the user no longer exists")
+	}
+	out := map[string]any{"sub": sub}
 	if client.ThirdParty() {
 		addVerifiedContactClaims(out, u, scopes)
 	} else {
@@ -323,7 +330,7 @@ func (s *Engine) EndOAuthSession(ctx context.Context, in authflow.OAuthEndSessio
 		claims, err := s.verifyOwnToken(in.IDTokenHint, idTokenType)
 		azp := jose.String(claims, "azp")
 		audiences := jose.Audiences(claims)
-		_, registered, lookupErr := s.OAuthClient(ctx, azp)
+		hinted, registered, lookupErr := s.OAuthClient(ctx, azp)
 		if lookupErr != nil {
 			return "", lookupErr
 		}
@@ -336,11 +343,18 @@ func (s *Engine) EndOAuthSession(ctx context.Context, in authflow.OAuthEndSessio
 		if clientID != azp {
 			return "", authflow.NewOAuthError(authflow.OAuthInvalidRequest, "id_token_hint was issued to another client")
 		}
-		ctx, err = s.oauthAccountContext(ctx, claims)
-		if err != nil {
-			return "", authflow.NewOAuthError(authflow.OAuthInvalidRequest, "id_token_hint belongs to another account directory")
+		userID, sessionID, err = s.clientAccount(ctx, hinted, jose.String(claims, "sub"), jose.String(claims, "sid"))
+		switch {
+		case errors.Is(err, errUnknownSubject):
+			// No sign-in of the client's group: nothing to end.
+			userID, sessionID = "", ""
+		case err != nil:
+			return "", err
+		default:
+			if ctx, err = s.oauthAccountContext(ctx, userID, claims); err != nil {
+				return "", authflow.NewOAuthError(authflow.OAuthInvalidRequest, "id_token_hint belongs to another account directory")
+			}
 		}
-		userID, sessionID = jose.String(claims, "sub"), jose.String(claims, "sid")
 	}
 	redirect := ""
 	if in.PostLogoutRedirectURI != "" {
@@ -530,12 +544,16 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	if !m.client.ThirdParty() {
 		roles = s.oauthRoles(ctx, m.userID)
 	}
-	at["sub"], at["roles"] = m.userID, roles
+	sub, sid, err := s.clientSubject(ctx, m.client, m.userID, m.sessionID)
+	if err != nil {
+		return authflow.OAuthTokens{}, err
+	}
+	at["sub"], at["roles"] = sub, roles
 	if !m.workload {
 		maps.Copy(at, map[string]any{"auth_time": m.authTime, "acr": m.acr, "amr": m.amr})
 	}
-	if m.sessionID != "" {
-		at["sid"] = m.sessionID
+	if sid != "" {
+		at["sid"] = sid
 	}
 	if m.client.ThirdParty() {
 		addVerifiedContactClaims(at, u, m.scopes)
@@ -555,15 +573,15 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	out := oauthAnswer(access, m, ttl, details)
 	if slices.Contains(m.scopes, "openid") {
 		id := map[string]any{
-			"iss": issuer, "sub": m.userID, "aud": []string{m.client.ID}, "azp": m.client.ID, "tenant_id": u.TenantID,
+			"iss": issuer, "sub": sub, "aud": []string{m.client.ID}, "azp": m.client.ID, "tenant_id": u.TenantID,
 			"iat": now.Unix(), "exp": now.Add(oauthIDTokenTTL).Unix(),
 			"auth_time": m.authTime, "acr": m.acr, "amr": m.amr,
 		}
 		if !m.client.ThirdParty() {
 			id["roles"] = roles
 		}
-		if m.sessionID != "" {
-			id["sid"] = m.sessionID
+		if sid != "" {
+			id["sid"] = sid
 		}
 		if m.nonce != "" {
 			id["nonce"] = m.nonce

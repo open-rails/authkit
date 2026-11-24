@@ -21,8 +21,8 @@ func (s *Engine) oauthClientContext(ctx context.Context, client authflow.OAuthCl
 
 // Only an already signature-verified native token may route a personal OAuth
 // request. Live account ownership is authoritative; a fixed mount stays fixed.
-func (s *Engine) oauthAccountContext(ctx context.Context, claims map[string]any) (context.Context, error) {
-	owner, err := s.credentialTenant(ctx, s.q, jose.String(claims, "sub"), jose.String(claims, "tenant_id"))
+func (s *Engine) oauthAccountContext(ctx context.Context, userID string, claims map[string]any) (context.Context, error) {
+	owner, err := s.credentialTenant(ctx, s.q, userID, jose.String(claims, "tenant_id"))
 	if err != nil {
 		return nil, err
 	}

@@ -342,6 +342,7 @@ pkg authkit, type GroupClientScope struct, Resource string `yaml:"resource"`
 pkg authkit, type GroupClientsConfig = config.GroupClientsConfig
 pkg authkit, type GroupClientsConfig struct
 pkg authkit, type GroupClientsConfig struct, Agreements []string `yaml:"agreements"`
+pkg authkit, type GroupClientsConfig struct, PairwiseSubjects bool `yaml:"pairwise_subjects"`
 pkg authkit, type GroupClientsConfig struct, Scopes []config.GroupClientScope `yaml:"scopes"`
 pkg authkit, type HTTPConfig = config.HTTPConfig
 pkg authkit, type HTTPConfig struct
@@ -1449,6 +1450,7 @@ pkg authkit/iam, type IDToken struct, IssuedAt time.Time
 pkg authkit/iam, type IDToken struct, Nonce string
 pkg authkit/iam, type IDToken struct, SessionID string
 pkg authkit/iam, type IDToken struct, Subject string
+pkg authkit/iam, type IDToken struct, UserID string
 pkg authkit/iam, type ImportConflict string
 pkg authkit/iam, type ImportMatch string
 pkg authkit/iam, type ImportOptions struct
