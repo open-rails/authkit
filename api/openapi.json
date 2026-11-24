@@ -4400,9 +4400,10 @@
             "bearer": []
           }
         ],
-        "x-authkit-auth": "permission",
+        "x-authkit-auth": "session",
         "x-authkit-permission": "root:tenants:manage",
-        "x-authkit-rate-limit": "admin_write"
+        "x-authkit-rate-limit": "admin_write",
+        "x-authkit-step-up": true
       }
     },
     "/api/v1/admin/tenants/{tenant_id}": {
@@ -4502,9 +4503,10 @@
             "bearer": []
           }
         ],
-        "x-authkit-auth": "permission",
+        "x-authkit-auth": "session",
         "x-authkit-permission": "root:tenants:manage",
-        "x-authkit-rate-limit": "admin_write"
+        "x-authkit-rate-limit": "admin_write",
+        "x-authkit-step-up": true
       }
     },
     "/api/v1/admin/tenants/by-slug/{slug}": {

@@ -120,6 +120,12 @@ func handle(f func(*Service, http.ResponseWriter, *http.Request)) func(*Service)
 	}
 }
 
+// rootGated checks root permission perm in front of f, for a route whose
+// tier is not AuthPermission and whose operation takes no identity.
+func rootGated(perm iam.Perm, f func(*Service, http.ResponseWriter, *http.Request)) func(*Service) http.Handler {
+	return func(s *Service) http.Handler { return s.requirePermission(iam.RootGroup(), perm, handle(f)(s)) }
+}
+
 func groupOp(op GroupOp) func(*Service) http.Handler {
 	return func(s *Service) http.Handler { return s.GroupHandler(op) }
 }
@@ -398,12 +404,13 @@ func Catalog() []RouteSpec {
 
 		// The tenant directory (#471). A tenant's ID is stable; its slug is a
 		// renamable public name, and a former name keeps resolving for a while.
-		{Method: POST, Path: "/admin/tenants", Group: admin, Auth: permission, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
-			Request: TenantCreateRequest{}, Responses: replyCreated(iam.Tenant{}), serve: handle((*Service).handleAdminTenantCreatePOST)},
+		// Writes, like the directory's, are for a person who signed in recently.
+		{Method: POST, Path: "/admin/tenants", Group: admin, Auth: session, StepUp: true, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
+			Request: TenantCreateRequest{}, Responses: replyCreated(iam.Tenant{}), serve: rootGated(ident.RootTenantsManage, (*Service).handleAdminTenantCreatePOST)},
 		{Method: GET, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: permission, Perm: ident.RootTenantsRead.String(), Bucket: RLAdminRead,
 			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantGET)},
-		{Method: PATCH, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: permission, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
-			Request: TenantRenameRequest{}, Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantPATCH)},
+		{Method: PATCH, Path: "/admin/tenants/{tenant_id}", Group: admin, Auth: session, StepUp: true, Perm: ident.RootTenantsManage.String(), Bucket: RLAdminWrite,
+			Request: TenantRenameRequest{}, Responses: replyOK(iam.Tenant{}), serve: rootGated(ident.RootTenantsManage, (*Service).handleAdminTenantPATCH)},
 		{Method: GET, Path: "/admin/tenants/by-slug/{slug}", Group: admin, Auth: permission, Perm: ident.RootTenantsRead.String(), Bucket: RLAdminRead,
 			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantBySlugGET)},
 
