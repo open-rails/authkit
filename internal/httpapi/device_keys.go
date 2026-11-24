@@ -33,10 +33,6 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollBegin, email) ||
-		s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollBegin, strings.TrimSpace(req.PublicKey)) {
-		return
-	}
 	result, err := s.svc.BeginDeviceKeyEnrollment(r.Context(), email, req.PublicKey, req.Label)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenUnverifiable) {
@@ -126,20 +122,18 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 	}
 	result, err := s.svc.FinishDeviceKeyLogin(r.Context(), req.ChallengeID, req.Signature)
 	if err != nil {
-		if errors.Is(err, iam.ErrDeviceKeysDisabled) {
+		switch {
+		case errors.Is(err, iam.ErrDeviceKeysDisabled):
 			fail(w, errmodel.CodeDeviceKeysDisabled)
-			return
-		}
-		// The key signed the challenge, but the account needs a second factor
-		// the key never proved: re-enroll it with code_2fa, or enroll a factor.
-		if errors.Is(err, errmodel.E(errmodel.CodeTwoFARequired)) || errors.Is(err, iam.ErrTwoFAEnrollmentRequired) {
+		// An unknown, revoked or banned key, or a challenge that is spent or
+		// badly signed: one refusal for all. No password was asked for.
+		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims), errors.Is(err, errmodel.ErrUserBanned):
+			fail(w, errmodel.CodeAuthenticationFailed)
+		// A second factor the key never proved (re-enroll it with code_2fa), or a
+		// proof that could not be checked: a logged 5xx the client retries.
+		default:
 			writeError(w, err)
-			return
 		}
-		if !errors.Is(err, jwt.ErrTokenUnverifiable) && !errors.Is(err, errmodel.ErrUserBanned) {
-			s.logInternalError(r, "device_key_login_finish", "finish", "device_key_login_finish_failed", err)
-		}
-		fail(w, errmodel.CodeInvalidCredentials)
 		return
 	}
 	s.writeDeviceKeySignIn(w, r, result)

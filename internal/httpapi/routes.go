@@ -130,7 +130,7 @@ func (s *Service) routes(surface Surface, groups []iam.RouteGroup, wrap func(Rou
 		if route.Surface != surface || !selected(route.Group) || !s.mounts(route.MountedWhen) {
 			continue
 		}
-		h := route.serve(s)
+		h := cacheControl(route.CacheControl, route.serve(s))
 		// A root permission is checked here; a group route checks its own
 		// (GroupHandler), since it first resolves the group.
 		if route.Auth == iam.AuthPermission && strings.HasPrefix(route.Perm, iam.RootPersona().String()+":") {
@@ -143,6 +143,27 @@ func (s *Service) routes(surface Surface, groups []iam.RouteGroup, wrap func(Rou
 		out = append(out, route)
 	}
 	return out
+}
+
+// noStore makes no-store every answer's default Cache-Control: tokens,
+// secrets and account data never sit in a cache.
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// cacheControl sets a route's own policy (RouteSpec.CacheControl) just
+// before its handler, so its refusals keep no-store.
+func cacheControl(policy string, next http.Handler) http.Handler {
+	if policy == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", policy)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // mounts reports whether this Service's configuration mounts routes that need f.

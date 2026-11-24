@@ -28,10 +28,11 @@ UPDATE permission_groups SET deleted_at = sqlc.arg(deleted_at)::timestamptz WHER
 -- name: PermissionGroupDelete :exec
 DELETE FROM permission_groups WHERE id = sqlc.arg(id);
 
--- PermissionGroupsPage lists non-root groups oldest first. ownerless keeps
--- live groups no owner counts for under the last-owner rule: a usable user
--- (MFA-enrolled in an mfa_personas group), or, where owners need no MFA, an
--- enabled application of the group itself whose registrar is usable.
+-- PermissionGroupsPage lists non-root groups oldest first, only tenant_id's
+-- when it is set. ownerless keeps live groups no owner counts for under the
+-- last-owner rule: a usable user (MFA-enrolled in an mfa_personas group), or,
+-- where owners need no MFA, an enabled application of the group itself whose
+-- registrar is usable.
 -- name: PermissionGroupsPage :many
 SELECT g.* FROM permission_groups g
 WHERE g.persona <> 'root' AND (sqlc.arg(persona)::text = '' OR g.persona = sqlc.arg(persona)::text)
@@ -47,6 +48,7 @@ WHERE g.persona <> 'root' AND (sqlc.arg(persona)::text = '' OR g.persona = sqlc.
        AND a.enabled AND a.permission_group_id = r.permission_group_id
        AND (a.trust_root <> 'user' OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.registered_by))
        AND EXISTS(SELECT 1 FROM permission_groups control WHERE control.id = a.permission_group_id AND control.deleted_at IS NULL)))
+  AND (sqlc.arg(tenant_id)::text = '' OR g.tenant_id = sqlc.arg(tenant_id)::text::uuid)
 ORDER BY g.id
 LIMIT sqlc.arg(page_limit)::bigint;
 
@@ -68,12 +70,14 @@ ORDER BY m.kind, m.id
 LIMIT sqlc.arg(page_limit)::bigint;
 
 -- GroupsOfUserPage and GroupsOfApplicationPage list the live groups a subject
--- holds a role in, by persona then id.
+-- holds a role in, by persona then id: only root and tenant_id's when it is
+-- set.
 -- name: GroupsOfUserPage :many
 SELECT sqlc.embed(g), a.role
 FROM group_user_roles a JOIN permission_groups g ON g.id = a.permission_group_id
 WHERE a.user_id = sqlc.arg(subject_id) AND g.deleted_at IS NULL
   AND (sqlc.arg(after_persona)::text = '' OR (g.persona, g.id) > (sqlc.arg(after_persona)::text, NULLIF(sqlc.arg(after_id)::text, '')::uuid))
+  AND (sqlc.arg(tenant_id)::text = '' OR g.tenant_id IS NULL OR g.tenant_id = sqlc.arg(tenant_id)::text::uuid)
 ORDER BY g.persona, g.id
 LIMIT sqlc.arg(page_limit)::bigint;
 
@@ -82,6 +86,7 @@ SELECT sqlc.embed(g), a.role
 FROM group_remote_application_roles a JOIN permission_groups g ON g.id = a.permission_group_id
 WHERE a.remote_application_id = sqlc.arg(subject_id) AND g.deleted_at IS NULL
   AND (sqlc.arg(after_persona)::text = '' OR (g.persona, g.id) > (sqlc.arg(after_persona)::text, NULLIF(sqlc.arg(after_id)::text, '')::uuid))
+  AND (sqlc.arg(tenant_id)::text = '' OR g.tenant_id IS NULL OR g.tenant_id = sqlc.arg(tenant_id)::text::uuid)
 ORDER BY g.persona, g.id
 LIMIT sqlc.arg(page_limit)::bigint;
 

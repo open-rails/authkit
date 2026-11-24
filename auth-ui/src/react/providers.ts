@@ -10,8 +10,14 @@ import { toAuthKitError, unguarded, useTask } from "./task.ts"
 
 export type ContactVerificationState =
   | { step: "idle" }
-  // change: the code confirms a new address for the account.
-  | { step: "code_sent"; identifier: string; change?: "email" | "phone" }
+  // change: the code confirms a new address for the account. challenge: the
+  // code's.
+  | {
+      step: "code_sent"
+      identifier: string
+      challenge: string
+      change?: "email" | "phone"
+    }
   | { step: "done"; identifier: string }
 
 // Proves an address with a one-time code: one already on the account
@@ -30,8 +36,10 @@ export function useContactVerification(options: GuardOptions = {}) {
     (identifier: string) =>
       run(async () => {
         const id = identifier.trim()
-        await client.requestVerification({ identifier: id })
-        setState({ step: "code_sent", identifier: id })
+        const { challenge } = await client.requestVerification({
+          identifier: id,
+        })
+        setState({ step: "code_sent", identifier: id, challenge })
       }),
     [client, run]
   )
@@ -53,8 +61,13 @@ export function useContactVerification(options: GuardOptions = {}) {
           "email" in input
             ? (["email", input.email.trim()] as const)
             : (["phone", input.phoneNumber.trim()] as const)
-        await sendChange(kind, value)
-        setState({ step: "code_sent", identifier: value, change: kind })
+        const { challenge } = await sendChange(kind, value)
+        setState({
+          step: "code_sent",
+          identifier: value,
+          challenge,
+          change: kind,
+        })
       }),
     [run, sendChange]
   )
@@ -64,8 +77,10 @@ export function useContactVerification(options: GuardOptions = {}) {
       run(async () => {
         if (state.step !== "code_sent") return
         const { identifier, change } = state
-        if (change) await sendChange(change, identifier)
-        else await client.requestVerification({ identifier })
+        const { challenge } = change
+          ? await sendChange(change, identifier)
+          : await client.requestVerification({ identifier })
+        setState({ ...state, challenge })
       }),
     [client, run, sendChange, state]
   )
@@ -76,6 +91,7 @@ export function useContactVerification(options: GuardOptions = {}) {
         if (state.step !== "code_sent") return
         await client.confirmVerification({
           identifier: state.identifier,
+          challenge: state.challenge,
           code: code.trim(),
         })
         setState({ step: "done", identifier: state.identifier })

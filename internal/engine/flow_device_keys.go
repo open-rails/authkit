@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	stdlog "log"
 	"slices"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -89,6 +91,8 @@ func deviceKeySigningMessage(domain, encodedChallenge string) ([]byte, error) {
 }
 
 // BeginDeviceKeyEnrollment sends an email proof and records the proposed key.
+// Past the address's or key's send quota it answers a ceremony like any
+// other and stores and sends nothing.
 func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (authflow.DeviceKeyChallenge, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return authflow.DeviceKeyChallenge{}, err
@@ -118,6 +122,9 @@ func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 
 	now := time.Now().UTC()
 	result := authflow.DeviceKeyChallenge{ID: secret.Token(32), Challenge: secret.Token(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
+	if !s.admitCode(ctx, httpapi.RLDeviceKeyEnrollBeginIdentifier, email) || !s.admitCode(ctx, httpapi.RLDeviceKeyEnrollBeginIdentifier, publicKey) {
+		return result, nil
+	}
 	code := secret.Digits(6)
 	record := deviceKeyEnrollment{
 		Email: email, PublicKey: publicKey, Label: label,
@@ -148,7 +155,10 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 	enrollmentID = strings.TrimSpace(enrollmentID)
 	var record deviceKeyEnrollment
 	ok, err := s.ephemGetJSON(ctx, keyDeviceKeyEnrollment+enrollmentID, &record)
-	if err != nil || !ok {
+	if err != nil {
+		return authflow.DeviceKeyAuthResult{}, fmt.Errorf("device-key enrollment: read ceremony: %w", err)
+	}
+	if !ok {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	if !secret.Equal(record.CodeHash, secret.Hash(strings.TrimSpace(code))) {
@@ -229,7 +239,10 @@ func (s *Engine) FinishDeviceKeyEnrollment(ctx context.Context, enrollmentID, co
 
 	var consumed deviceKeyEnrollment
 	ok, err = s.ephemConsumeJSON(ctx, keyDeviceKeyEnrollment+enrollmentID, &consumed)
-	if err != nil || !ok || consumed.Challenge != record.Challenge || consumed.CodeHash != record.CodeHash || consumed.PublicKey != record.PublicKey {
+	if err != nil {
+		return authflow.DeviceKeyAuthResult{}, fmt.Errorf("device-key enrollment: consume ceremony: %w", err)
+	}
+	if !ok || consumed.Challenge != record.Challenge || consumed.CodeHash != record.CodeHash || consumed.PublicKey != record.PublicKey {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 	_ = s.ephemDel(ctx, keyDeviceKeyEnrollmentAttempt+enrollmentID)
@@ -508,17 +521,23 @@ func (s *Engine) BeginDeviceKeyLogin(ctx context.Context, deviceKeyID string) (a
 }
 
 // FinishDeviceKeyLogin atomically consumes a challenge and issues only a short access token.
+// errDeviceKeyInvalid refuses the proof; a store that cannot be read is its own error.
 func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signature string) (authflow.DeviceKeyAuthResult, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
 	var record deviceKeyLogin
 	ok, err := s.ephemGetJSON(ctx, keyDeviceKeyLogin+strings.TrimSpace(challengeID), &record)
-	if err != nil || !ok || record.UserID == "" || record.PublicKey == "" {
+	if err != nil {
+		return authflow.DeviceKeyAuthResult{}, fmt.Errorf("device-key login: read challenge: %w", err)
+	}
+	if !ok || record.UserID == "" || record.PublicKey == "" {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
-	if err := s.requireTenantUser(ctx, s.q, record.UserID); err != nil {
+	if err := s.requireTenantUser(ctx, s.q, record.UserID); errors.Is(err, iam.ErrUserNotFound) {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
+	} else if err != nil {
+		return authflow.DeviceKeyAuthResult{}, fmt.Errorf("device-key login: read user: %w", err)
 	}
 	publicKey, err := decodeDeviceKey(record.PublicKey)
 	if err != nil {
@@ -534,13 +553,19 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 	}
 	var consumed deviceKeyLogin
 	ok, err = s.ephemConsumeJSON(ctx, keyDeviceKeyLogin+strings.TrimSpace(challengeID), &consumed)
-	if err != nil || !ok || consumed.Challenge != record.Challenge || consumed.DeviceKeyID != record.DeviceKeyID {
+	if err != nil {
+		return authflow.DeviceKeyAuthResult{}, fmt.Errorf("device-key login: consume challenge: %w", err)
+	}
+	if !ok || consumed.Challenge != record.Challenge || consumed.DeviceKeyID != record.DeviceKeyID {
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
 	}
 
 	touched, err := s.q.DeviceKeyTouch(ctx, db.DeviceKeyTouchParams{ID: record.DeviceKeyID, UserID: record.UserID})
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Revoked since the challenge was issued.
 		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
+	} else if err != nil {
+		return authflow.DeviceKeyAuthResult{}, fmt.Errorf("device-key login: touch key: %w", err)
 	}
 	deviceKey := publicDeviceKey(touched)
 	// A key counts as a second factor only when its enrollment proved one; any
@@ -550,7 +575,9 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 		methods = append(methods, "mfa")
 	}
 	accessToken, expiresAt, err := s.mintDeviceKeyAccessToken(ctx, record.UserID, deviceKey.ID, methods)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authflow.DeviceKeyAuthResult{}, errDeviceKeyInvalid
+	} else if err != nil {
 		return authflow.DeviceKeyAuthResult{}, err
 	}
 	return authflow.DeviceKeyAuthResult{UserID: record.UserID, AccessToken: accessToken, ExpiresAt: expiresAt, DeviceKey: deviceKey}, nil

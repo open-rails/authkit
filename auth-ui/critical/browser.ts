@@ -158,16 +158,14 @@ export async function register(page: Page, request: APIRequestContext) {
       }),
     who
   )
-  expect(pending).toBeNull()
+  expect(pending).toMatchObject({ challenge: expect.any(String) })
+  const challenge = "challenge" in pending ? pending.challenge : ""
   const proof = await code(request, who.email)
   const result = await settle(
     page,
-    ({ who, proof }) =>
-      window.ak.client.confirmVerification({
-        identifier: who.email,
-        code: proof,
-      }),
-    { who, proof }
+    ({ challenge, proof }) =>
+      window.ak.client.confirmVerification({ challenge, code: proof }),
+    { challenge, proof }
   )
   expect(result?.status).toBe("complete")
   await expect(page.getByTestId("session-status")).toHaveText("authenticated")

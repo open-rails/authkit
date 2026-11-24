@@ -27,16 +27,18 @@ your server.
 ```
 
 - The active key signs every new token, and its `kid` goes in the token header. RSA (2048–8192 bits) signs with RS256, P-256/384/521 with ES256/384/512, and Ed25519 with EdDSA.
-- `public_keys` are verify-only keys that JWKS keeps publishing, so tokens signed before a rotation keep verifying.
+- `public_keys` are verify-only keys that JWKS keeps publishing, so tokens signed before a rotation keep verifying. An entry under the active `kid` must be the active key's own public half, or the file is refused.
 - With no `keys.json`, `New` fails, unless `KeysConfig.VerifyOnly` is set (no signing) or `AllowEphemeralDevKeys` (development only: AuthKit generates and persists a key). Generation publishes each complete file atomically without replacing an existing key, so concurrent starters load the same material. Production never generates keys without that explicit opt-in.
 
-`totp.key` is the AES key (16, 24 or 32 bytes; hex, base64 or raw) that encrypts authenticator-app secrets; `TwoFactorConfig.TOTPSecretKey` overrides it. It can't be rotated: replacing it breaks every enrolled authenticator app, so back it up. Without it, authenticator apps can't be enrolled, unless `AllowEphemeralDevKeys` generates one the same way as `keys.json`. The file may be 0600, 0400 or 0440 (group-read, as a Kubernetes secret volume with `fsGroup` mounts it); world-read logs a warning and any group or world write bit refuses to boot.
+`totp.key` is the AES key (16, 24 or 32 bytes; hex, base64 or raw) that encrypts authenticator-app secrets; `TwoFactorConfig.TOTPSecretKey` overrides it. It can't be rotated: replacing it breaks every enrolled authenticator app, so back it up. Without it, authenticator apps can't be enrolled, unless `AllowEphemeralDevKeys` generates one the same way as `keys.json`.
+
+Both files may be 0600, 0400 or 0440 (group-read, as a Kubernetes secret volume with `fsGroup` mounts them). World-read logs a warning; a group or world write bit refuses to boot. Both are read inside the key directory: a symlink that leaves it is refused.
 
 To keep the private key out of the process entirely, set `Deps.KeySource` to your own `keys.Source`: an HSM, KMS or Vault key implements `keys.Signer`. A fixed source can't rotate without a restart.
 
 ## How rotation works
 
-- **The issuer.** AuthKit reads `keys.json` through `keys.Watch`, which checks the file every 10 seconds and swaps in a changed one. A malformed or unreadable file is logged and ignored; the last good keys stay. Minting and JWKS read the current keys on every call.
+- **The issuer.** AuthKit reads `keys.json` through `keys.Watch`, which checks the file every 10 seconds and swaps in a changed one. A malformed, unreadable or group/world-writable file is logged and ignored; the last good keys stay. Minting and JWKS read the current keys on every call.
 - **Verifiers.** A verifier that meets an unknown `kid` refetches the issuer's JWKS once, rate-limited, so other services pick up a new key when its first token arrives. This applies to issuers registered with a `JWKSURI`. Static `IssuerOptions.Keys` never refresh; call `AddIssuer` again with the new keys.
 - **Delivery.** `keys.json` must be re-rendered in place while the server runs: a Vault Agent sidecar, or a Kubernetes Secret volume (which syncs within about a minute). An init container that renders the file once defeats hot reload.
 

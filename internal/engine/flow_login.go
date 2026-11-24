@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -22,7 +21,6 @@ import (
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/password"
-	"github.com/open-rails/authkit/internal/secret"
 )
 
 // stageErr prefixes an engine failure with the stage it happened in, for the
@@ -149,15 +147,10 @@ func (s *Engine) pendingResendAllowed(ctx context.Context, kind pendingChangeKin
 	return err == nil && n <= pendingResendsPerHour
 }
 
-var dummyPasswordHash = sync.OnceValue(func() string {
-	hash, _ := password.HashArgon2id(context.Background(), secret.Token(32))
-	return hash
-})
-
 // spendPasswordCheck costs what one password check costs, so a sign-in that
 // finds no account answers in the same time as one that does.
 func spendPasswordCheck(ctx context.Context, pw string) error {
-	if _, err := password.VerifyArgon2id(ctx, dummyPasswordHash(), pw); errors.Is(err, password.ErrBusy) {
+	if err := password.Spend(ctx, pw); errors.Is(err, password.ErrBusy) {
 		return err
 	}
 	return nil
@@ -203,7 +196,7 @@ func (s *Engine) passwordRejected(ctx context.Context, in authflow.PasswordLogin
 	if kind == kindRegisterPhone {
 		channel = "phone"
 	}
-	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel}}, nil
+	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel, Challenge: newChallengeHandle()}}, nil
 }
 
 // recoverPendingLogin resends the same pending signup after checking its password.
@@ -227,8 +220,9 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 	if err != nil || !valid {
 		return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 	}
+	challenge := newChallengeHandle()
 	if s.pendingResendAllowed(ctx, kind, identifier) {
-		if _, err := s.resendRegistration(ctx, identifier); err != nil {
+		if challenge, _, err = s.resendRegistration(ctx, identifier); err != nil {
 			return authflow.LoginOutcome{}, err
 		}
 	}
@@ -236,7 +230,7 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 	if kind == kindRegisterPhone {
 		channel = "phone"
 	}
-	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel}}, nil
+	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel, Challenge: challenge}}, nil
 }
 
 // verificationGate parks an unverified account: the password must verify
@@ -258,18 +252,20 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 		return out, true, err
 	}
 	if needsEmail && s.EmailAvailable() {
-		if err := s.RequestEmailVerification(ctx, *u.Email, 0); err != nil {
+		challenge, err := s.requestEmailVerification(ctx, *u.Email)
+		if err != nil {
 			return authflow.LoginOutcome{}, true, stageErr("send_email_verification", fmt.Errorf("%w: %w", errmodel.ErrEmailVerificationSendFailed, err))
 		}
 		s.loginFailed(ctx, in, u.ID, "email_not_verified")
-		return s.verificationRequired(ctx, u.ID, *u.Email, "email", defaultEmailVerificationTTL)
+		return s.verificationRequired(ctx, u.ID, *u.Email, "email", challenge, defaultEmailVerificationTTL)
 	}
 	if needsPhone && s.SMSAvailable() {
-		if err := s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, 0); err != nil {
+		challenge, err := s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID)
+		if err != nil {
 			return authflow.LoginOutcome{}, true, stageErr("send_phone_verification", fmt.Errorf("%w: %w", errmodel.ErrPhoneVerificationSendFailed, err))
 		}
 		s.loginFailed(ctx, in, u.ID, "phone_not_verified")
-		return s.verificationRequired(ctx, u.ID, *u.PhoneNumber, "phone", defaultPhoneVerificationTTL)
+		return s.verificationRequired(ctx, u.ID, *u.PhoneNumber, "phone", challenge, defaultPhoneVerificationTTL)
 	}
 	// An account that already proved one contact signs in as before, so a site
 	// without SMS does not lock out a verified email beside an unverified phone.
@@ -282,13 +278,13 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 }
 
 // verificationRequired parks a login that proved userID's password at the code
-// sent to identifier, with the password proof its confirmation may present
-// for as long as the code lives.
-func (s *Engine) verificationRequired(ctx context.Context, userID, identifier, channel string, ttl time.Duration) (authflow.LoginOutcome, bool, error) {
+// sent to identifier for challenge, with the password proof its confirmation
+// may present for as long as the code lives.
+func (s *Engine) verificationRequired(ctx context.Context, userID, identifier, channel, challenge string, ttl time.Duration) (authflow.LoginOutcome, bool, error) {
 	proof, err := s.issuePasswordProof(ctx, userID, ttl)
 	if err != nil {
 		return authflow.LoginOutcome{}, true, err
 	}
 	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, UserID: userID,
-		Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel, PasswordProof: proof}}, true, nil
+		Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel, Challenge: challenge, PasswordProof: proof}}, true, nil
 }

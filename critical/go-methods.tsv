@@ -73,9 +73,9 @@ AK-GO-071	Client.ListPersonalAccessTokens	included	AK-J17-C01	personal_token_tes
 AK-GO-072	Client.RevokePersonalAccessToken	included	AK-J17-C01	personal_token_test.go:39;personal_token_test.go:91	Selected critical contract, not every possible input
 AK-GO-073	Client.ResolvePersonalAccessToken	included	AK-J17-C01	personal_token_test.go:29;personal_token_test.go:40;personal_token_test.go:46;personal_token_test.go:55;personal_token_test.go:92;personal_token_test.go:149;personal_token_test.go:155;personal_token_test.go:160;maintenance_test.go:105;lifecycle_test.go:330	Selected critical contract, not every possible input
 AK-GO-074	Client.ProvisioningTargets	deferred			Deferred functional expansion
-AK-GO-075	Client.RemoteInvitations	deferred			Deferred functional expansion
-AK-GO-076	Client.AcceptRemoteInvitation	deferred			Deferred functional expansion
-AK-GO-077	Client.RemoteUserRoles	deferred			Deferred functional expansion
+AK-GO-075	Client.RemoteInvitations	included	AK-J15-C08	remote_invitations_test.go:52	Selected critical contract, not every possible input
+AK-GO-076	Client.AcceptRemoteInvitation	included	AK-J15-C08	remote_invitations_test.go:84;remote_invitations_test.go:95;remote_invitations_test.go:106;remote_invitations_test.go:118	Selected critical contract, not every possible input
+AK-GO-077	Client.RemoteUserRoles	included	AK-J15-C08	remote_invitations_test.go:64	Selected critical contract, not every possible input
 AK-GO-078	Client.RemoveRemoteUserRole	deferred			Deferred functional expansion
 AK-GO-079	Client.Sessions	included	AK-J05-C01	login_test.go:22;passwordless_test.go:117;passwordless_test.go:169;session_test.go:50;session_test.go:79;dependencies_test.go:139	Selected critical contract, not every possible input
 AK-GO-080	Client.ListSessionEvents	included	AK-J32-C06	maintenance_test.go:192;maintenance_test.go:205	Selected critical contract, not every possible input

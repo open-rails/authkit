@@ -3,14 +3,12 @@ package engine
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
-	"github.com/open-rails/authkit/internal/errmodel"
-	"github.com/open-rails/authkit/internal/secret"
+	"github.com/open-rails/authkit/internal/httpapi"
 )
 
 // getUserByPhone returns a user by phone number (if any)
@@ -26,126 +24,109 @@ func (s *Engine) getUserByPhone(ctx context.Context, phone string) (*db.User, er
 }
 
 // RequestEmailVerification sends a verification code to an account or pending
-// registration whose address is unproven. An unknown or already verified
-// address gets the same nil, so the answer reveals neither.
-func (s *Engine) RequestEmailVerification(ctx context.Context, email string, ttl time.Duration) error {
+// registration whose address is unproven, and answers its challenge. An
+// unknown or already verified address, or one past its send quota, gets a
+// challenge too, naming nothing, so the answer reveals none of them.
+func (s *Engine) RequestEmailVerification(ctx context.Context, email string) (string, error) {
 	email = contact.NormalizeEmail(email)
 	if err := contact.ValidateEmail(email); err != nil {
-		return err
+		return "", err
 	}
+	if !s.admitCode(ctx, httpapi.RLVerifyRequestIdentifier, email) {
+		return newChallengeHandle(), nil
+	}
+	return s.requestEmailVerification(ctx, email)
+}
+
+// requestEmailVerification is RequestEmailVerification outside any quota.
+func (s *Engine) requestEmailVerification(ctx context.Context, email string) (string, error) {
 	if s.pg != nil {
 		u, err := s.getUserByEmail(ctx, email)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
+			return "", err
 		}
 		if u != nil {
 			if err := s.renewTakenRegistration(ctx, kindRegisterEmail, email); err != nil {
-				return err
+				return "", err
 			}
 			if u.EmailVerified {
-				return nil
+				return newChallengeHandle(), nil
 			}
-			return s.sendEmailVerificationToUser(ctx, u, ttl)
+			return s.sendEmailVerificationCode(ctx, u)
 		}
 	}
-
-	if found, err := s.resendRegistration(ctx, email); found || err != nil {
-		return err
+	handle, found, err := s.resendRegistration(ctx, email)
+	if found || err != nil {
+		return handle, err
 	}
-	return s.requirePG()
-}
-
-func (s *Engine) sendEmailVerificationToUser(ctx context.Context, u *db.User, ttl time.Duration) error {
-	if u == nil {
-		return iam.ErrUserNotFound
-	}
-	if u.EmailVerified {
-		return errmodel.ErrEmailAlreadyVerified
-	}
-	if ttl <= 0 {
-		ttl = defaultEmailVerificationTTL
-	}
-	return s.sendEmailVerificationCode(ctx, u, ttl)
+	return newChallengeHandle(), s.requirePG()
 }
 
 // sendEmailVerificationCode sends a code proving the mailbox, proven before or
 // not: a deleted account's restore asks for it again.
-func (s *Engine) sendEmailVerificationCode(ctx context.Context, u *db.User, ttl time.Duration) error {
-	if u.Email == nil {
-		return iam.ErrUserNotFound
+func (s *Engine) sendEmailVerificationCode(ctx context.Context, u *db.User) (string, error) {
+	if u == nil || u.Email == nil {
+		return "", iam.ErrUserNotFound
 	}
-	code := secret.Digits(6)
-	codeHash := secret.Hash(code)
-	linkToken := secret.Token(32)
-	linkTokenHash := secret.Hash(linkToken)
-	if err := s.storeEmailVerification(ctx, u.ID, u.Email, codeHash, linkTokenHash, ttl); err != nil {
-		return err
-	}
-	if s.email != nil {
+	return s.sendVerification(ctx, verificationChallenge{Kind: kindVerifyEmail, Target: *u.Email, UserID: u.ID}, func(code, link string) error {
+		if s.email == nil {
+			return s.missingSender(errEmailNotConfigured)
+		}
 		return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: *u.Email, Username: deref(u.Username), Language: s.userLanguage(ctx, u.ID),
-			Code: code, Link: s.emailVerificationURL(linkToken), Purpose: iam.PurposeContactVerify})
-	} else if !s.cfg.Registration.AllowMissingSenders {
-		return errEmailNotConfigured
+			Code: code, Link: s.emailVerificationURL(link), Purpose: iam.PurposeContactVerify})
+	})
+}
+
+// missingSender is a send with no sender: unavailable unless
+// Registration.AllowMissingSenders lets it pass unsent.
+func (s *Engine) missingSender(unavailable error) error {
+	if s.cfg.Registration.AllowMissingSenders {
+		return nil
 	}
-	return nil
+	return unavailable
 }
 
 // --- Phone Verification (for existing users with unverified phones) ---
 
 // RequestPhoneVerification is RequestEmailVerification for a phone number.
-func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string, ttl time.Duration) error {
+func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string) (string, error) {
 	phone = contact.NormalizePhone(phone)
 	if err := contact.ValidatePhone(phone); err != nil {
-		return err
+		return "", err
+	}
+	if !s.admitCode(ctx, httpapi.RLVerifyRequestIdentifier, phone) {
+		return newChallengeHandle(), nil
 	}
 	if s.pg != nil {
 		u, err := s.getUserByPhone(ctx, phone)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
+			return "", err
 		}
 		if u != nil {
 			if err := s.renewTakenRegistration(ctx, kindRegisterPhone, phone); err != nil {
-				return err
+				return "", err
 			}
 			if u.PhoneVerified || u.PhoneNumber == nil {
-				return nil
+				return newChallengeHandle(), nil
 			}
-			return s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, ttl)
+			return s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID)
 		}
 	}
-
-	if found, err := s.resendRegistration(ctx, phone); found || err != nil {
-		return err
+	handle, found, err := s.resendRegistration(ctx, phone)
+	if found || err != nil {
+		return handle, err
 	}
-	return s.requirePG()
+	return newChallengeHandle(), s.requirePG()
 }
 
-// sendPhoneVerificationToUser creates a verification code and sends it via SMS to a known user.
-// Use RequestPhoneVerification if you only have a phone number and need to look up the user.
-// Always returns nil for security.
-func (s *Engine) sendPhoneVerificationToUser(ctx context.Context, phone, userID string, ttl time.Duration) error {
-	if ttl <= 0 {
-		ttl = defaultPhoneVerificationTTL
-	}
-
-	// Generate a numeric code for manual entry + a high-entropy link token.
-	code := secret.Digits(6)
-	codeHash := secret.Hash(code)
-	linkToken := secret.Token(32)
-	linkHash := secret.Hash(linkToken)
-	if err := s.storePhoneVerification(ctx, "verify_phone", phone, userID, codeHash, linkHash, ttl); err != nil {
-		return err
-	}
-
-	if s.sms != nil {
-		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, UserID: userID, Language: s.userLanguage(ctx, userID),
-			Code: code, Link: s.phoneVerificationURL(linkToken), Purpose: iam.PurposeContactVerify})
-	} else {
-		// In production, require SMS to be configured
-		if !s.cfg.Registration.AllowMissingSenders {
-			return errSMSNotConfigured
+// sendPhoneVerificationToUser sends a code proving phone, userID's number,
+// and answers its challenge.
+func (s *Engine) sendPhoneVerificationToUser(ctx context.Context, phone, userID string) (string, error) {
+	return s.sendVerification(ctx, verificationChallenge{Kind: kindVerifyPhone, Target: phone, UserID: userID}, func(code, link string) error {
+		if s.sms == nil {
+			return s.missingSender(errSMSNotConfigured)
 		}
-	}
-
-	return nil
+		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, UserID: userID, Language: s.userLanguage(ctx, userID),
+			Code: code, Link: s.phoneVerificationURL(link), Purpose: iam.PurposeContactVerify})
+	})
 }

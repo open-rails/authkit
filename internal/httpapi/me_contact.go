@@ -8,9 +8,10 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
-// Changing the caller's email or phone: PUT sends a code to the new address,
-// which the caller confirms signed in at POST /verify/confirm; nothing changes
-// until then. The routes require a recent sign-in.
+// Changing the caller's email or phone: PUT sends a code to the new address
+// and answers its challenge, which the caller confirms signed in at POST
+// /verify/confirm; nothing changes until then. The routes require a recent
+// sign-in.
 
 func (s *Service) handleMeEmailPUT(w http.ResponseWriter, r *http.Request) {
 	var req EmailChangeRequest
@@ -62,17 +63,14 @@ func (s *Service) requestContactChange(w http.ResponseWriter, r *http.Request, c
 		return
 	}
 	id := ch.normalize(value)
-	// Per-identifier check: one address cannot be bombed from many IPs.
-	if s.rateLimitedByIdentifier(w, r, RLVerifyRequest, id) {
-		return
-	}
 	if !ch.senderAvailable() {
 		writeError(w, errmodel.E(ch.errUnavailable))
 		return
 	}
-	if err := ch.requestChange(r.Context(), claims.UserID, id); err != nil {
+	challenge, err := ch.requestChange(r.Context(), claims.UserID, id)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	accepted(w)
+	writeJSON(w, http.StatusAccepted, CodeChallenge{Challenge: challenge})
 }

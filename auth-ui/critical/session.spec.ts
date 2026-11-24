@@ -332,13 +332,13 @@ test("AK-UI-06: AK-J29-C04: contact proof cannot replay a mutation across a repl
       }),
     who
   )
-  expect(signIn?.status).toBe("complete")
+  expect(signIn && "status" in signIn && signIn.status).toBe("complete")
   const result = await settle(page, async () => {
     const seen: { identifier: string; channel: string }[] = []
     const unregister = window.ak.client.onContactProofRequired(
       async (proof) => {
         seen.push(proof)
-        await window.ak.client.requestVerification({
+        const { challenge } = await window.ak.client.requestVerification({
           identifier: proof.identifier,
         })
         const response = await fetch(
@@ -354,7 +354,7 @@ test("AK-UI-06: AK-J29-C04: contact proof cannot replay a mutation across a repl
         await window.ak.client.completeSignIn(() =>
           window.ak.client.request("POST", "/verify/confirm", {
             bearer: null,
-            body: { identifier: proof.identifier, code: delivered },
+            body: { challenge, code: delivered },
           })
         )
         return true

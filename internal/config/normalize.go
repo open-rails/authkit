@@ -257,6 +257,9 @@ func normalizeToken(t *TokenConfig) error {
 	if t.Issuer == "" {
 		return errors.New("authkit: Issuer is required (e.g., \"https://myapp.com\")")
 	}
+	if err := secureURL("Token.Issuer", t.Issuer); err != nil {
+		return err
+	}
 	if len(t.IssuedAudiences) == 0 {
 		return errors.New("authkit: IssuedAudiences is required (e.g., []string{\"myapp\", \"billing-app\"})")
 	}
@@ -277,6 +280,9 @@ func normalizeToken(t *TokenConfig) error {
 	t.AccountIssuers = accountIssuers
 	if t.SessionMaxPerUser == 0 {
 		t.SessionMaxPerUser = 3
+	}
+	if t.RefreshTokenDuration == 0 {
+		t.RefreshTokenDuration = 30 * 24 * time.Hour
 	}
 	if t.RefreshRotationGrace == 0 {
 		t.RefreshRotationGrace = 30 * time.Second
@@ -319,14 +325,12 @@ func normalizeEntitlementAllowlist(names []string) ([]string, error) {
 
 func normalizeFrontend(f *FrontendConfig, issuer string, degrade func(error)) error {
 	f.BaseURL = strings.TrimSpace(f.BaseURL)
-	if !isURL(issuer) {
-		slog.Warn("authkit: Issuer is not a well-formatted URL", "issuer", issuer)
-		if f.BaseURL == "" {
-			return fmt.Errorf("authkit: BaseURL is required when Issuer is not a well-formatted URL (issuer=%q)", issuer)
-		}
-	}
 	if f.BaseURL == "" {
 		f.BaseURL = issuer
+	}
+	// Its scheme decides whether cookies are Secure (and __Host-).
+	if err := secureURL("Frontend.BaseURL", f.BaseURL); err != nil {
+		return err
 	}
 	for _, p := range []struct {
 		field string
@@ -684,8 +688,17 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 	if _, err := ParseCIDRs("Cloudflare proxy", h.CloudflareProxies); err != nil {
 		return err
 	}
-	if d.ClientIP == nil && !h.DirectPeerIP && len(h.TrustedProxies) == 0 && len(h.CloudflareProxies) == 0 {
+	postures := 0
+	for _, set := range []bool{len(h.TrustedProxies) > 0 || len(h.CloudflareProxies) > 0, h.DirectPeerIP, d.ClientIP != nil} {
+		if set {
+			postures++
+		}
+	}
+	switch {
+	case postures == 0:
 		return errors.New("authkit: a client-IP posture is required — set HTTPConfig.TrustedProxies/CloudflareProxies for the proxies in front, DirectPeerIP to assert there are none, or Deps.ClientIP; behind an undeclared proxy every client shares one rate-limit bucket")
+	case postures > 1:
+		return errors.New("authkit: declare one client-IP posture, not several — HTTPConfig.TrustedProxies/CloudflareProxies for the proxies in front, DirectPeerIP for none, or Deps.ClientIP for the host's own")
 	}
 	if err := ratelimit.ValidateLimits(h.RateLimits); err != nil {
 		return err
@@ -710,15 +723,15 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 }
 
 // basePath derives the base from the issuer's path, or checks a set one
-// against it: JWKS is only found where the issuer says. A non-URL issuer has
-// no path, so any base goes.
+// against it: JWKS is only found where the issuer says.
 func basePath(configured, issuer string) (string, error) {
 	u, err := url.Parse(issuer)
-	derived := ""
-	if err == nil && isURL(issuer) {
-		if derived, err = MountPath("Token.Issuer path", u.EscapedPath()); err != nil {
-			return "", err
-		}
+	if err != nil {
+		return "", err
+	}
+	derived, err := MountPath("Token.Issuer path", u.EscapedPath())
+	if err != nil {
+		return "", err
 	}
 	if strings.TrimSpace(configured) == "" {
 		return derived, nil
@@ -727,7 +740,7 @@ func basePath(configured, issuer string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if isURL(issuer) && base != derived {
+	if base != derived {
 		return "", fmt.Errorf("authkit: BasePath %q must equal the path of Token.Issuer %q, where verifiers look for JWKS", configured, issuer)
 	}
 	return base, nil
@@ -738,9 +751,6 @@ func basePath(configured, issuer string) (string, error) {
 func publicURL(raw, issuer, base string) (string, error) {
 	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
 	if raw == "" {
-		if !isURL(issuer) {
-			return "", nil
-		}
 		u, _ := url.Parse(issuer)
 		return u.Scheme + "://" + u.Host + base, nil
 	}
@@ -794,9 +804,17 @@ func redisKeyPrefix(prefix, schema string) (string, error) {
 	return prefix, nil
 }
 
-func isURL(raw string) bool {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	return err == nil && strings.TrimSpace(u.Scheme) != "" && strings.TrimSpace(u.Host) != ""
+// secureURL refuses raw unless it is an https URL, or http on a loopback
+// host (localhost, 127.0.0.0/8, [::1]) for local development.
+func secureURL(field, raw string) error {
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil || u.Host == "" || u.Scheme != "https" && u.Scheme != "http":
+		return fmt.Errorf("authkit: %s %q must be an https URL", field, raw)
+	case u.Scheme == "http" && !loopbackHost(u.Hostname()):
+		return fmt.Errorf("authkit: %s %q must be https; http is allowed only on a loopback host (localhost, 127.0.0.1, [::1])", field, raw)
+	}
+	return nil
 }
 
 // dedup trims, drops empties and duplicates, preserving order.

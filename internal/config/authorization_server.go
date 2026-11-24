@@ -271,9 +271,6 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 	if c.HTTP == nil {
 		return errors.New("authkit: AuthorizationServer needs Config.HTTP: its endpoints are part of the HTTP surface")
 	}
-	if !isURL(c.Token.Issuer) {
-		return fmt.Errorf("authkit: AuthorizationServer needs Token.Issuer to be an absolute URL (issuer=%q)", c.Token.Issuer)
-	}
 	switch {
 	case a.AccessTokenTTL < 0 || a.AccessTokenTTL > MaxOAuthAccessTokenTTL:
 		return fmt.Errorf("authkit: AuthorizationServer.AccessTokenTTL must be between 0 and %v, got %v", MaxOAuthAccessTokenTTL, a.AccessTokenTTL)

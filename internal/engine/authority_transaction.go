@@ -434,38 +434,15 @@ func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroup
 	return nil
 }
 
-// Redemption first checks the inviter still covers the invitation. It can
-// retain or increase its recipient's role, never strip existing grants.
+// assignInvitedRole lands an invitation's role with the account a new
+// registration created (landInvitedRole).
 func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore, gid string, persona iam.Persona, userID string, role iam.Role) error {
-	subject := iam.UserSubject(userID)
-	g := groupTarget{ID: gid, Persona: persona}
-	old, err := st.directRole(ctx, g, subject)
+	g, h := groupTarget{ID: gid, Persona: persona}, nativeHolder{s: s, id: userID}
+	old, err := h.held(ctx, st, g)
 	if err != nil {
 		return err
 	}
-	if !old.IsZero() && old != role {
-		oldGrants, err := s.roleGrants(ctx, st.q, g, old)
-		if err != nil {
-			return err
-		}
-		offered, err := s.roleGrants(ctx, st.q, g, role)
-		if err != nil {
-			return err
-		}
-		if !grantsCoverAll(offered, oldGrants) {
-			return iam.ErrRoleAssignmentEscalation
-		}
-		if err := s.refuseOwnerLoss(ctx, st, gid, subject); err != nil {
-			return err
-		}
-	}
-	if err := s.requireDefinedGroupRole(ctx, st.q, g, role); err != nil {
-		return err
-	}
-	if err := s.requireMFAForRoleAssignment(ctx, st.q, gid, persona, subject, role); err != nil {
-		return err
-	}
-	return st.AssignRole(ctx, gid, subject, role)
+	return s.landInvitedRole(ctx, st, g, h, old, role, "")
 }
 
 // A group deletion can also delete applications owning other groups. Check

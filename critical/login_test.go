@@ -3,8 +3,13 @@ package critical_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"reflect"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -106,20 +111,24 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		if r.header.Get("Retry-After") == "" {
 			t.Fatal("rate refusal omitted Retry-After")
 		}
-		// The public registration send has an additional identifier budget;
-		// trusted distinct source addresses must not buy unlimited email sends.
+		// The public registration send has an additional quota per address
+		// it sends to; trusted distinct source addresses must not buy
+		// unlimited email sends. Past it the sign-up answers as one does and
+		// sends nothing.
 		h := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
 			c.HTTP.DirectPeerIP = false
 			c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
-			c.HTTP.RateLimits["register_create"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			c.HTTP.RateLimits["register_create_identifier"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
 		}))
 		body := map[string]string{"identifier": "budgeted@example.com", "username": "budgetedperson", "password": authtest.Password}
 		a, err := h.requestHeaders(t.Context(), "POST", "/register", "", body, http.Header{"X-Forwarded-For": {"192.0.2.10"}})
 		noError(t, err)
-		a.want(t, http.StatusAccepted, "")
+		challengeOf(t, a)
+		body = map[string]string{"identifier": "budgeted@example.com", "username": "budgetedother", "password": authtest.Password}
+		h.call(t, "POST", "/register/abandon", "", map[string]string{"identifier": "budgeted@example.com", "password": authtest.Password}).want(t, http.StatusNoContent, "")
 		b, err := h.requestHeaders(t.Context(), "POST", "/register", "", body, http.Header{"X-Forwarded-For": {"192.0.2.11"}})
 		noError(t, err)
-		b.want(t, http.StatusTooManyRequests, "rate_limited")
+		challengeOf(t, b)
 		if len(h.out.Messages(iam.MessageVerification, "budgeted@example.com")) != 1 {
 			t.Fatal("identifier budget allowed duplicate external delivery")
 		}
@@ -164,6 +173,207 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 			t.Fatalf("account with a proven phone was refused during the outage: %+v", out)
 		}
 		g.out.Last(t, iam.MessageNewDeviceCode, *phoneProven.Phone)
+	})
+	t.Run("AK-J04-C07_identifier_budget_spans_addresses_and_treats_missing_accounts_alike", func(t *testing.T) {
+		for _, store := range []struct {
+			name string
+			deps []authtest.Option
+		}{
+			{"memory", nil},
+			{"redis", []authtest.Option{authtest.WithDeps(func(d *authkit.Deps) { d.Redis = realRedis(t) })}},
+		} {
+			t.Run(store.name, func(t *testing.T) {
+				g := newFixture(t, append([]authtest.Option{proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
+					c.HTTP.DirectPeerIP = false
+					c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
+					c.HTTP.RateLimits["password_login_identifier"] = authkit.RateLimit{Limit: 2, Window: time.Hour}
+				})}, store.deps...)...)
+				u, other, taken := g.user(t), g.user(t), g.user(t)
+				phone, err := g.auth.CreateUser(t.Context(), iam.NewUser{Phone: "+12025550179", PhoneVerified: true, Username: "budgetphone", Password: authtest.Password})
+				noError(t, err)
+				// Each request comes from a new /64, so only the identifier budget can refuse it.
+				addresses := 0
+				login := func(identifier, password string) response {
+					addresses++
+					r, err := g.requestHeaders(t.Context(), "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": password},
+						http.Header{"X-Forwarded-For": {fmt.Sprintf("2001:db8:%x::1", addresses)}})
+					noError(t, err)
+					return r
+				}
+				want := map[string]any{"action": "password_login_identifier", "allowed": false, "reason": "limit_exceeded", "limit": 2.0, "remaining": 0.0, "window_seconds": 3600.0, "cooldown_seconds": nil}
+				refused := func(r response) {
+					t.Helper()
+					r.want(t, http.StatusTooManyRequests, "rate_limited")
+					if r.header.Get("Retry-After") == "" {
+						t.Fatal("identifier refusal omitted Retry-After")
+					}
+					var env iam.ErrorEnvelope
+					decode(t, r.body, &env)
+					delete(env.Error.Metadata, "retry_after_seconds")
+					delete(env.Error.Metadata, "next_allowed_at")
+					if !reflect.DeepEqual(env.Error.Metadata, want) {
+						t.Fatalf("identifier refusal = %v, want %v", env.Error.Metadata, want)
+					}
+				}
+
+				// Every kind of identifier, in any spelling, with or without an account:
+				// right passwords spend nothing, and the third wrong one is refused alike.
+				for _, c := range []struct{ first, second, probe, password string }{
+					{u.Email, strings.ToUpper(u.Email), " " + u.Email + " ", u.Password},
+					{u.Username, strings.ToUpper(u.Username), u.Username, u.Password},
+					{*phone.Phone, *phone.Phone, " " + *phone.Phone, authtest.Password},
+					{"missing-person@example.com", "MISSING-PERSON@EXAMPLE.COM", "missing-person@example.com", ""},
+					{"missingperson", "MissingPerson", "missingperson", ""},
+					{"+12025550180", "+12025550180", "+12025550180", ""},
+				} {
+					if c.password != "" {
+						login(c.first, c.password).want(t, http.StatusOK, "")
+						login(c.second, c.password).want(t, http.StatusOK, "")
+					}
+					login(c.first, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+					login(c.second, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+					refused(login(c.probe, "wrong-password"))
+					if c.password != "" {
+						refused(login(c.first, c.password))
+					}
+				}
+
+				// A pending sign-up's password proves no account, so signing in with it
+				// counts, whether or not an account holds the address.
+				const pending = "Pending-guess-password-6"
+				for i, address := range []string{taken.Email, "pending-person@example.com"} {
+					g.call(t, "POST", "/register", "", map[string]string{"identifier": address, "username": fmt.Sprintf("pendingguess%d", i), "password": pending}).want(t, http.StatusAccepted, "")
+					for range 2 {
+						r := login(address, pending)
+						r.want(t, http.StatusOK, "")
+						var out signInResult
+						decode(t, r.body, &out)
+						if out.Status != "verification_required" || out.Tokens != nil {
+							t.Fatalf("pending password for %s answered %s", address, r.body)
+						}
+					}
+					refused(login(address, pending))
+				}
+
+				// While the email is refused, a reset works but does not lift it, a code
+				// still signs in, and another account keeps its own budget.
+				const changed = "Budget-reset-password-5"
+				g.call(t, "POST", "/password/reset/confirm", "", map[string]string{"token": g.resetProof(t, u.Email), "new_password": changed}).want(t, http.StatusNoContent, "")
+				refused(login(u.Email, changed))
+				tokensFrom(t, g.confirmCode(t, "/passwordless/confirm", "", g.passwordlessProof(t, u.Email, "code")), u.ID)
+				tokensFrom(t, login(other.Email, other.Password), other.ID)
+
+				// A spent budget frees itself as its window passes.
+				h := newFixture(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
+					c.HTTP.RateLimits["password_login_identifier"] = authkit.RateLimit{Limit: 1, Window: 5 * time.Second}
+				})}, store.deps...)...)
+				v := h.user(t)
+				h.call(t, "POST", "/password/login", "", map[string]string{"identifier": v.Email, "password": "wrong-password"}).want(t, http.StatusUnauthorized, "invalid_credentials")
+				h.call(t, "POST", "/password/login", "", map[string]string{"identifier": v.Email, "password": v.Password}).want(t, http.StatusTooManyRequests, "rate_limited")
+				var r response
+				eventually(t, "the spent identifier budget to recover", func() bool {
+					r = h.call(t, "POST", "/password/login", "", map[string]string{"identifier": v.Email, "password": v.Password})
+					return r.status != http.StatusTooManyRequests
+				})
+				tokensFrom(t, r, v.ID)
+			})
+		}
+	})
+	t.Run("AK-J04-C08_account_state_shows_only_after_the_password_is_proved", func(t *testing.T) {
+		g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
+			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 1000, Window: time.Hour}
+		}))
+		banned, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "banned-state@example.com", Phone: "+12025550181", Username: "bannedstate", Password: authtest.Password, EmailVerified: true, PhoneVerified: true})
+		noError(t, err)
+		noPassword, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "no-password-state@example.com", Phone: "+12025550182", Username: "nopasswordstate", EmailVerified: true, PhoneVerified: true})
+		noError(t, err)
+		unproven, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-state@example.com", Username: "unprovenstate"})
+		noError(t, err)
+		for _, u := range []iam.User{banned, noPassword} {
+			noError(t, g.auth.Ban(t.Context(), iam.SystemIdentity(), u.ID, iam.Ban{}))
+		}
+		login := func(identifier, password string) response {
+			return g.call(t, "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": password})
+		}
+		for _, identifier := range []string{*banned.Email, banned.Username, *banned.Phone, *noPassword.Email, noPassword.Username, *noPassword.Phone, *unproven.Email, unproven.Username} {
+			login(identifier, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+		}
+		for _, identifier := range []string{*banned.Email, banned.Username, *banned.Phone} {
+			login(identifier, authtest.Password).want(t, http.StatusUnauthorized, "user_banned")
+		}
+		// A refusal that skips the password check answers many times sooner than a missing account.
+		identifiers := []string{"missing-state@example.com", *banned.Email, *noPassword.Email, *unproven.Email}
+		fastest := map[string]time.Duration{}
+		for range 5 {
+			for _, identifier := range identifiers {
+				start := time.Now()
+				login(identifier, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
+				if took := time.Since(start); fastest[identifier] == 0 || took < fastest[identifier] {
+					fastest[identifier] = took
+				}
+			}
+		}
+		for _, identifier := range identifiers[1:] {
+			if fastest[identifier] < fastest[identifiers[0]]/4 {
+				t.Fatalf("wrong password for %s answered in %s, for a missing account in %s", identifier, fastest[identifier], fastest[identifiers[0]])
+			}
+		}
+	})
+	t.Run("AK-J04-C09_missing_account_costs_a_password_check_after_the_hash_budget_was_full", func(t *testing.T) {
+		// A cached dummy hash fails this only as the process's first missing-account sign-in: run it alone to prove that.
+		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 100000, Window: time.Hour}
+		}))
+		u := g.user(t)
+		// Ten times the default cost, so a few rounds of these keep the budget full past its one-second wait.
+		slow := &iam.PasswordHash{Hash: "$argon2id$v=19$m=65536,t=10,p=1$" + strings.Repeat("A", 22) + "$" + strings.Repeat("A", 43), Algo: iam.HashArgon2id}
+		rows := make([]iam.ImportUser, 12*max(2, runtime.GOMAXPROCS(0)))
+		for i := range rows {
+			rows[i] = iam.ImportUser{Username: fmt.Sprintf("slowhash%d", i), PasswordHash: slow}
+		}
+		result, err := g.auth.ImportUsers(t.Context(), rows, iam.ImportOptions{})
+		noError(t, err)
+		if result.Inserted != len(rows) {
+			t.Fatalf("import result: %+v", result)
+		}
+		wrong := func(identifier string) (response, error) {
+			return g.request(t.Context(), "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": "wrong-password"})
+		}
+		var flood sync.WaitGroup
+		var refused atomic.Int32
+		for _, row := range rows {
+			flood.Go(func() {
+				if r, err := wrong(row.Username); err == nil && r.status == http.StatusServiceUnavailable {
+					refused.Add(1)
+				}
+			})
+		}
+		time.Sleep(50 * time.Millisecond)
+		r, err := wrong("missing-while-busy")
+		noError(t, err)
+		if r.status != http.StatusServiceUnavailable && r.status != http.StatusUnauthorized {
+			t.Fatalf("missing account while busy: %d %s", r.status, r.body)
+		}
+		flood.Wait()
+		if refused.Load() == 0 {
+			t.Fatal("the flood never filled the hash budget")
+		}
+		identifiers := []string{u.Username, "missing-after-busy"}
+		fastest := map[string]time.Duration{}
+		for range 5 {
+			for _, identifier := range identifiers {
+				start := time.Now()
+				r, err := wrong(identifier)
+				noError(t, err)
+				r.want(t, http.StatusUnauthorized, "invalid_credentials")
+				if took := time.Since(start); fastest[identifier] == 0 || took < fastest[identifier] {
+					fastest[identifier] = took
+				}
+			}
+		}
+		if fastest[identifiers[1]] < fastest[identifiers[0]]/4 {
+			t.Fatalf("wrong password for a missing account answered in %s, for an account in %s", fastest[identifiers[1]], fastest[identifiers[0]])
+		}
 	})
 }
 

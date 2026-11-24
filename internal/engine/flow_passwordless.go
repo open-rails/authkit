@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -27,14 +28,14 @@ const (
 
 	defaultPasswordlessTTL = 10 * time.Minute
 
-	keyPasswordless         = "passwordless:rec:"  // +<channel>:<identifier>
-	keyPasswordlessLink     = "passwordless:link:" // +<linkHash> -> record key
-	keyPasswordlessAttempts = "passwordless:attempts:"
+	keyPasswordless         = "passwordless:challenge:" // +<handle>
+	keyPasswordlessLink     = "passwordless:link:"      // +<linkHash> -> handle
+	keyPasswordlessFailures = "passwordless:failures:"  // +<handle>
 )
 
 type passwordlessChallenge struct {
-	Version           int64  `json:"version,omitempty"`
-	ID                string `json:"id"`
+	Version           int64 `json:"version,omitempty"`
+	handle            string
 	expected          []byte
 	Channel           string `json:"channel"`
 	Identifier        string `json:"identifier"`
@@ -90,6 +91,7 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 		return authflow.PasswordlessStartResult{}, err
 	}
 
+	result := authflow.PasswordlessStartResult{Challenge: newChallengeHandle(), Channel: channel}
 	var user *db.User
 	switch channel {
 	case passwordlessChannelEmail:
@@ -124,7 +126,7 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 		rec.UserID = user.ID
 	} else {
 		if !s.passwordlessAutoRegistrationAllowed() {
-			return authflow.PasswordlessStartResult{Channel: channel}, nil
+			return result, nil
 		}
 		allowed, err := s.registrationAllowedForEmail(ctx, identifier)
 		if err != nil {
@@ -139,6 +141,9 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 		}
 	}
 
+	if !s.admitCode(ctx, httpapi.RLPasswordlessStartIdentifier, identifier) {
+		return result, nil
+	}
 	code := ""
 	linkToken := ""
 	if mode == passwordlessModeCode || mode == passwordlessModeBoth {
@@ -149,6 +154,7 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 		linkToken = secret.Token(32)
 		rec.LinkHash = secret.Hash(linkToken)
 	}
+	rec.handle = result.Challenge
 	if err := s.storePasswordlessChallenge(ctx, rec); err != nil {
 		return authflow.PasswordlessStartResult{}, err
 	}
@@ -158,59 +164,65 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 		linkURL = s.passwordlessURL(channel, linkToken, rec.ReturnTo)
 	}
 	if err := s.sendPasswordlessChallenge(ctx, rec, code, linkURL); err != nil {
+		s.deletePasswordlessChallenge(ctx, rec)
+		if withheld(err) {
+			return result, nil
+		}
 		return authflow.PasswordlessStartResult{}, err
 	}
-	return authflow.PasswordlessStartResult{Sent: true, Channel: channel, Code: code, LinkURL: linkURL}, nil
+	result.Sent, result.Code, result.LinkURL = true, code, linkURL
+	return result, nil
 }
 
 func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error) {
 	if s == nil || !s.cfg.Registration.PasswordlessLogin {
 		return authflow.LoginOutcome{}, errmodel.ErrPasswordlessDisabled
 	}
+	if !s.useEphemeralStore() {
+		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
+	}
 	var rec passwordlessChallenge
 	var ok bool
 	var err error
-	if in.Token != "" && in.Code == "" {
+	switch {
+	case in.Token != "" && in.Code == "":
 		hash := secret.Hash(in.Token)
 		ctx, err = s.proofContext(ctx, "passwordless-link", hash)
 		if err != nil {
 			return authflow.LoginOutcome{}, err
 		}
-		key, found, lookupErr := s.ephemGetString(ctx, keyPasswordlessLink+hash)
+		handle, found, lookupErr := s.ephemGetString(ctx, keyPasswordlessLink+hash)
 		if lookupErr != nil {
 			return authflow.LoginOutcome{}, lookupErr
 		}
 		if !found {
 			return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
-		rec, ok, err = s.loadPasswordlessChallenge(ctx, key)
+		rec, ok, err = s.loadPasswordlessChallenge(ctx, handle)
 		if err != nil {
 			return authflow.LoginOutcome{}, err
 		}
 		if !ok || !secret.Equal(rec.LinkHash, hash) {
 			return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
-		if in.Identifier != "" {
-			channel, identifier, err := normalizePasswordlessIdentifier(in.Identifier)
-			if err != nil || channel != rec.Channel || identifier != rec.Identifier {
-				return authflow.LoginOutcome{}, jwt.ErrTokenInvalidClaims
-			}
+		if in.Identifier != "" && !rec.names(in.Identifier) {
+			return authflow.LoginOutcome{}, jwt.ErrTokenInvalidClaims
 		}
-
-	} else if in.Token == "" && in.Identifier != "" && in.Code != "" {
-		channel, identifier, e := normalizePasswordlessIdentifier(in.Identifier)
-		if e != nil {
-			return authflow.LoginOutcome{}, e
-		}
-		rec, ok, err = s.loadPasswordlessChallenge(ctx, passwordlessKey(channel, identifier))
+	case in.Token == "" && in.Challenge != "" && in.Code != "":
+		rec, ok, err = s.loadPasswordlessChallenge(ctx, in.Challenge)
 		if err != nil {
 			return authflow.LoginOutcome{}, err
 		}
-		if !ok || rec.CodeHash == "" || !secret.Equal(rec.CodeHash, secret.Hash(in.Code)) {
-			s.recordFailedPasswordlessCode(ctx, identifier)
+		if !ok {
 			return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 		}
-	} else {
+		if rec.CodeHash == "" || !secret.Equal(rec.CodeHash, secret.Hash(in.Code)) || in.Identifier != "" && !rec.names(in.Identifier) {
+			if s.recordFailedAttempt(ctx, keyPasswordlessFailures+rec.handle, defaultPasswordlessTTL, maxChallengeFailures) {
+				s.deletePasswordlessChallenge(ctx, rec)
+			}
+			return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
+		}
+	default:
 		return authflow.LoginOutcome{}, jwt.ErrTokenInvalidClaims
 	}
 	// A sign-up accepts its agreements before the code is spent, so the
@@ -228,7 +240,6 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
-	s.clearPasswordlessCodeAttempts(ctx, rec.Identifier)
 	method := "email"
 	if rec.Channel == passwordlessChannelSMS {
 		method = "sms"
@@ -236,18 +247,21 @@ func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.Passwordless
 	return s.finishFirstFactor(ctx, loginProof{Version: account.Version, AuthenticatedAt: time.Now().UTC(), ReturnTo: rec.ReturnTo, Created: rec.UserID == "", Input: loginSessionInput{UserID: account.ID, AuthMethods: []string{method}, Event: passwordlessSessionMethod(rec.Channel), UserAgent: in.UserAgent, IP: in.IP}})
 }
 
-// storePasswordlessChallenge issues one challenge per (channel, identifier),
-// superseding any outstanding one. The code hash stays inside the record; only
-// the 256-bit link token gets a global pointer (#301).
+// names reports whether identifier is the address rec's code went to.
+func (rec passwordlessChallenge) names(identifier string) bool {
+	channel, normalized, err := normalizePasswordlessIdentifier(identifier)
+	return err == nil && channel == rec.Channel && normalized == rec.Identifier
+}
+
+// storePasswordlessChallenge stores rec under its handle; it replaces no
+// other start. Only the 256-bit link token gets a global pointer.
 func (s *Engine) storePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) error {
-	rec.ID = secret.Token(16)
-	key := passwordlessKey(rec.Channel, rec.Identifier)
-	s.deletePasswordlessChallenge(ctx, key)
+	key := keyPasswordless + rec.handle
 	if err := s.ephemSetJSON(ctx, key, rec, defaultPasswordlessTTL); err != nil {
 		return err
 	}
 	if rec.LinkHash != "" {
-		if err := s.ephemSetString(ctx, keyPasswordlessLink+rec.LinkHash, key, defaultPasswordlessTTL); err != nil {
+		if err := s.ephemSetString(ctx, keyPasswordlessLink+rec.LinkHash, rec.handle, defaultPasswordlessTTL); err != nil {
 			return err
 		}
 		return s.rememberProofRoute(ctx, "passwordless-link", rec.LinkHash, defaultPasswordlessTTL)
@@ -255,57 +269,33 @@ func (s *Engine) storePasswordlessChallenge(ctx context.Context, rec passwordles
 	return nil
 }
 
-func (s *Engine) loadPasswordlessChallenge(ctx context.Context, key string) (passwordlessChallenge, bool, error) {
+func (s *Engine) loadPasswordlessChallenge(ctx context.Context, handle string) (passwordlessChallenge, bool, error) {
 	var rec passwordlessChallenge
-	raw, ok, err := s.ephemReadJSON(ctx, key, &rec)
-	rec.expected = raw
-	return rec, ok && rec.ID != "", err
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return rec, false, nil
+	}
+	raw, ok, err := s.ephemReadJSON(ctx, keyPasswordless+handle, &rec)
+	rec.handle, rec.expected = handle, raw
+	return rec, ok && rec.Channel != "", err
 }
 
-func (s *Engine) deletePasswordlessChallenge(ctx context.Context, key string) {
-	rec, ok, _ := s.loadPasswordlessChallenge(ctx, key)
-	if ok && s.claimProof(ctx, key, rec.expected) == nil && rec.LinkHash != "" {
+// deletePasswordlessChallenge burns rec: its code, link and failure count.
+func (s *Engine) deletePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge) {
+	_ = s.ephemDel(ctx, keyPasswordless+rec.handle)
+	_ = s.ephemDel(ctx, keyPasswordlessFailures+rec.handle)
+	if rec.LinkHash != "" {
 		_ = s.ephemDel(ctx, keyPasswordlessLink+rec.LinkHash)
 	}
-}
-
-func (s *Engine) deletePasswordlessByTarget(ctx context.Context, channel, identifier string) {
-	s.deletePasswordlessChallenge(ctx, passwordlessKey(channel, identifier))
-}
-
-func (s *Engine) recordFailedPasswordlessCode(ctx context.Context, identifier string) {
-	if !s.useEphemeralStore() {
-		return
-	}
-	channel, normalized, err := normalizePasswordlessIdentifier(identifier)
-	if err != nil {
-		return
-	}
-	if s.recordFailedAttempt(ctx, keyPasswordlessAttempts+channel+":"+normalized, defaultPasswordlessTTL, maxEmailVerifyCodeAttempts) {
-		s.deletePasswordlessByTarget(ctx, channel, normalized)
-	}
-}
-
-func (s *Engine) clearPasswordlessCodeAttempts(ctx context.Context, identifier string) {
-	if !s.useEphemeralStore() {
-		return
-	}
-	channel, normalized, err := normalizePasswordlessIdentifier(identifier)
-	if err != nil {
-		return
-	}
-	_ = s.ephemDel(ctx, keyPasswordlessAttempts+channel+":"+normalized)
 }
 
 // consumePasswordlessChallenge spends rec: a sign-in, or a sign-up with
 // signup's agreements and client.
 func (s *Engine) consumePasswordlessChallenge(ctx context.Context, rec passwordlessChallenge, signup accountRegistration) (registeredAccount, error) {
-	if err := s.claimProof(ctx, passwordlessKey(rec.Channel, rec.Identifier), rec.expected); err != nil {
+	if err := s.claimProof(ctx, keyPasswordless+rec.handle, rec.expected); err != nil {
 		return registeredAccount{}, err
 	}
-	if rec.LinkHash != "" {
-		_ = s.ephemDel(ctx, keyPasswordlessLink+rec.LinkHash)
-	}
+	s.deletePasswordlessChallenge(ctx, rec)
 	if rec.UserID == "" {
 		if !s.passwordlessAutoRegistrationAllowed() {
 			return registeredAccount{}, jwt.ErrTokenUnverifiable
@@ -456,10 +446,6 @@ func normalizePasswordlessMode(mode string) string {
 	default:
 		return passwordlessModeBoth
 	}
-}
-
-func passwordlessKey(channel, identifier string) string {
-	return keyPasswordless + channel + ":" + identifier
 }
 
 func passwordlessSessionMethod(channel string) string {

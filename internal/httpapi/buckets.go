@@ -43,6 +43,18 @@ const (
 	RLSessionRevoke         = "session_revoke"
 	RLSessionRevokeAll      = "session_revoke_all"
 
+	// Password sign-in per identifier, beside the route's per-address bucket.
+	RLPasswordLoginIdentifier = "password_login_identifier"
+
+	// Codes and links sent per destination (an email or phone), beside the
+	// route's per-address bucket. Past one, the start sends nothing and
+	// answers as if it had: never a refusal another account's start can spend.
+	RLPasswordlessStartIdentifier    = "passwordless_start_identifier"
+	RLRegisterCreateIdentifier       = "register_create_identifier"
+	RLVerifyRequestIdentifier        = "verify_request_identifier"
+	RLPasswordResetRequestIdentifier = "password_reset_request_identifier"
+	RLDeviceKeyEnrollBeginIdentifier = "device_key_enroll_begin_identifier"
+
 	RLPasswordResetRequest = "password_reset_request"
 	RLPasswordResetConfirm = "password_reset_confirm"
 	// #312: one bucket per contact flow, whichever channel the identifier names.
@@ -134,6 +146,8 @@ var buckets = map[string]ratelimit.Limit{
 	RLStepUpCode:            {Limit: 10, Window: 10 * time.Minute},
 	RLStepUpSignature:       {Limit: 20, Window: 10 * time.Minute},
 
+	RLPasswordLoginIdentifier: {Limit: 20, Window: time.Hour},
+
 	// They send an email or SMS. /register and /passwordless/start also check
 	// an account invitation when one is presented.
 	RLRegisterCreate:       {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
@@ -147,9 +161,17 @@ var buckets = map[string]ratelimit.Limit{
 	RLInviteCreate:         {Limit: 20, Window: time.Hour, Cooldown: time.Minute},
 	RLStepUp2FASend:        {Limit: 6, Window: 10 * time.Minute},
 	RLStepUpCodeSend:       {Limit: 6, Window: 10 * time.Minute},
-	// Every text message, beside its route's bucket.
-	RLSMSNumber:  {Limit: 10, Window: time.Hour},
-	RLSMSAccount: {Limit: 10, Window: time.Hour},
+	// Per destination: at least twice what one address may send there, with
+	// no cooldown, so one address cannot spend them.
+	RLPasswordlessStartIdentifier:    {Limit: 30, Window: time.Hour},
+	RLRegisterCreateIdentifier:       {Limit: 12, Window: time.Hour},
+	RLVerifyRequestIdentifier:        {Limit: 45, Window: time.Hour},
+	RLPasswordResetRequestIdentifier: {Limit: 12, Window: time.Hour},
+	RLDeviceKeyEnrollBeginIdentifier: {Limit: 30, Window: time.Hour},
+	// Every text message, beside its route's bucket. Per number and account
+	// more than one address may send (RLSMSAddress).
+	RLSMSNumber:  {Limit: 30, Window: time.Hour},
+	RLSMSAccount: {Limit: 30, Window: time.Hour},
 	RLSMSAddress: {Limit: 20, Window: time.Hour},
 	RLSMSCountry: {Limit: 1000, Window: time.Hour},
 

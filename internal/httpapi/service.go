@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/dpop"
 	"github.com/open-rails/authkit/internal/ratelimit"
+	"github.com/open-rails/authkit/internal/secret"
 
 	"github.com/open-rails/authkit/provider"
 )
@@ -26,8 +27,6 @@ type Service struct {
 	replays             *dpop.Replays // spent DPoP proofs: Deps.Redis, else memory
 	closers             []func()      // background work stopped by Close (#305)
 	clientIP            ClientIPFunc
-	clientIPExplicit    bool                         // Deps.ClientIP: host owns the strategy; proxy sets are not composed
-	directPeerIP        bool                         // Config.DirectPeerIP: host asserts no proxy in front (ak#299)
 	undeclaredProxyOnce sync.Once                    // one-shot tripwire: private peer carrying forwarded headers
 	unknownAddressOnce  sync.Once                    // one-shot tripwire: no client address at all
 	trustedProxies      []netip.Prefix               // Config.TrustedProxies: X-Forwarded-For walk
@@ -43,25 +42,38 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 }
 
 // rateLimitedByIdentifier checks an additional per-identifier key for the given
-// bucket, on top of the route's per-IP check. Use it only where the secret space
-// is small (one-time codes) or to stop one address being flooded with messages;
-// never for passwords, where it would let strangers lock accounts out.
+// bucket, on top of the route's per-IP check, so spreading requests over many
+// addresses buys no more tries at one identifier.
 //
 // An empty identifier is a no-op (returns false).
 func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request, bucket, identifier string) bool {
+	_, refused := s.spendByIdentifier(w, r, bucket, identifier)
+	return refused
+}
+
+// spendByIdentifier is rateLimitedByIdentifier that also returns a refund of
+// the request it spent.
+func (s *Service) spendByIdentifier(w http.ResponseWriter, r *http.Request, bucket, identifier string) (refund func(), refused bool) {
 	identifier = strings.ToLower(strings.TrimSpace(identifier))
 	if identifier == "" {
-		return false
+		return func() {}, false
 	}
-	key := bucket + ":id:" + identifier
+	// Hashed, so a key's size is fixed whatever the identifier.
+	id := secret.Hash(identifier)
+	key := bucket + ":id:" + id
 	// Unbound pre-proof requests retain the stricter deployment-wide key.
 	// A trusted fixed or verified account scope separates independent tenants.
 	if s.svc != nil {
 		if scope, err := s.svc.AccountScope(r.Context()); err == nil {
-			key = bucket + ":tenant:" + scope.ID() + ":id:" + identifier
+			key = bucket + ":tenant:" + scope.ID() + ":id:" + id
 		}
 	}
-	return s.limited(w, r, bucket, key)
+	result := s.rl.Allow(r.Context(), bucket, key)
+	if !result.Allowed {
+		tooMany(w, availabilityFromRateLimit(bucket, result, time.Now()))
+		return nil, true
+	}
+	return func() { s.rl.Refund(r.Context(), bucket, key, result) }, false
 }
 
 // limited spends one request of key's budget in bucket; once it is spent it

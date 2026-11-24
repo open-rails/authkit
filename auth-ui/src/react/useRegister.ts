@@ -7,7 +7,13 @@ import { useTask } from "./task.ts"
 
 export type RegisterState =
   | { step: "form" }
-  | { step: "verify"; identifier: string; channel: "email" | "phone" }
+  // A code went to identifier for challenge.
+  | {
+      step: "verify"
+      identifier: string
+      channel: "email" | "phone"
+      challenge: string
+    }
   // Signed in but needs another step (e.g. forced 2FA enrollment): hand it
   // to useLogin().resume.
   | { step: "continuation"; continuation: PendingSignIn }
@@ -75,19 +81,20 @@ export function useRegister(options: RegisterOptions = {}) {
           ...input,
           inviteCode: opts.current.inviteCode,
         })
-        if (result?.status === "complete")
-          return done(true, result.return_to ?? undefined)
-        if (result) {
-          pending.current = null
-          return setState({ step: "continuation", continuation: result })
+        if (!("status" in result)) {
+          // A code went to the identifier.
+          pending.current = input
+          return setState({
+            step: "verify",
+            identifier: input.identifier,
+            channel: input.identifier.includes("@") ? "email" : "phone",
+            challenge: result.challenge,
+          })
         }
-        // A code went to the identifier.
-        pending.current = input
-        setState({
-          step: "verify",
-          identifier: input.identifier,
-          channel: input.identifier.includes("@") ? "email" : "phone",
-        })
+        if (result.status === "complete")
+          return done(true, result.return_to ?? undefined)
+        pending.current = null
+        setState({ step: "continuation", continuation: result })
       }),
     [client, run, done]
   )
@@ -99,6 +106,7 @@ export function useRegister(options: RegisterOptions = {}) {
         if (state.step !== "verify") return
         const result = await client.confirmVerification({
           identifier: state.identifier,
+          challenge: state.challenge,
           code: code.trim(),
         })
         if (!result) return done(false)
@@ -113,8 +121,11 @@ export function useRegister(options: RegisterOptions = {}) {
   const resend = useCallback(
     () =>
       run(async () => {
-        if (state.step === "verify")
-          await client.requestVerification({ identifier: state.identifier })
+        if (state.step !== "verify") return
+        const { challenge } = await client.requestVerification({
+          identifier: state.identifier,
+        })
+        setState({ ...state, challenge })
       }),
     [client, run, state]
   )

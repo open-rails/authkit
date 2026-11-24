@@ -859,7 +859,7 @@
     "id": "AK-HTTP-168",
     "method": "POST",
     "path": "/api/v1/admin/tenants",
-    "gate": "permission",
+    "gate": "session",
     "coverage": "included",
     "owner": "AK-J37"
   },
@@ -875,7 +875,7 @@
     "id": "AK-HTTP-170",
     "method": "PATCH",
     "path": "/api/v1/admin/tenants/{tenant_id}",
-    "gate": "permission",
+    "gate": "session",
     "coverage": "included",
     "owner": "AK-J37"
   },

@@ -44,12 +44,13 @@ export type LoginState =
       verification: VerificationStep
       returnTo?: string
     }
-  // A code went to identifier, an email or phone (contact-first sign-in).
-  // refused: asking was too soon. The code already out still works, and this
-  // says when another can be sent.
+  // A code went to identifier, an email or phone (contact-first sign-in),
+  // for challenge. refused: asking again was too soon. The code already out
+  // still works, and this says when another can be sent.
   | {
       step: "code"
       identifier: string
+      challenge: string
       returnTo?: string
       refused?: AuthKitError
     }
@@ -57,6 +58,7 @@ export type LoginState =
   | {
       step: "signup_agreements"
       identifier: string
+      challenge: string
       code: string
       agreements: Agreement[]
       returnTo?: string
@@ -90,6 +92,10 @@ export function useLogin(options: LoginOptions = {}) {
   const pendingCodes = useRef<string[]>([])
   // A code sign-up offers a passkey once it is signed in.
   const offerPasskey = useRef(false)
+  // The last code sent, kept for a resend that is refused as too soon.
+  const lastCode = useRef<{ identifier: string; challenge: string } | null>(
+    null
+  )
   const onSignedIn = useRef(options.onSignedIn)
   useEffect(() => {
     onSignedIn.current = options.onSignedIn
@@ -185,18 +191,30 @@ export function useLogin(options: LoginOptions = {}) {
       run(async () => {
         pendingCodes.current = []
         let refused: AuthKitError | undefined
+        let challenge: string
         try {
-          await client.startPasswordless({
+          const sent = await client.startPasswordless({
             identifier,
             mode: "code",
             returnTo: opts.returnTo,
             inviteCode: opts.inviteCode,
           })
+          challenge = sent.challenge
         } catch (err) {
-          if (statedWait(err) === undefined) throw err
+          const last = lastCode.current
+          if (statedWait(err) === undefined || last?.identifier !== identifier)
+            throw err
           refused = err as AuthKitError
+          challenge = last.challenge
         }
-        setState({ step: "code", identifier, returnTo: opts.returnTo, refused })
+        lastCode.current = { identifier, challenge }
+        setState({
+          step: "code",
+          identifier,
+          challenge,
+          returnTo: opts.returnTo,
+          refused,
+        })
       }),
     [client, run]
   )
@@ -206,14 +224,16 @@ export function useLogin(options: LoginOptions = {}) {
     () =>
       run(async () => {
         if (state.step !== "code") return false
-        await client.startPasswordless({
+        const { challenge } = await client.startPasswordless({
           identifier: state.identifier,
           mode: "code",
           returnTo: state.returnTo,
         })
+        lastCode.current = { identifier: state.identifier, challenge }
         setState({
           step: "code",
           identifier: state.identifier,
+          challenge,
           returnTo: state.returnTo,
         })
         return true
@@ -226,11 +246,11 @@ export function useLogin(options: LoginOptions = {}) {
     (code: string) =>
       run(async () => {
         if (state.step !== "code") return
-        const { identifier, returnTo } = state
+        const { identifier, challenge, returnTo } = state
         offerPasskey.current = true
         try {
           apply(
-            await client.confirmPasswordless({ identifier, code: code.trim() }),
+            await client.confirmPasswordless({ challenge, code: code.trim() }),
             returnTo
           )
         } catch (err) {
@@ -239,6 +259,7 @@ export function useLogin(options: LoginOptions = {}) {
           setState({
             step: "signup_agreements",
             identifier,
+            challenge,
             code: code.trim(),
             agreements: required.agreements,
             returnTo,
@@ -252,11 +273,11 @@ export function useLogin(options: LoginOptions = {}) {
     () =>
       run(async () => {
         if (state.step !== "signup_agreements") return
-        const { identifier, code, agreements, returnTo } = state
+        const { challenge, code, agreements, returnTo } = state
         offerPasskey.current = true
         apply(
           await client.confirmPasswordless({
-            identifier,
+            challenge,
             code,
             agreements: refs(agreements),
           }),
@@ -535,8 +556,12 @@ export function useLogin(options: LoginOptions = {}) {
     () =>
       run(async () => {
         if (state.step !== "verification") return
-        await client.requestVerification({
+        const { challenge } = await client.requestVerification({
           identifier: state.verification.identifier,
+        })
+        setState({
+          ...state,
+          verification: { ...state.verification, challenge },
         })
       }),
     [client, run, state]
@@ -548,6 +573,7 @@ export function useLogin(options: LoginOptions = {}) {
         if (state.step !== "verification") return
         const result = await client.confirmVerification({
           identifier: state.verification.identifier,
+          challenge: state.verification.challenge,
           code: code.trim(),
         })
         if (result) apply(result, result.return_to ?? state.returnTo)
@@ -564,6 +590,7 @@ export function useLogin(options: LoginOptions = {}) {
   const reset = useCallback(() => {
     pendingCodes.current = []
     offerPasskey.current = false
+    lastCode.current = null
     clearError()
     setState({ step: "credentials" })
   }, [clearError])

@@ -56,6 +56,14 @@ func VerifyArgon2id(ctx context.Context, encoded, password string) (bool, error)
 	return subtle.ConstantTimeCompare(dk, sum) == 1, nil
 }
 
+// Spend costs what checking a password against a default hash costs, or
+// fails with ErrBusy (see work.go). It keeps nothing, so it cannot go stale.
+func Spend(ctx context.Context, password string) error {
+	p := DefaultParams()
+	salt := make([]byte, p.SaltLen)
+	return work.run(ctx, p.Memory, func() { argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, p.KeyLen) })
+}
+
 func phcEncode(p Params, salt, sum []byte) string {
 	// $argon2id$v=19$m=65536,t=1,p=1$<salt_b64>$<sum_b64>
 	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", p.Memory, p.Time, p.Threads,

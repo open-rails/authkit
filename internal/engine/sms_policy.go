@@ -17,13 +17,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/httpapi"
-	"github.com/open-rails/authkit/internal/ratelimit"
 )
-
-// SetSMSLimiter spends text messages' send limits in rl, the HTTP surface's
-// limiter (Deps.Redis, else memory). A headless Client sends only for its
-// host and applies none.
-func (s *Engine) SetSMSLimiter(rl ratelimit.Limiter) { s.smsLimiter = rl }
 
 // phoneRegion is the ISO 3166-1 alpha-2 region of an E.164 number, "" when
 // it has none.
@@ -50,11 +44,11 @@ func (s *Engine) smsRegion(number string) (string, error) {
 }
 
 // admitSMS spends one message of each send limit msg falls under; the first
-// spent is rate_limited.
+// spent is rate_limited, and one per number or account is quotaSpent too.
 func (s *Engine) admitSMS(ctx context.Context, msg iam.SMSMessage, region string) error {
 	// A notice to a number the account just replaced is the owner's alarm,
 	// never withheld.
-	if s.smsLimiter == nil || msg.Kind == iam.MessageContactChanged {
+	if s.sendLimiter == nil || msg.Kind == iam.MessageContactChanged {
 		return nil
 	}
 	for _, l := range []struct{ bucket, key string }{
@@ -66,8 +60,12 @@ func (s *Engine) admitSMS(ctx context.Context, msg iam.SMSMessage, region string
 		if l.key == "" {
 			continue
 		}
-		if res := s.smsLimiter.Allow(ctx, l.bucket, l.bucket+":"+l.key); !res.Allowed {
-			return httpapi.RateLimitError(l.bucket, res)
+		if res := s.sendLimiter.Allow(ctx, l.bucket, l.bucket+":"+l.key); !res.Allowed {
+			err := httpapi.RateLimitError(l.bucket, res)
+			if l.bucket == httpapi.RLSMSNumber || l.bucket == httpapi.RLSMSAccount {
+				return quotaSpent{err}
+			}
+			return err
 		}
 	}
 	return nil

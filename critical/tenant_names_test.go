@@ -329,4 +329,34 @@ func TestCriticalTenantNames(t *testing.T) {
 		unresolved(t, "outsider")
 		unresolved(t, "anonymous")
 	})
+	t.Run("AK-J37-C07_tenant_writes_need_a_recent_sign_in_not_a_key", func(t *testing.T) {
+		var automation iam.Role
+		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.Roles = authkit.NewRoles(authkit.APIKeys, authkit.CustomRoles)
+			automation = c.Roles.Root.Role("tenantautomation", c.Roles.Root.Tenants.Read, c.Roles.Root.Tenants.Manage)
+		}))
+		op := g.user(t)
+		authtest.GrantRole(t, g.auth, iam.RootGroup(), iam.UserSubject(op.ID), automation)
+		fresh := g.signIn(t, op).AccessToken
+		stale := authtest.StaleSession(t, g.auth, g.signIn(t, op).AccessToken)
+		key, err := g.auth.CreateAPIKey(ctx, iam.SystemIdentity(), iam.RootGroup(), iam.NewAPIKey{Name: "tenant automation", Role: automation})
+		noError(t, err)
+		id := iam.NewTenantID()
+		create := map[string]any{"id": id.String(), "slug": "step-up-shop"}
+		rename := map[string]any{"slug": "step-up-store"}
+		g.call(t, "POST", "/admin/tenants", stale, create).want(t, http.StatusUnauthorized, "step_up_required")
+		g.call(t, "POST", "/admin/tenants", key.Secret, create).want(t, http.StatusForbidden, "")
+		if _, err := g.auth.Tenant(ctx, id); !errors.Is(err, iam.ErrTenantNotFound) {
+			t.Fatalf("a refused create made the tenant: %v", err)
+		}
+		g.call(t, "POST", "/admin/tenants", fresh, create).want(t, http.StatusCreated, "")
+		g.call(t, "PATCH", "/admin/tenants/"+id.String(), stale, rename).want(t, http.StatusUnauthorized, "step_up_required")
+		g.call(t, "PATCH", "/admin/tenants/"+id.String(), key.Secret, rename).want(t, http.StatusForbidden, "")
+		// The key holds the permission: reads still admit it.
+		g.call(t, "GET", "/admin/tenants/"+id.String(), key.Secret, nil).want(t, http.StatusOK, "")
+		if got, err := g.auth.Tenant(ctx, id); err != nil || got.Slug != "step-up-shop" {
+			t.Fatalf("a refused rename changed the tenant: %+v, %v", got, err)
+		}
+		g.call(t, "PATCH", "/admin/tenants/"+id.String(), fresh, rename).want(t, http.StatusOK, "")
+	})
 }

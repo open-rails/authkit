@@ -50,6 +50,8 @@ an existing tenant and returns a lightweight view that borrows the original
 engine, pools, keys and workers. Closing the view does not close the authority.
 Start and stop shared workers through their owning client.
 
+A view's group reads and lifecycle stay in its tenant: `Group`, `Groups`, `ListGroups`, `ListGroupMembers`, `ListMemberships`, `GroupRoles`, `ListGroupRoles`, `GroupRole`, `DeleteGroup` and `PurgeGroup` see only the tenant's groups and the root group. Another tenant's group is `iam.ErrGroupNotFound` (`PurgeGroup` included, so it is never mistaken for one already purged), or absent from a list, and is left untouched. The owning client still reads and removes every tenant's groups.
+
 Use an explicit `ForTenant` view for callbacks that resolve an account in a
 fixed target directory, such as an avatar owner or notification recipient.
 Pass that view's `UserInfo` rather than the owning client's method so an
@@ -134,9 +136,7 @@ A name another tenant holds, live or former, is `iam.ErrTenantNameTaken`, and
 concurrent claims of one name have exactly one winner. Tenants are permanent;
 AuthKit has no tenant deletion, so nothing else releases a name.
 
-`root:tenants:read` and `root:tenants:manage` gate the same operations over
-HTTP: `POST /admin/tenants`, `GET` and `PATCH /admin/tenants/{tenant_id}`, and
-`GET /admin/tenants/by-slug/{slug}`.
+`root:tenants:read` and `root:tenants:manage` gate the same operations over HTTP: `POST /admin/tenants`, `GET` and `PATCH /admin/tenants/{tenant_id}`, and `GET /admin/tenants/by-slug/{slug}`. The writes (`POST`, `PATCH`) are for a person who signed in within 15 minutes, like the user directory's: a stale session gets `step_up_required`, and API keys and personal access tokens are refused. The reads admit any credential holding `root:tenants:read`.
 
 Migration 0026 names each existing tenant `tenant-<its UUID's 32 hex digits>`.
 Rename it to its real name once; the placeholder then forwards like any

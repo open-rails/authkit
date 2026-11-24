@@ -58,12 +58,14 @@ const (
 	LoginRejected LoginOutcomeKind = "rejected"
 )
 
-// VerificationRequired names the contact channel a login is parked on.
-// PasswordProof, when the login proved the account's password, is the
-// single-use token that lets the confirmation keep it (VerificationInput).
+// VerificationRequired names the contact channel a login is parked on and
+// the challenge its code was sent for. PasswordProof, when the login proved
+// the account's password, is the single-use token that lets the confirmation
+// keep it (VerificationInput).
 type VerificationRequired struct {
 	Identifier    string
 	Channel       string // "email" | "phone"
+	Challenge     string
 	PasswordProof string
 }
 
