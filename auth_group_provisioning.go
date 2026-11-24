@@ -12,11 +12,12 @@ import (
 
 // EnsureGroups prepares explicitly identified, ownerless permission groups
 // from a host's migration command, after Migrate. It reads only cfg.Database,
-// cfg.Roles and cfg.DefaultTenantID; it does not construct a Client, load keys,
+// cfg.Roles, cfg.Tenancy and cfg.DefaultTenantID; it does not construct a Client, load keys,
 // reconcile role assignments, start workers or contact external services.
 //
 // Every group needs a canonical ID and a declared non-root persona. TenantID
-// defaults to cfg.DefaultTenantID. A matching live group is returned unchanged,
+// defaults to cfg.DefaultTenantID; single-tenant it is the database's one
+// tenant, and another is iam.ErrSingleTenant. A matching live group is returned unchanged,
 // including its members; a deleted group or conflicting persona/tenant is an
 // error. Owners and user role assignments belong to the normal Client methods.
 //

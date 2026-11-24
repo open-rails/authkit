@@ -817,6 +817,8 @@ export const ko: AuthUiMessageBundle = {
       "사용자명 변경 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.",
     renames_disabled: "사용자명 변경이 비활성화되어 있습니다.",
     session_revoked: "세션이 종료되었습니다. 다시 로그인하세요.",
+    single_tenant:
+      "이 배포에는 테넌트가 하나뿐입니다. 더 추가하려면 멀티 테넌트 모드가 필요합니다.",
     sms_delivery_failed:
       "인증 문자 메시지를 전송하지 못했습니다. 대신 이메일을 사용하거나 고객지원에 문의해 주세요.",
     sms_unavailable:

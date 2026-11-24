@@ -49,6 +49,9 @@ func (s *Engine) tenantID(ctx context.Context) (iam.TenantID, error) {
 		if id.IsZero() {
 			return id, iam.ErrTenantRequired
 		}
+		if err := s.singleTenant(id); err != nil {
+			return iam.TenantID{}, err
+		}
 		return id, nil
 	}
 	if s.cfg.DefaultTenantID.IsZero() {
@@ -134,8 +137,12 @@ func (s *Engine) Tenant(ctx context.Context, id iam.TenantID) (iam.Tenant, error
 }
 
 // CreateTenant is idempotent for the same ID and name; the same ID under
-// another name is iam.ErrTenantConflict.
+// another name is iam.ErrTenantConflict. A single-tenant deployment refuses
+// it: its one tenant is Migrate's.
 func (s *Engine) CreateTenant(ctx context.Context, tenant iam.Tenant) error {
+	if s.cfg.Tenancy == config.TenancySingle {
+		return fmt.Errorf("authkit: CreateTenant: this deployment is single-tenant; set Config.Tenancy to TenancyMulti for more tenants: %w", iam.ErrSingleTenant)
+	}
 	if tenant.ID.IsZero() {
 		return iam.ErrTenantRequired
 	}
@@ -147,30 +154,36 @@ func (s *Engine) CreateTenant(ctx context.Context, tenant iam.Tenant) error {
 		return err
 	}
 	err := s.withAuthorityMutation(ctx, iam.SystemIdentity(), func(st *permissionGroupStore) error {
-		row, err := db.New(st.q).TenantCreate(ctx, db.TenantCreateParams{ID: tenant.ID.String(), Slug: slug})
-		if err != nil {
-			return err
-		}
-		if row.Slug != slug {
-			return iam.ErrTenantConflict
-		}
-		if err := bindNotificationScope(ctx, st.q, s.cfg.Database, s.cfg.Notifications, tenant.ID, true); err != nil {
-			return err
-		}
-		g, err := st.groupByID(ctx, tenant.ID.String())
-		if err == nil {
-			if g.Persona != iam.TenantPersona() || g.TenantID != tenant.ID {
-				return iam.ErrGroupConflict
-			}
-			return nil
-		}
-		if !errors.Is(err, iam.ErrGroupNotFound) {
-			return err
-		}
-		_, err = st.CreateGroup(ctx, tenant.ID.String(), iam.TenantPersona(), tenant.ID)
-		return err
+		return s.createTenantIn(ctx, st, tenant.ID, slug)
 	})
 	return tenantNameError(err)
+}
+
+// createTenantIn creates tenant id named slug, with its canonical group, in
+// an authority transaction.
+func (s *Engine) createTenantIn(ctx context.Context, st *permissionGroupStore, id iam.TenantID, slug string) error {
+	row, err := db.New(st.q).TenantCreate(ctx, db.TenantCreateParams{ID: id.String(), Slug: slug})
+	if err != nil {
+		return err
+	}
+	if row.Slug != slug {
+		return iam.ErrTenantConflict
+	}
+	if err := bindNotificationScope(ctx, st.q, s.cfg.Database, s.cfg.Notifications, id, true); err != nil {
+		return err
+	}
+	g, err := st.groupByID(ctx, id.String())
+	if err == nil {
+		if g.Persona != iam.TenantPersona() || g.TenantID != id {
+			return iam.ErrGroupConflict
+		}
+		return nil
+	}
+	if !errors.Is(err, iam.ErrGroupNotFound) {
+		return err
+	}
+	_, err = st.CreateGroup(ctx, id.String(), iam.TenantPersona(), id)
+	return err
 }
 
 // RenameTenant gives a tenant a new name. Under Tenants.FormerNames the old

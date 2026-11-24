@@ -80,7 +80,7 @@ func normalizeNotifications(c *Config) error {
 		if p.TenantID.IsZero() {
 			p.TenantID = c.DefaultTenantID
 		}
-		if p.TenantID.IsZero() {
+		if p.TenantID.IsZero() && !c.tenantPending() {
 			return fmt.Errorf("authkit notifications: producer %q needs a tenant", p.Name)
 		}
 		key := p.TenantID.String() + ":" + p.Name
@@ -111,7 +111,7 @@ func normalizeNotifications(c *Config) error {
 // NormalizeNotifications validates standalone notification migration settings.
 // Producer tenants are already explicit when used without a complete Config.
 func NormalizeNotifications(database DatabaseConfig, cfg *NotificationsConfig) (*NotificationsConfig, error) {
-	c := Config{Database: database, Notifications: cfg}
+	c := Config{Tenancy: TenancyMulti, Database: database, Notifications: cfg}
 	if err := normalizeNotifications(&c); err != nil {
 		return nil, err
 	}

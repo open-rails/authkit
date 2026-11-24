@@ -318,7 +318,7 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		if cl.TenantID.IsZero() {
 			cl.TenantID = c.DefaultTenantID
 		}
-		if slices.Contains(cl.Resources, scim.ID) && cl.TenantID.IsZero() {
+		if slices.Contains(cl.Resources, scim.ID) && cl.TenantID.IsZero() && !c.tenantPending() {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: SCIM client needs TenantID or DefaultTenantID", i)
 		}
 		if err := normalizeOAuthClient(&cl, a.Resources); err != nil {

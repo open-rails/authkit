@@ -33,3 +33,8 @@ LIMIT 1;
 
 -- name: AccountTenant :one
 SELECT tenant_id FROM users WHERE id=sqlc.arg(id)::uuid AND deleted_at IS NULL;
+
+-- At most two tenants: enough to tell a single-tenant database's one tenant
+-- from none and from several.
+-- name: FirstTwoTenants :many
+SELECT id FROM tenants ORDER BY id LIMIT 2;

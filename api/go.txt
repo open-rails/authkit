@@ -13,6 +13,8 @@ pkg authkit, const NameRetentionImmediate config.NameRetentionMode = "immediate"
 pkg authkit, const NotificationDeliveryQueue untyped string = "authkit_notifications"
 pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
+pkg authkit, const TenancyMulti config.Tenancy = 1
+pkg authkit, const TenancySingle config.Tenancy = 0
 pkg authkit, func DefaultRateLimits() map[string]RateLimit
 pkg authkit, func EnsureGroups(context.Context, *pgxpool.Pool, Config, []iam.NewGroup, *slog.Logger) ([]iam.Group, error)
 pkg authkit, func IfRole(iam.Role) Option
@@ -147,6 +149,7 @@ pkg authkit, method (*Client) SetNotificationRead(context.Context, string, strin
 pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
 pkg authkit, method (*Client) StartAccountEvents(context.Context, AccountEventOptions) (*AccountEventLoop, error)
 pkg authkit, method (*Client) Tenant(context.Context, iam.TenantID) (iam.Tenant, error)
+pkg authkit, method (*Client) TenantID() iam.TenantID
 pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
 pkg authkit, method (*Client) Unban(context.Context, auth.Identity, string, ...Option) error
 pkg authkit, method (*Client) UpdateGroupOAuthClient(context.Context, auth.Identity, iam.GroupRef, string, iam.OAuthClientUpdate, ...Option) (iam.OAuthClient, error)
@@ -196,6 +199,7 @@ pkg authkit, method (RootDef) Permissions() []iam.Perm
 pkg authkit, method (RootDef) RequireMFA(...iam.Perm)
 pkg authkit, method (RootDef) Resource(string) config.Resource
 pkg authkit, method (RootDef) Role(string, ...iam.Grant) iam.Role
+pkg authkit, method (Tenancy) String() string
 pkg authkit, method (TenantDef) All() iam.Perm
 pkg authkit, method (TenantDef) Declare(...string) []iam.Perm
 pkg authkit, method (TenantDef) Expand([]iam.Perm) []iam.Perm
@@ -263,6 +267,7 @@ pkg authkit, type Config struct, SenderHealthRecheck time.Duration `yaml:"sender
 pkg authkit, type Config struct, SessionEventRetention time.Duration `yaml:"session_event_retention"`
 pkg authkit, type Config struct, SignIn config.SignInConfig `yaml:"sign_in"`
 pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork `yaml:"solana_network"`
+pkg authkit, type Config struct, Tenancy config.Tenancy `yaml:"-"`
 pkg authkit, type Config struct, Tenants config.TenantsConfig `yaml:"tenants"`
 pkg authkit, type Config struct, Token config.TokenConfig `yaml:"token"`
 pkg authkit, type Config struct, TwoFactor config.TwoFactorConfig `yaml:"two_factor"`
@@ -365,6 +370,7 @@ pkg authkit, type MigrationOptions = engine.MigrationOptions
 pkg authkit, type MigrationOptions struct
 pkg authkit, type MigrationOptions struct, LegacyTenantID iam.TenantID
 pkg authkit, type MigrationOptions struct, Logger *slog.Logger
+pkg authkit, type MigrationOptions struct, Tenancy config.Tenancy
 pkg authkit, type NameRetention = config.NameRetention
 pkg authkit, type NameRetention struct
 pkg authkit, type NameRetention struct, Duration time.Duration `yaml:"duration"`
@@ -535,6 +541,8 @@ pkg authkit, type SignInConfig struct, AccountsPerDevice int `yaml:"accounts_per
 pkg authkit, type SignInConfig struct, DPoP config.DPoPMode `yaml:"dpop"`
 pkg authkit, type SignInConfig struct, NewDevicesPerAccount int `yaml:"new_devices_per_account"`
 pkg authkit, type StartOption func(*startOptions)
+pkg authkit, type Tenancy = config.Tenancy
+pkg authkit, type Tenancy uint8
 pkg authkit, type TenantDef = config.TenantDef
 pkg authkit, type TenantDef struct
 pkg authkit, type TenantDef struct, Users config.UserPerms
@@ -1916,6 +1924,7 @@ pkg authkit/iam, var ErrRoleNotEditable Error
 pkg authkit/iam, var ErrRoleNotFound Error
 pkg authkit/iam, var ErrSessionRevoked Error
 pkg authkit/iam, var ErrSigningNotConfigured Error
+pkg authkit/iam, var ErrSingleTenant Error
 pkg authkit/iam, var ErrSubjectMFARequired Error
 pkg authkit/iam, var ErrTenantConflict Error
 pkg authkit/iam, var ErrTenantMismatch error

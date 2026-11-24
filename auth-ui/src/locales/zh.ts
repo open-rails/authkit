@@ -747,6 +747,7 @@ export const zh: AuthUiMessageBundle = {
     sender_proof_required: "该令牌需要发送方证明。",
     server_busy: "服务器繁忙，请稍后重试。",
     session_revoked: "会话已结束，请重新登录。",
+    single_tenant: "此部署只有一个租户。需要更多租户时请启用多租户模式。",
     sms_delivery_failed: "验证短信发送失败。请改用邮箱验证，或联系客服。",
     sms_unavailable: "短信服务当前不可用。请改用邮箱。",
     step_up_required: "请确认是你本人以继续。",

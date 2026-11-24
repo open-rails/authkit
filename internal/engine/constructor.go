@@ -84,9 +84,21 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 				return nil, err
 			}
 		} else {
-			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{LegacyTenantID: norm.DefaultTenantID, Logger: log}); err != nil {
+			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{Tenancy: norm.Tenancy, LegacyTenantID: norm.DefaultTenantID, Logger: log}); err != nil {
 				return nil, err
 			}
+		}
+		// Single-tenant, the database's one tenant is the default: settings
+		// that name no tenant get it.
+		if norm.Tenancy == config.TenancySingle {
+			id, err := soleTenant(ctx, log, deps.Postgres, norm.Database, norm.DefaultTenantID, false)
+			if err != nil {
+				return nil, err
+			}
+			if err := config.BindDefaultTenant(&norm, id); err != nil {
+				return nil, err
+			}
+			s.cfg = norm
 		}
 	}
 	if norm.Notifications != nil {

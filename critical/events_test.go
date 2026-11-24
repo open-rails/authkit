@@ -115,7 +115,7 @@ func TestCriticalRetainedEvents(t *testing.T) {
 		}
 	})
 	t.Run("AK-J26-C04_tenant_permissions_and_cursor_scope_are_independent", func(t *testing.T) {
-		f := newFixture(t)
+		f := newFixture(t, multiTenant)
 		reader := f.user(t)
 		authtest.GrantRole(t, f.auth, iam.GroupByID(f.tenant.String()), iam.UserSubject(reader.ID), f.tenantReader)
 		session := f.signIn(t, reader)

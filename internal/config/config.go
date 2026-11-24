@@ -6,6 +6,7 @@
 package config
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
@@ -16,10 +17,17 @@ import (
 // reaches outside the process (the pool, senders, keys, providers, hooks) is
 // in Deps. authkit.New normalizes it once.
 type Config struct {
-	// DefaultTenantID binds ordinary account operations and HTTP authentication
-	// when no explicit trusted tenant resolver/view is used. Zero leaves this
-	// deployment available for root provisioning, but does not select an account
-	// directory. Use the same canonical ID as ContentKit, never a derived ID.
+	// Tenancy is how many account directories (tenants) the deployment has.
+	// TenancySingle, the zero value, is one, which AuthKit creates or adopts
+	// and owns. TenancyMulti opts into CreateTenant and ForTenant over many.
+	// Set it in code: it has no YAML key.
+	Tenancy Tenancy `yaml:"-"`
+
+	// DefaultTenantID is the tenant ordinary account operations and HTTP
+	// authentication act in when no trusted tenant view or resolver selects
+	// one. Single-tenant it is optional and must name the sole tenant (a
+	// fresh database's is created under it); zero is the sole tenant.
+	// Multi-tenant, zero refuses such operations (iam.ErrTenantRequired).
 	DefaultTenantID iam.TenantID `yaml:"default_tenant_id"`
 
 	// Database names the PostgreSQL schemas AuthKit's and River's tables live
@@ -224,6 +232,29 @@ const (
 	// DPoPRequired refuses a sign-in without a DPoP key.
 	DPoPRequired DPoPMode = "required"
 )
+
+// Tenancy is Config.Tenancy.
+type Tenancy uint8
+
+const (
+	// TenancySingle is one tenant, which Migrate creates in a fresh
+	// database or adopts when it holds exactly one. A database with more
+	// refuses to start; CreateTenant is iam.ErrSingleTenant.
+	TenancySingle Tenancy = iota
+	// TenancyMulti is any number of tenants, made with CreateTenant and
+	// selected with ForTenant or Deps.RequestTenant.
+	TenancyMulti
+)
+
+func (t Tenancy) String() string {
+	switch t {
+	case TenancySingle:
+		return "single"
+	case TenancyMulti:
+		return "multi"
+	}
+	return fmt.Sprintf("Tenancy(%d)", uint8(t))
+}
 
 // KeysConfig controls signing-key resolution when Deps.KeySource is nil.
 type KeysConfig struct {

@@ -17,7 +17,7 @@ func TestCriticalTenantDispatch(t *testing.T) {
 		isolatedID := iam.NewTenantID()
 		unknownID := iam.NewTenantID()
 		var platformID iam.TenantID
-		f := newFixture(t,
+		f := newFixture(t, multiTenant,
 			authtest.WithConfig(func(c *authkit.Config) { c.SignIn.DPoP = authkit.DPoPRequired }),
 			authtest.WithDeps(func(d *authkit.Deps) {
 				d.RequestTenant = func(r *http.Request) (iam.TenantID, error) {

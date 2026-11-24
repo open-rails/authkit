@@ -58,6 +58,9 @@ const (
 // only the feature it concerns. Warnings go to d.Logger, which New has set.
 func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	degrade := func(problem error) { degraded = append(degraded, problem) }
+	if c.Tenancy != TenancySingle && c.Tenancy != TenancyMulti {
+		return Config{}, nil, fmt.Errorf("authkit: invalid Tenancy %s (want TenancySingle or TenancyMulti)", c.Tenancy)
+	}
 	if c.Database.Schema, err = NormalizeSchema(c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}
@@ -182,7 +185,7 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 		if c.Provisioning.Targets[i].TenantID.IsZero() {
 			c.Provisioning.Targets[i].TenantID = c.DefaultTenantID
 		}
-		if c.Provisioning.Targets[i].TenantID.IsZero() {
+		if c.Provisioning.Targets[i].TenantID.IsZero() && !c.tenantPending() {
 			return c, nil, fmt.Errorf("authkit: Provisioning.Targets[%d] requires TenantID in an unbound deployment", i)
 		}
 	}

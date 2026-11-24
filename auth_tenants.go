@@ -17,8 +17,9 @@ import (
 // role assignment, credential, or application. Repeating it with the same ID
 // and name is safe; the ID under another name is iam.ErrTenantConflict, and a
 // name another tenant holds, now or as an unexpired former name, is
-// iam.ErrTenantNameTaken. Native calls are a trusted host interface; HTTP
-// provisioning requires root:tenants:manage.
+// iam.ErrTenantNameTaken. A single-tenant deployment (Config.Tenancy)
+// refuses it with iam.ErrSingleTenant. Native calls are a trusted host
+// interface; HTTP provisioning requires root:tenants:manage.
 func (a *Client) CreateTenant(ctx context.Context, tenant iam.Tenant) error {
 	return a.engine.CreateTenant(ctx, tenant)
 }
@@ -48,15 +49,28 @@ func (a *Client) ResolveTenant(ctx context.Context, slug string) (iam.Tenant, er
 // dispatch. It borrows this client's engine, pools, keys and worker lifecycle.
 // Selecting a tenant does not grant the caller any authority in it. The
 // view's group reads and lifecycle see only the tenant's groups and root.
+// Single-tenant, only the deployment's tenant is selectable; another is
+// iam.ErrSingleTenant.
 func (a *Client) ForTenant(ctx context.Context, id iam.TenantID) (*Client, error) {
 	if a == nil || a.engine == nil {
 		return nil, errors.New("authkit: tenant view requires a client")
 	}
-	if _, err := a.engine.Tenant(ctx, id); err != nil {
+	if err := a.engine.SelectTenant(ctx, id); err != nil {
 		return nil, err
 	}
 	return &Client{ops: a.ops, engine: a.engine, http: a.http, mount: a.mount,
 		cfg: a.cfg, deps: a.deps, tenantID: id, borrowed: true}, nil
+}
+
+// TenantID is the tenant this Client's operations act in when the request
+// selects none: a ForTenant view's, else the default, which single-tenant is
+// the database's one tenant. Zero is none: multi-tenant without
+// DefaultTenantID, where such operations are iam.ErrTenantRequired.
+func (a *Client) TenantID() iam.TenantID {
+	if !a.tenantID.IsZero() {
+		return a.tenantID
+	}
+	return a.engine.DefaultTenantID()
 }
 
 // ResolveTenantActor returns verified, live source-account ownership. It is
@@ -76,7 +90,7 @@ func (a *Client) operationContext(ctx context.Context) context.Context {
 		if _, ok := tenancy.From(ctx); ok {
 			return ctx
 		}
-		id = a.cfg.DefaultTenantID
+		id = a.engine.DefaultTenantID()
 	}
 	if !id.IsZero() {
 		return engine.WithTenant(ctx, id)
@@ -104,12 +118,12 @@ func (a *Client) requestContext(r *http.Request) (context.Context, error) {
 	if err == nil && !id.IsZero() {
 		if !a.tenantID.IsZero() && id != a.tenantID {
 			err = iam.ErrTenantMismatch
-		} else if _, err = a.engine.Tenant(ctx, id); err == nil {
+		} else if err = a.engine.SelectTenant(ctx, id); err == nil {
 			ctx = engine.WithTenant(ctx, id)
 		}
 	}
 	switch {
-	case errors.Is(err, iam.ErrTenantNotFound):
+	case errors.Is(err, iam.ErrTenantNotFound), errors.Is(err, iam.ErrSingleTenant):
 		err = errmodel.E(errmodel.CodeNotFound)
 	case errors.Is(err, iam.ErrTenantMismatch), errors.Is(err, auth.ErrForbidden):
 		err = errmodel.E(errmodel.CodeForbidden)

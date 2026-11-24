@@ -19,7 +19,7 @@ import (
 // name is released only by a rename's former name expiring.
 func TestCriticalTenantNames(t *testing.T) {
 	var operator, auditor iam.Role
-	f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+	f := newFixture(t, multiTenant, authtest.WithConfig(func(c *authkit.Config) {
 		operator = c.Roles.Root.Role("tenantoperator", c.Roles.Root.Tenants.Read, c.Roles.Root.Tenants.Manage)
 		auditor = c.Roles.Root.Role("tenantauditor", c.Roles.Root.Tenants.Read)
 	}))
@@ -331,7 +331,7 @@ func TestCriticalTenantNames(t *testing.T) {
 	})
 	t.Run("AK-J37-C07_tenant_writes_need_a_recent_sign_in_not_a_key", func(t *testing.T) {
 		var automation iam.Role
-		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+		g := newFixture(t, multiTenant, authtest.WithConfig(func(c *authkit.Config) {
 			c.Roles = authkit.NewRoles(authkit.APIKeys, authkit.CustomRoles)
 			automation = c.Roles.Root.Role("tenantautomation", c.Roles.Root.Tenants.Read, c.Roles.Root.Tenants.Manage)
 		}))

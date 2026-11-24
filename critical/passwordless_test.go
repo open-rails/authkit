@@ -181,7 +181,7 @@ func TestCriticalPasswordless(t *testing.T) {
 		}
 	})
 	t.Run("AK-J33-C04_proof_cannot_cross_account_tenant_purpose_or_expiry", func(t *testing.T) {
-		f := newFixture(t)
+		f := newFixture(t, multiTenant)
 		u := f.user(t)
 		other := f.user(t)
 		proof := f.passwordlessProof(t, u.Email, "code")
