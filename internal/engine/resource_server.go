@@ -153,9 +153,10 @@ func (rs *resourceServer) verify(r *http.Request) (ResourceAccess, error) {
 	}
 	out.Claims = cl
 	if out.Application == nil {
-		if out.Application, out.ClientGroup, err = rs.ownToken(ctx, cl); err != nil {
+		if out.Application, out.ClientGroup, err = rs.ownToken(ctx, &out.Claims); err != nil {
 			return ResourceAccess{}, err
 		}
+		cl = out.Claims
 		out.Asserted = out.Application != nil
 		if out.ExchangedGroup, err = rs.exchangedGroup(ctx, out, cl); err != nil {
 			return ResourceAccess{}, err
@@ -319,7 +320,9 @@ func (rs *resourceServer) jwksURI(ctx context.Context, issuer, metadata string) 
 // refused), and for a user, on a sign-in that still stands; or redeemed for
 // a trusted application's user (OAuthRemoteAssertion), whose application,
 // named by client_id, must still be trusted. group is a group client's.
-func (rs *resourceServer) ownToken(ctx context.Context, cl verify.Claims) (app *iam.RemoteApplication, group string, err error) {
+// A user's token of a group client with pairwise subjects names them: cl
+// takes the user and session they stand for, as this deployment knows them.
+func (rs *resourceServer) ownToken(ctx context.Context, cl *verify.Claims) (app *iam.RemoteApplication, group string, err error) {
 	client, ok, err := rs.s.OAuthClient(ctx, cl.ClientID)
 	if err != nil {
 		return nil, "", errmodel.Internal("resource_client", err)
@@ -340,7 +343,15 @@ func (rs *resourceServer) ownToken(ctx context.Context, cl verify.Claims) (app *
 	if cl.Kind != verify.TokenUser {
 		return nil, group, nil
 	}
-	if err := rs.userTokenStands(ctx, cl); err != nil {
+	userID, sessionID, err := rs.s.clientAccount(ctx, client, cl.Subject, cl.SessionID)
+	switch {
+	case errors.Is(err, errUnknownSubject):
+		return nil, "", iam.ErrSessionRevoked
+	case err != nil:
+		return nil, "", errmodel.Internal("resource_subject", err)
+	}
+	cl.Subject, cl.SessionID = userID, sessionID
+	if err := rs.userTokenStands(ctx, *cl); err != nil {
 		return nil, "", err
 	}
 	return nil, group, nil

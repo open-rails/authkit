@@ -617,6 +617,9 @@ export const ja: AuthUiMessageBundle = {
     errorTitle: "ログインに失敗しました",
   },
   oauth: {
+    framedTitle: "新しいウィンドウで{client}に進む",
+    framed: "安全のため、ログインとアクセスの許可は他のサイトの中ではなく、専用のウィンドウで行います。",
+    openWindow: "新しいウィンドウで続ける",
     signInTo: "{client} に進むにはログインしてください",
     continuing: "{client} に移動しています…",
   },

@@ -91,6 +91,10 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 			algs = append(algs, k.Alg)
 		}
 	}
+	subjectTypes := []string{"public"}
+	if groups && s.cfg.AuthorizationServer.GroupClients.PairwiseSubjects {
+		subjectTypes = append(subjectTypes, "pairwise")
+	}
 	// A public document every browser client reads first.
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	writeJSON(w, http.StatusOK, OAuthServerMetadata{
@@ -105,7 +109,7 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 		ResponseTypesSupported:           []string{"code"},
 		ResponseModesSupported:           []string{"query"},
 		GrantTypesSupported:              grants,
-		SubjectTypesSupported:            []string{"public"},
+		SubjectTypesSupported:            subjectTypes,
 		IDTokenSigningAlgValuesSupported: algs,
 		TokenEndpointAuthMethods:         authMethods,
 		CodeChallengeMethodsSupported:    []string{"S256"},

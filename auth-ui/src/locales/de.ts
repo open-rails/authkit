@@ -642,6 +642,10 @@ export const de: AuthUiMessageBundle = {
     errorTitle: "Anmeldung fehlgeschlagen",
   },
   oauth: {
+    framedTitle: "In einem neuen Fenster zu {client} fortfahren",
+    framed:
+      "Zu deiner Sicherheit finden Anmeldung und Zustimmung in einem eigenen Fenster statt, nicht innerhalb einer anderen Website.",
+    openWindow: "In neuem Fenster fortfahren",
     signInTo: "Melden Sie sich an, um mit {client} fortzufahren",
     continuing: "Weiter zu {client}…",
   },

@@ -5,6 +5,7 @@
 // create() on a click. Messages: READY, OPTIONS, RESULT (AUTHKIT_PASSKEY_*).
 
 import { AuthKitError } from "./errors.ts"
+export { inCrossOriginFrame } from "./frame.ts"
 import { POPUP_CLOSE_GRACE_MS, randomNonce } from "./popup.ts"
 
 // The credential the window created, its binary fields as ArrayBuffers.
@@ -24,16 +25,6 @@ export type WindowCredential = {
 export type PasskeyWindowLabels = { title: string; create: string }
 
 const WINDOW_TIMEOUT_MS = 5 * 60_000
-
-// Whether this page is framed by a page of another origin.
-export function inCrossOriginFrame(): boolean {
-  if (typeof window === "undefined" || window.top === window.self) return false
-  try {
-    return window.top?.location.origin !== window.location.origin
-  } catch {
-    return true
-  }
-}
 
 // A failure of the window, as auth-ui's popup errors: popup_blocked,
 // popup_closed or popup_timeout.

@@ -2,6 +2,7 @@ import { AlertCircleIcon } from "@hugeicons/core-free-icons"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { errorMetadata } from "#authui/client/errors"
+import { inCrossOriginFrame } from "#authui/client/frame"
 import type {
   Agreement,
   OAuthAuthorizationRequest,
@@ -13,6 +14,7 @@ import { useMessages } from "#authui/i18n/context"
 import { useAuthClient } from "#authui/react/context"
 import { useAuth } from "#authui/react/useAuth"
 import { AuthUiRoot } from "#authui/scope"
+import { Button } from "#authui/ui/button"
 import { Spinner } from "#authui/ui/spinner"
 import { AgreementsForm, ConsentForm } from "./NetworkSteps.tsx"
 import { StepHeader } from "./parts.tsx"
@@ -76,10 +78,15 @@ function Authorize({
     return () => ctl.abort()
   }, [client, id])
 
+  // Inside another site's frame nothing is shown to approve or sign in to,
+  // so that site cannot trick a click (RFC 9700 §4.16); prompt=none, which
+  // shows nothing, still answers.
+  const [framed] = useState(inCrossOriginFrame)
   const status = auth.status
   useEffect(() => {
     if (!request || needed || consent || answered.current) return
     const none = request.prompt.includes("none")
+    if (framed && !none) return
     let answer: Promise<{ redirect_to: string }> | null = null
     if (status === "signed_in")
       answer = none
@@ -114,7 +121,7 @@ function Authorize({
         setFailure(err)
       }
     )
-  }, [request, needed, consent, status, client, guard, id])
+  }, [request, needed, consent, status, client, guard, id, framed])
 
   const allow = () => {
     setAccepting(true)
@@ -147,7 +154,23 @@ function Authorize({
 
   const client_name = request?.client_name ?? ""
   let body: ReactNode
-  if (consent && request && !failure) {
+  if (framed && request && !request.prompt.includes("none") && !failure) {
+    body = (
+      <div className="flex flex-col gap-5">
+        <StepHeader
+          title={t("oauth.framedTitle", { client: client_name })}
+          description={t("oauth.framed")}
+        />
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={() => window.open(location.href, "_blank", "noopener")}
+        >
+          {t("oauth.openWindow")}
+        </Button>
+      </div>
+    )
+  } else if (consent && request && !failure) {
     body = (
       <ConsentForm
         clientName={client_name}

@@ -56,6 +56,12 @@ type GroupClientsConfig struct {
 	// Agreements are keys of Config.Agreements a user accepts, at their
 	// current versions, before approving any group client.
 	Agreements []string `yaml:"agreements"`
+	// PairwiseSubjects gives each user a different sub, and sid, at each
+	// group's clients (OIDC Core §8.1, the group as the sector), so groups
+	// cannot join their users: in ID tokens, userinfo, access tokens and
+	// logout tokens. This deployment maps them back (Client.VerifyIDToken's
+	// UserID, its resource server). Off, every client gets the user id.
+	PairwiseSubjects bool `yaml:"pairwise_subjects"`
 }
 
 // GroupClientScope is one scope a group client may request.

@@ -39,7 +39,14 @@ func (s *Engine) VerifyIDToken(ctx context.Context, raw string) (iam.IDToken, er
 	if !ok {
 		return iam.IDToken{}, iam.ErrInvalidIDToken
 	}
-	userID, sessionID := jose.String(claims, "sub"), jose.String(claims, "sid")
+	sub := jose.String(claims, "sub")
+	userID, sessionID, err := s.clientAccount(ctx, client, sub, jose.String(claims, "sid"))
+	switch {
+	case errors.Is(err, errUnknownSubject):
+		return iam.IDToken{}, iam.ErrInvalidIDToken
+	case err != nil:
+		return iam.IDToken{}, err
+	}
 	if err := s.oauthSignInStands(ctx, userID, sessionID, "the sign-in has ended"); err != nil {
 		if refused := (*authflow.OAuthError)(nil); errors.As(err, &refused) {
 			return iam.IDToken{}, iam.ErrInvalidIDToken
@@ -47,7 +54,7 @@ func (s *Engine) VerifyIDToken(ctx context.Context, raw string) (iam.IDToken, er
 		return iam.IDToken{}, err
 	}
 	out := iam.IDToken{
-		Subject: userID, ClientID: azp, SessionID: sessionID, Nonce: jose.String(claims, "nonce"),
+		Subject: sub, UserID: userID, ClientID: azp, SessionID: sessionID, Nonce: jose.String(claims, "nonce"),
 		AuthTime: authTime.UTC(), AMR: jose.Strings(claims, "amr"), ACR: jose.String(claims, "acr"),
 		IssuedAt: iat.UTC(), ExpiresAt: exp.UTC(),
 	}

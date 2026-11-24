@@ -610,6 +610,9 @@ export const ko: AuthUiMessageBundle = {
     errorTitle: "로그인 실패",
   },
   oauth: {
+    framedTitle: "새 창에서 {client}(으)로 계속",
+    framed: "안전을 위해 로그인과 접근 허용은 다른 사이트 안이 아닌 별도의 창에서 진행됩니다.",
+    openWindow: "새 창에서 계속",
     signInTo: "{client}(으)로 계속하려면 로그인하세요",
     continuing: "{client}(으)로 이동하는 중…",
   },

@@ -190,7 +190,13 @@ func (s *Engine) WithdrawConsent(ctx context.Context, who auth.Identity, userID,
 		if err != nil {
 			return err
 		}
-		args := backchannelLogoutArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer, ClientID: clientID, UserID: userID, URI: uri}
+		subject := userID
+		if s.cfg.AuthorizationServer.GroupClients.PairwiseSubjects {
+			if subject, err = pairwiseSubject(ctx, q, client.PermissionGroupID, userID); err != nil {
+				return err
+			}
+		}
+		args := backchannelLogoutArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer, ClientID: clientID, UserID: userID, Subject: subject, URI: uri}
 		if _, err := producer.InsertTx(ctx, tx, args, &river.InsertOpts{Queue: maintenanceQueue(s.dbSchema()), MaxAttempts: 8}); err != nil {
 			return err
 		}
@@ -230,7 +236,10 @@ type backchannelLogoutArgs struct {
 	Issuer   string `json:"issuer"`
 	ClientID string `json:"client_id"`
 	UserID   string `json:"user_id"`
-	URI      string `json:"uri"`
+	// Subject is the sub the client knows the user by (pairwise or the
+	// user id); empty in jobs queued before it existed.
+	Subject string `json:"subject,omitempty"`
+	URI     string `json:"uri"`
 }
 
 func (backchannelLogoutArgs) Kind() string { return "authkit_backchannel_logout" }
@@ -264,8 +273,12 @@ func (s *Engine) sendBackchannelLogout(ctx context.Context, a backchannelLogoutA
 		return err
 	}
 	now := s.nowTime()
+	sub := a.Subject
+	if sub == "" {
+		sub = a.UserID
+	}
 	token, err := jose.Sign(ctx, signer, "logout+jwt", map[string]any{
-		"iss": s.cfg.Token.Issuer, "aud": a.ClientID, "sub": a.UserID, "iat": now.Unix(), "exp": now.Add(2 * time.Minute).Unix(), "jti": jti,
+		"iss": s.cfg.Token.Issuer, "aud": a.ClientID, "sub": sub, "iat": now.Unix(), "exp": now.Add(2 * time.Minute).Unix(), "jti": jti,
 		"events": map[string]any{"http://schemas.openid.net/event/backchannel-logout": map[string]any{}},
 	})
 	if err != nil {

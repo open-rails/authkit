@@ -576,6 +576,9 @@ export const zh: AuthUiMessageBundle = {
     errorTitle: "登录失败",
   },
   oauth: {
+    framedTitle: "在新窗口中继续前往 {client}",
+    framed: "为了你的安全，登录和授权访问会在单独的窗口中进行，而不是在其他网站内。",
+    openWindow: "在新窗口中继续",
     signInTo: "登录以继续前往 {client}",
     continuing: "正在前往 {client}…",
   },
