@@ -194,4 +194,26 @@ func TestCriticalRuntime(t *testing.T) {
 			t.Fatal("corrected keys.json was not loaded")
 		}
 	})
+	t.Run("AK-J01-C06_issuer_and_frontend_are_https_but_on_loopback", func(t *testing.T) {
+		f := newFixture(t)
+		for _, c := range []struct{ issuer, base string }{
+			{"myapp", ""},
+			{"myapp", "https://myapp.example"},
+			{"http://myapp.example", ""},
+			{"http://10.0.0.5:8080", ""},
+			{"ftp://myapp.example", ""},
+			{"https://myapp.example", "http://myapp.example"},
+		} {
+			cfg := f.cfg
+			cfg.Token.Issuer, cfg.Frontend.BaseURL = c.issuer, c.base
+			startRefused(t, cfg, f.deps, "must be")
+		}
+		for _, issuer := range []string{"http://localhost:8080", "http://127.0.0.1:4780/auth", "http://[::1]:9000"} {
+			cfg := f.cfg
+			cfg.Token.Issuer, cfg.Frontend.BaseURL = issuer, ""
+			client, err := authkit.New(t.Context(), cfg, f.deps)
+			noError(t, err)
+			noError(t, client.Close(context.Background()))
+		}
+	})
 }

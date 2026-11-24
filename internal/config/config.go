@@ -137,8 +137,9 @@ type Config struct {
 
 // TokenConfig is the JWT issuing/verification contract plus session limits.
 type TokenConfig struct {
-	// Issuer is this deployment's JWT issuer (required), for example
-	// "https://myapp.com". Its path, if any, is where the HTTP surface lives.
+	// Issuer is this deployment's JWT issuer (required), an https URL such
+	// as "https://myapp.com"; http only on a loopback host (localhost,
+	// 127.0.0.1, [::1]). Its path, if any, is where the HTTP surface lives.
 	Issuer string `yaml:"issuer"`
 	// IssuedAudiences are the audiences every issued token carries (at least
 	// one).
@@ -247,7 +248,8 @@ type KeysConfig struct {
 // FrontendConfig describes host-owned frontend routes.
 type FrontendConfig struct {
 	// BaseURL builds absolute links (password reset, verification, invites).
-	// Empty defaults to Token.Issuer when that is a URL.
+	// Empty defaults to Token.Issuer. Like it, it is an https URL, or http on
+	// a loopback host; its scheme decides whether cookies are Secure.
 	BaseURL string `yaml:"base_url"`
 	// OIDCReturnPath is the SPA route AuthKit redirects to after it finishes a
 	// browser sign-in with an identity provider (not the provider callback,

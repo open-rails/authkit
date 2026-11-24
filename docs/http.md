@@ -19,7 +19,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 | `{BasePath}/oidc/{provider}/…` | browser sign-in with an identity provider |
 | `{BasePath}/.well-known/jwks.json` | the public signing keys |
 
-`BasePath` defaults to the path of `TokenConfig.Issuer`. When the issuer is a URL, `BasePath` must equal that path, because verifiers look for JWKS at the issuer plus `/.well-known/jwks.json`. Serve the paths unchanged, with no prefix stripping in front. If a proxy changes the origin or the path clients see, set `HTTPConfig.PublicURL`; DPoP proofs name it.
+`TokenConfig.Issuer` is an https URL; `http://` is accepted only on a loopback host (`localhost`, `127.0.0.1`, `[::1]`, any port) for local development. `FrontendConfig.BaseURL` (the issuer when empty) follows the same rule, and its scheme decides whether cookies are `Secure` and `__Host-`. `BasePath` defaults to the path of the issuer, and a set one must equal it, because verifiers look for JWKS at the issuer plus `/.well-known/jwks.json`. Serve the paths unchanged, with no prefix stripping in front. If a proxy changes the origin or the path clients see, set `HTTPConfig.PublicURL`; DPoP proofs name it.
 
 ## Which routes are mounted
 
