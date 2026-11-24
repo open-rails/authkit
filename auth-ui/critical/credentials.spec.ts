@@ -35,7 +35,7 @@ test("AK-UI-11: TS contract: pending registration availability and authenticated
         }),
       who
     )
-  ).toBeNull()
+  ).toMatchObject({ challenge: expect.any(String) })
   expect(
     (
       await page.evaluate(
@@ -135,11 +135,17 @@ test("AK-UI-12: TS contract: reset, password change, contact proof, passwordless
 
   const phone = "+12025550197"
   const beforePhone = (await deliveries(request, phone)).length
-  await page.evaluate((phone) => window.ak.client.changePhone(phone), phone)
+  const phoneChange = await page.evaluate(
+    (phone) => window.ak.client.changePhone(phone),
+    phone
+  )
   await page.evaluate(
-    ({ phone, proof }) =>
-      window.ak.client.confirmVerification({ identifier: phone, code: proof }),
-    { phone, proof: await nextCode(request, phone, beforePhone) }
+    ({ challenge, proof }) =>
+      window.ak.client.confirmVerification({ challenge, code: proof }),
+    {
+      challenge: phoneChange.challenge,
+      proof: await nextCode(request, phone, beforePhone),
+    }
   )
   const phoneAdded = await page.evaluate(() =>
     window.ak.client.request<{
@@ -160,16 +166,16 @@ test("AK-UI-12: TS contract: reset, password change, contact proof, passwordless
 
   await page.evaluate(() => window.ak.client.signOut())
   const beforePasswordless = (await deliveries(request, who.email)).length
-  await page.evaluate(
+  const started = await page.evaluate(
     (identifier) => window.ak.client.startPasswordless({ identifier }),
     who.email
   )
   const signed = await settle(
     page,
-    ({ identifier, proof }) =>
-      window.ak.client.confirmPasswordless({ identifier, code: proof }),
+    ({ challenge, proof }) =>
+      window.ak.client.confirmPasswordless({ challenge, code: proof }),
     {
-      identifier: who.email,
+      challenge: started.challenge,
       proof: await nextCode(request, who.email, beforePasswordless),
     }
   )
@@ -190,10 +196,14 @@ test("AK-UI-12: TS contract: reset, password change, contact proof, passwordless
   expect(parked.status).toBe("verification_required")
   const recovery = await settle(
     page,
-    ({ identifier, code }) =>
-      window.ak.client.confirmVerification({ identifier, code }),
+    ({ identifier, challenge, code }) =>
+      window.ak.client.confirmVerification({ identifier, challenge, code }),
     {
       identifier: who.email,
+      challenge:
+        parked.status === "verification_required"
+          ? parked.verification.challenge
+          : "",
       code: await nextCode(request, who.email, beforeRecovery),
     }
   )
