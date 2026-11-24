@@ -73,11 +73,15 @@ func (s *Engine) RemoteInvitations(ctx context.Context, v auth.Verified) ([]iam.
 	return out, nil
 }
 
-// AcceptRemoteInvitation redeems one of v's RemoteInvitations: v's user
-// (recorded in the group's directory) holds its role in the group from now
-// on, replacing any it held. iam.ErrInvitationNotFound for an id that is
-// not one of them.
+// AcceptRemoteInvitation redeems one of v's RemoteInvitations as a native
+// account redeems its own (redeemInvitation): v's user (recorded in the
+// group's directory) holds its role in the group from now on, replacing one
+// whose grants it covers. iam.ErrInvitationNotFound for an id that is not
+// one of them.
 func (s *Engine) AcceptRemoteInvitation(ctx context.Context, v auth.Verified, id string) (iam.Role, error) {
+	if err := s.invitationsOn(); err != nil {
+		return iam.Role{}, err
+	}
 	u, ok := remoteUserOf(v)
 	id, valid := canonicalUUID(strings.TrimSpace(id))
 	if !ok || !valid {
@@ -103,21 +107,24 @@ func (s *Engine) AcceptRemoteInvitation(ctx context.Context, v auth.Verified, id
 	}
 	var role iam.Role
 	err = s.withGroupMutation(ctx, iam.SystemIdentity(), iam.GroupByID(u.app.GroupID), func(st *permissionGroupStore, g groupTarget) error {
-		q := db.New(st.q)
-		text, err := q.RemoteInvitationConsume(ctx, db.RemoteInvitationConsumeParams{ID: id, PermissionGroupID: g.ID, Email: u.email})
-		if errors.Is(err, pgx.ErrNoRows) || err == nil && text == nil {
+		invite, err := db.New(st.q).RemoteInvitationForUpdate(ctx, db.RemoteInvitationForUpdateParams{ID: id, PermissionGroupID: g.ID, Email: u.email})
+		if errors.Is(err, pgx.ErrNoRows) {
 			return iam.ErrInvitationNotFound
 		}
 		if err != nil {
 			return err
 		}
-		role = ident.RoleText(*text)
-		if err := s.requireDefinedGroupRole(ctx, st.q, g, role); err != nil {
-			return err
-		}
-		return q.RemoteUserRoleUpsert(ctx, db.RemoteUserRoleUpsertParams{PermissionGroupID: g.ID, RemoteUserID: user.ID, Role: role.String(), InvitationID: &id})
+		role = ident.RoleText(invite.Role)
+		expires := invite.ExpiresAt
+		return s.redeemInvitation(ctx, st, invitation{
+			table: "account_registration_invites", id: invite.ID, group: g, role: role,
+			used: invite.ConsumedAt != nil, revoked: invite.RevokedAt != nil, issuerLive: invite.IssuerLive, expiresAt: &expires,
+		}, remoteHolder{id: user.ID, active: user.Active})
 	})
-	return role, err
+	if err != nil {
+		return iam.Role{}, err
+	}
+	return role, nil
 }
 
 // RemoteUserRoles are the roles trusted issuers' users hold in the group

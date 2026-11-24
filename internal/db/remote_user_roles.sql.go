@@ -10,26 +10,47 @@ import (
 	"time"
 )
 
-const remoteInvitationConsume = `-- name: RemoteInvitationConsume :one
-UPDATE account_registration_invites
-SET consumed_at = now()
-WHERE id = $1::uuid AND permission_group_id = $2::uuid AND email = $3::citext
-  AND role IS NOT NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
-RETURNING role
+const remoteInvitationForUpdate = `-- name: RemoteInvitationForUpdate :one
+SELECT i.id, g.id AS group_id, g.persona, COALESCE(i.role, '')::text AS role, i.consumed_at, i.expires_at, i.revoked_at,
+  (i.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = i.invited_by))::boolean AS issuer_live
+FROM account_registration_invites i JOIN permission_groups g ON g.id = i.permission_group_id AND g.deleted_at IS NULL
+WHERE i.id = $1::uuid AND i.permission_group_id = $2::uuid AND i.email = $3::citext
+  AND i.role IS NOT NULL
+FOR UPDATE OF i
 `
 
-type RemoteInvitationConsumeParams struct {
+type RemoteInvitationForUpdateParams struct {
 	ID                string
 	PermissionGroupID string
 	Email             string
 }
 
-// Redeems a pending invitation of the group for email, once.
-func (q *Queries) RemoteInvitationConsume(ctx context.Context, arg RemoteInvitationConsumeParams) (*string, error) {
-	row := q.db.QueryRow(ctx, remoteInvitationConsume, arg.ID, arg.PermissionGroupID, arg.Email)
-	var role *string
-	err := row.Scan(&role)
-	return role, err
+type RemoteInvitationForUpdateRow struct {
+	ID         string
+	GroupID    string
+	Persona    string
+	Role       string
+	ConsumedAt *time.Time
+	ExpiresAt  time.Time
+	RevokedAt  *time.Time
+	IssuerLive bool
+}
+
+// A group's email invitation with a role, for email, locked for redemption.
+func (q *Queries) RemoteInvitationForUpdate(ctx context.Context, arg RemoteInvitationForUpdateParams) (RemoteInvitationForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, remoteInvitationForUpdate, arg.ID, arg.PermissionGroupID, arg.Email)
+	var i RemoteInvitationForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.Persona,
+		&i.Role,
+		&i.ConsumedAt,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.IssuerLive,
+	)
+	return i, err
 }
 
 const remoteInvitationsPending = `-- name: RemoteInvitationsPending :many

@@ -49,6 +49,8 @@ A group may grant roles to a trusted issuer's users by email:
 2. The user signs in at their issuer. With a token whose verified email is the invitation's, `Client.RemoteInvitations(ctx, v)` lists the invitation and `Client.AcceptRemoteInvitation(ctx, v, id)` accepts it, once.
 3. The user (their record in the group's [directory](scim.md#directory)) then holds the role in the group. Their tokens hold its permissions there, within the application's role as always.
 
+Acceptance is the same redemption a native account's is. It is refused while `Invitations.Disabled` (`invitations_disabled`), for an invitation revoked, issued under another application's catalog, or whose inviter is gone or no longer covers its role (`invitation_revoked`), expired (`invitation_expired`) or used (`invitation_not_found`), and for a user the directory marks inactive. A role that would strip grants the user holds there is `iam.ErrRoleAssignmentEscalation` and the user keeps its role; a role that requires MFA is not assignable, since AuthKit cannot check another issuer's second factor. A user already holding the role succeeds without using the invitation.
+
 `Client.RemoteUserRoles` lists these grants, and `Client.RemoveRemoteUserRole` ends one; ending one needs `<persona>:members:manage` and coverage of the role.
 
 ## A trusted application without an authorization server

@@ -51,17 +51,16 @@ func (s *Engine) inviteURL(code string) string {
 	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
 }
 
-// RedeemInvitation redeems code for the signed-in user a: a link must be
-// live (not revoked, expired or used) and its issuer live, and the redeemer
-// live. The role is assigned in the same transaction and the link consumed.
+// RedeemInvitation redeems code for the signed-in user a (redeemInvitation):
+// the role is assigned in the same transaction and the link consumed.
 // Idempotent: a redeemer already holding the role succeeds without using it.
 // code may also be a role-carrying account invitation (an add by email): only
 // the account that has verified the invited address accepts it.
 func (s *Engine) RedeemInvitation(ctx context.Context, a auth.Identity, code string) (authflow.InviteRedemption, error) {
 	var out authflow.InviteRedemption
 	code = strings.TrimSpace(code)
-	if s.cfg.Invitations.Disabled {
-		return out, iam.ErrInvitationsDisabled
+	if err := s.invitationsOn(); err != nil {
+		return out, err
 	}
 	if cs := stateOf(a); !cs.IsUser() || !isUUID(cs.ID()) {
 		return out, iam.ErrInsufficientAuthority
@@ -100,33 +99,10 @@ func (s *Engine) RedeemInvitation(ctx context.Context, a auth.Identity, code str
 		}
 		out.GroupID, out.Persona = link.GroupID, ident.Persona(link.Persona)
 		out.Role = ident.RoleText(link.Role)
-		if link.RevokedAt != nil || !link.IssuerLive {
-			return errmodel.ErrInvitationRevoked
-		}
-		if err := s.requireCredentialUse(ctx, st, "group_invite_links", link.ID, groupID, errmodel.ErrInvitationRevoked); err != nil {
-			return err
-		}
-		if link.ExpiresAt != nil && !link.ExpiresAt.After(time.Now().UTC()) {
-			return errmodel.ErrInvitationExpired
-		}
-		live, err := subjectUsable(ctx, st.q, redeemer)
-		if err != nil {
-			return err
-		}
-		if !live {
-			return iam.ErrInsufficientAuthority
-		}
-		already, err := subjectHasRole(ctx, st.q, groupID, redeemer.ID, out.Role)
-		if err != nil || already {
-			return err
-		}
-		if link.RedeemedAt != nil {
-			return iam.ErrInvitationNotFound
-		}
-		if err := s.assignInvitedRole(ctx, st, groupID, out.Persona, redeemer.ID, out.Role); err != nil {
-			return err
-		}
-		return q.InviteLinkRedeem(ctx, link.ID)
+		return s.redeemInvitation(ctx, st, invitation{
+			table: "group_invite_links", id: link.ID, group: groupTarget{ID: groupID, Persona: out.Persona}, role: out.Role,
+			used: link.RedeemedAt != nil, revoked: link.RevokedAt != nil, issuerLive: link.IssuerLive, expiresAt: link.ExpiresAt,
+		}, nativeHolder{s: s, id: redeemer.ID})
 	})
 	if err != nil {
 		return authflow.InviteRedemption{}, err
@@ -159,42 +135,9 @@ func (s *Engine) acceptAccountInvite(ctx context.Context, st *permissionGroupSto
 	}
 	out.GroupID, out.Persona = invite.GroupID, ident.Persona(invite.Persona)
 	out.Role = ident.RoleText(invite.Role)
-	if invite.RevokedAt != nil || !invite.IssuerLive {
-		return errmodel.ErrInvitationRevoked
-	}
-	if err := s.requireCredentialUse(ctx, st, "account_registration_invites", invite.ID, groupID, errmodel.ErrInvitationRevoked); err != nil {
-		return err
-	}
-	if !invite.ExpiresAt.After(time.Now().UTC()) {
-		return errmodel.ErrInvitationExpired
-	}
-	live, err := subjectUsable(ctx, st.q, redeemer)
-	if err != nil {
-		return err
-	}
-	if !live {
-		return iam.ErrInsufficientAuthority
-	}
-	if out.Role.IsZero() {
-		if invite.ConsumedAt != nil {
-			return iam.ErrInvitationNotFound
-		}
-		return q.AccountInviteConsume(ctx, invite.ID)
-	}
-	already, err := subjectHasRole(ctx, st.q, groupID, redeemer.ID, out.Role)
-	if err != nil || already {
-		return err
-	}
-	if invite.ConsumedAt != nil {
-		return iam.ErrInvitationNotFound
-	}
-	if err := s.assignInvitedRole(ctx, st, groupID, out.Persona, redeemer.ID, out.Role); err != nil {
-		return err
-	}
-	return q.AccountInviteConsume(ctx, invite.ID)
-}
-
-// subjectHasRole reports whether the user already holds role in the group.
-func subjectHasRole(ctx context.Context, q db.DBTX, groupID, userID string, role iam.Role) (bool, error) {
-	return db.New(q).GroupUserHasRole(ctx, db.GroupUserHasRoleParams{GroupID: groupID, UserID: userID, Role: role.String()})
+	expires := invite.ExpiresAt
+	return s.redeemInvitation(ctx, st, invitation{
+		table: "account_registration_invites", id: invite.ID, group: groupTarget{ID: groupID, Persona: out.Persona}, role: out.Role,
+		used: invite.ConsumedAt != nil, revoked: invite.RevokedAt != nil, issuerLive: invite.IssuerLive, expiresAt: &expires,
+	}, nativeHolder{s: s, id: redeemer.ID})
 }

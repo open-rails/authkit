@@ -34,13 +34,14 @@ WHERE permission_group_id = sqlc.arg(permission_group_id)::uuid AND email = sqlc
   AND role IS NOT NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
 ORDER BY created_at, id;
 
--- name: RemoteInvitationConsume :one
--- Redeems a pending invitation of the group for email, once.
-UPDATE account_registration_invites
-SET consumed_at = now()
-WHERE id = sqlc.arg(id)::uuid AND permission_group_id = sqlc.arg(permission_group_id)::uuid AND email = sqlc.arg(email)::citext
-  AND role IS NOT NULL AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
-RETURNING role;
+-- name: RemoteInvitationForUpdate :one
+-- A group's email invitation with a role, for email, locked for redemption.
+SELECT i.id, g.id AS group_id, g.persona, COALESCE(i.role, '')::text AS role, i.consumed_at, i.expires_at, i.revoked_at,
+  (i.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = i.invited_by))::boolean AS issuer_live
+FROM account_registration_invites i JOIN permission_groups g ON g.id = i.permission_group_id AND g.deleted_at IS NULL
+WHERE i.id = sqlc.arg(id)::uuid AND i.permission_group_id = sqlc.arg(permission_group_id)::uuid AND i.email = sqlc.arg(email)::citext
+  AND i.role IS NOT NULL
+FOR UPDATE OF i;
 
 -- name: RemoteUserRoleByID :one
 SELECT role FROM group_remote_user_roles
