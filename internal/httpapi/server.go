@@ -37,16 +37,15 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 	}
 	h := *cfg.HTTP
 	s := &Service{
-		svc:              client,
-		cfg:              cfg,
-		http:             h,
-		clientIP:         DefaultClientIP(),
-		clientIPExplicit: deps.ClientIP != nil,
-		directPeerIP:     h.DirectPeerIP,
-		wrap:             deps.Wrap,
-		replays:          dpop.NewReplays(deps.Redis, deps.Replays),
-		smsSender:        deps.SMS != nil,
+		svc:       client,
+		cfg:       cfg,
+		http:      h,
+		clientIP:  DefaultClientIP(), // DirectPeerIP
+		wrap:      deps.Wrap,
+		replays:   dpop.NewReplays(deps.Redis, deps.Replays),
+		smsSender: deps.SMS != nil,
 	}
+	// Normalize admitted exactly one client-IP posture.
 	s.trustedProxies, _ = config.ParseCIDRs("trusted proxy", h.TrustedProxies)
 	s.cloudflareProxies, _ = config.ParseCIDRs("Cloudflare proxy", h.CloudflareProxies)
 	switch {

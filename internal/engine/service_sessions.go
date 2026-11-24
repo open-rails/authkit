@@ -25,6 +25,15 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
+// sessionDeadline is a session's expiry from now; nil without an age limit.
+func (s *Engine) sessionDeadline() *time.Time {
+	if s.cfg.Token.RefreshTokenDuration <= 0 {
+		return nil
+	}
+	deadline := time.Now().Add(s.cfg.Token.RefreshTokenDuration)
+	return &deadline
+}
+
 // insertRefreshSessionTx is the one session insert/cap operation. Its caller
 // owns the account lock, admission checks, commit and post-commit audit.
 func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, userID, userAgent string, ip net.IP, authMethods []string) (string, string, *time.Time, []string, error) {
@@ -33,11 +42,7 @@ func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, user
 		return "", "", nil, nil, errmodel.E(errmodel.CodeSenderProofRequired)
 	}
 	rt := secret.Token(32)
-	var exp *time.Time
-	if s.cfg.Token.RefreshTokenDuration > 0 {
-		deadline := time.Now().Add(s.cfg.Token.RefreshTokenDuration)
-		exp = &deadline
-	}
+	exp := s.sessionDeadline()
 	sid, err := newUUIDV7String()
 	if err != nil {
 		return "", "", nil, nil, err
@@ -146,6 +151,7 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 		ID:                       sid,
 		ExpectedCurrentTokenHash: h,
 		PreviousSuccessorSealed:  sealGraceSuccessor(refreshToken, newTok),
+		ExpiresAt:                s.sessionDeadline(),
 	})
 	if err != nil {
 		return "", authflow.IssuedSession{}, err

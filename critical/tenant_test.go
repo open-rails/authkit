@@ -231,6 +231,71 @@ func TestCriticalTenantAuthority(t *testing.T) {
 			t.Fatalf("revoked credential retained source-account authority: %+v, %v", actor, err)
 		}
 	})
+	t.Run("AK-J02-C07_tenant_view_reads_and_removes_only_its_own_groups", func(t *testing.T) {
+		ctx := t.Context()
+		a, b := iam.NewTenantID(), iam.NewTenantID()
+		noError(t, f.auth.CreateTenant(ctx, iam.Tenant{ID: a, Slug: "group-view-a"}))
+		noError(t, f.auth.CreateTenant(ctx, iam.Tenant{ID: b, Slug: "group-view-b"}))
+		viewA, err := f.auth.ForTenant(ctx, a)
+		noError(t, err)
+		viewB, err := f.auth.ForTenant(ctx, b)
+		noError(t, err)
+		mine, err := viewA.CreateGroup(ctx, iam.NewGroup{Persona: f.shop.Persona})
+		noError(t, err)
+		theirs, err := viewB.CreateGroup(ctx, iam.NewGroup{Persona: f.shop.Persona})
+		noError(t, err)
+		listed := func(c *authkit.Client) map[string]bool {
+			ids := map[string]bool{}
+			for q := (iam.GroupQuery{Persona: f.shop.Persona}); ; {
+				page, err := c.ListGroups(ctx, q)
+				noError(t, err)
+				for _, g := range page.Items {
+					ids[g.ID] = true
+				}
+				if page.Next == "" {
+					return ids
+				}
+				q.Page.Cursor = page.Next
+			}
+		}
+		if got := listed(viewA); !got[mine.ID] || got[theirs.ID] {
+			t.Fatalf("tenant view listed %v; want its own %s and not %s", got, mine.ID, theirs.ID)
+		}
+		if got := listed(f.auth); !got[mine.ID] || !got[theirs.ID] {
+			t.Fatal("the root view lost a tenant's groups")
+		}
+		other := iam.GroupByID(theirs.ID)
+		if _, err := viewA.Group(ctx, other); !errors.Is(err, iam.ErrGroupNotFound) {
+			t.Fatalf("tenant view read another tenant's group: %v", err)
+		}
+		if got, err := viewA.Groups(ctx, []string{mine.ID, theirs.ID}); err != nil || len(got) != 1 || got[mine.ID].ID != mine.ID {
+			t.Fatalf("tenant view batch read %v, %v", got, err)
+		}
+		if _, err := viewA.ListGroupMembers(ctx, other, iam.MemberQuery{}); !errors.Is(err, iam.ErrGroupNotFound) {
+			t.Fatalf("tenant view listed another tenant's members: %v", err)
+		}
+		if _, err := viewA.ListGroupRoles(ctx, other); !errors.Is(err, iam.ErrGroupNotFound) {
+			t.Fatalf("tenant view listed another tenant's roles: %v", err)
+		}
+		if err := viewA.DeleteGroup(ctx, other); !errors.Is(err, iam.ErrGroupNotFound) {
+			t.Fatalf("tenant view deleted another tenant's group: %v", err)
+		}
+		if err := viewA.PurgeGroup(ctx, other); !errors.Is(err, iam.ErrGroupNotFound) {
+			t.Fatalf("tenant view purged another tenant's group: %v", err)
+		}
+		if got, err := f.auth.Group(ctx, other); err != nil || got.DeletedAt != nil || got.TenantID != b {
+			t.Fatalf("another tenant's group was touched: %+v, %v", got, err)
+		}
+		if _, err := viewA.Group(ctx, iam.RootGroup()); err != nil {
+			t.Fatalf("tenant view lost the root group: %v", err)
+		}
+		noError(t, viewA.DeleteGroup(ctx, iam.GroupByID(mine.ID)))
+		noError(t, viewA.PurgeGroup(ctx, iam.GroupByID(mine.ID)))
+		if _, err := f.auth.Group(ctx, iam.GroupByID(mine.ID)); !errors.Is(err, iam.ErrGroupNotFound) {
+			t.Fatalf("tenant view did not purge its own group: %v", err)
+		}
+		noError(t, viewA.PurgeGroup(ctx, iam.GroupByID(mine.ID)))
+	})
 }
 
 func TestCriticalProviderReconciliation(t *testing.T) {

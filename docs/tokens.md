@@ -8,7 +8,7 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 |---|---|---|---|
 | Access token (`access+jwt`) | a signed-in user | `TokenConfig.AccessTokenDuration`, 15 minutes by default | live gates refuse it at once; `Required` accepts it until it expires |
 | DPoP-bound session | a client that proved a key at sign-in (`SignIn.DPoP`, [resource server](resource-server.md#dpop)) | as its session | its access tokens carry `cnf.jkt` and need a proof of the key; each refresh proves it |
-| Refresh token | a signed-in user | until revoked, or for `TokenConfig.RefreshTokenDuration` | at once |
+| Refresh token | a signed-in user | 30 days from sign-in by default (`TokenConfig.RefreshTokenDuration`; negative: until revoked) | at once |
 | Device-key sign-in | a native client | each sign-in is signed by the device key, with no refresh token | like a session, when the key is revoked |
 | Organization API key | a group's account | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once; the creator's departure does not revoke the group's key |
 | Personal access token | a user, limited to one group's explicit permission ceiling | 30 days by default, capped at 90 days by default | explicit revocation and current owner authority checked on every use; no sign-in or MFA assurance |
@@ -19,6 +19,7 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 
 - Each sign-in opens a session and returns a refresh token: in the body, or in the issuer-specific `__Host-authkit_rt_<issuer-hash>` cookie with `HTTPConfig.RefreshCookie`.
 - `POST /api/v1/token` rotates it: each use returns a new refresh token and retires the old one.
+- A session ends `TokenConfig.RefreshTokenDuration` after its sign-in, 30 days by default; refreshing does not move the deadline. A session opened without one (a negative duration since changed, or an earlier release) gets one at its next refresh.
 - Presenting a token retired within the last 90 days ends the session, since it means the token was copied; an older one is refused. For 30 seconds after a rotation (`TokenConfig.RefreshRotationGrace`), the retired token instead gets the same successor again, which covers two holders refreshing at once.
 - A user keeps at most 3 sessions (`TokenConfig.SessionMaxPerUser`); the oldest is evicted.
 - These end sessions:

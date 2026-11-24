@@ -80,9 +80,8 @@ func (s *Service) writeAuthResult(w http.ResponseWriter, r *http.Request, out au
 	writeAuthResult(w, res)
 }
 
-// writeAuthResult writes res uncached: it carries tokens.
+// writeAuthResult writes res; like every answer it is no-store.
 func writeAuthResult(w http.ResponseWriter, res AuthResult) {
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, res)
 }
 

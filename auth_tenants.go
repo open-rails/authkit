@@ -46,7 +46,8 @@ func (a *Client) ResolveTenant(ctx context.Context, slug string) (iam.Tenant, er
 
 // ForTenant selects an existing tenant for native account operations and HTTP
 // dispatch. It borrows this client's engine, pools, keys and worker lifecycle.
-// Selecting a tenant does not grant the caller any authority in it.
+// Selecting a tenant does not grant the caller any authority in it. The
+// view's group reads and lifecycle see only the tenant's groups and root.
 func (a *Client) ForTenant(ctx context.Context, id iam.TenantID) (*Client, error) {
 	if a == nil || a.engine == nil {
 		return nil, errors.New("authkit: tenant view requires a client")
@@ -79,6 +80,16 @@ func (a *Client) operationContext(ctx context.Context) context.Context {
 	}
 	if !id.IsZero() {
 		return engine.WithTenant(ctx, id)
+	}
+	return ctx
+}
+
+// groupContext is operationContext for the host's group reads and
+// lifecycle: a tenant view's see only its tenant's groups (and root).
+func (a *Client) groupContext(ctx context.Context) context.Context {
+	ctx = a.operationContext(ctx)
+	if !a.tenantID.IsZero() {
+		ctx = engine.WithTenantView(ctx, a.tenantID)
 	}
 	return ctx
 }

@@ -19,7 +19,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 | `{BasePath}/oidc/{provider}/…` | browser sign-in with an identity provider |
 | `{BasePath}/.well-known/jwks.json` | the public signing keys |
 
-`BasePath` defaults to the path of `TokenConfig.Issuer`. When the issuer is a URL, `BasePath` must equal that path, because verifiers look for JWKS at the issuer plus `/.well-known/jwks.json`. Serve the paths unchanged, with no prefix stripping in front. If a proxy changes the origin or the path clients see, set `HTTPConfig.PublicURL`; DPoP proofs name it.
+`TokenConfig.Issuer` is an https URL; `http://` is accepted only on a loopback host (`localhost`, `127.0.0.1`, `[::1]`, any port) for local development. `FrontendConfig.BaseURL` (the issuer when empty) follows the same rule, and its scheme decides whether cookies are `Secure` and `__Host-`. `BasePath` defaults to the path of the issuer, and a set one must equal it, because verifiers look for JWKS at the issuer plus `/.well-known/jwks.json`. Serve the paths unchanged, with no prefix stripping in front. If a proxy changes the origin or the path clients see, set `HTTPConfig.PublicURL`; DPoP proofs name it.
 
 ## Which routes are mounted
 
@@ -29,6 +29,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - `HTTPConfig.Exclude` drops individual routes the host serves itself.
 - `Client.Routes()` lists what is mounted.
 - `Deps.Wrap` decorates each handler: logging, tracing, CORS. AuthKit sets no CORS headers of its own.
+- Every answer is `Cache-Control: no-store`, refusals and unknown paths included, except the successful answers of the public metadata: JWKS (`public, max-age=300, must-revalidate`), `/capabilities` and the authorization server's metadata documents (`public, max-age=300`).
 
 ## Browsers
 
@@ -39,7 +40,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 
 ## Client addresses and rate limits
 
-- `New` requires you to declare what sits in front of AuthKit: `HTTPConfig.TrustedProxies`, `CloudflareProxies` or `DirectPeerIP`, or `Deps.ClientIP`. Forwarded-address headers count only from the declared proxies.
+- `New` requires you to declare what sits in front of AuthKit, once: its proxies (`HTTPConfig.TrustedProxies`, with `CloudflareProxies` where Cloudflare fronts the origin), `DirectPeerIP` for none, or `Deps.ClientIP` for your own extraction. It refuses none, and more than one. Forwarded-address headers count only from the declared proxies; with `DirectPeerIP` the client is the TCP peer.
 - Every route has a rate-limit bucket (`x-authkit-rate-limit` in the OpenAPI). Budgets are per client address; an IPv6 address counts per /64. Emailed and texted codes also have per-account and per-destination budgets.
 - A code typed before anything is proven belongs to the start that sent it. `POST /passwordless/start`, `/verify/request`, `/register` (when it waits on a code) and `PUT /me/email`, `/me/phone` answer 202 `{"challenge": "…"}`, a random 128-bit handle, and the code is confirmed with it: `{"challenge", "code"}` at `POST /passwordless/confirm` or `/verify/confirm`; an `identifier` sent beside it must be the address the code went to. A code is checked only against the challenge it names, and five wrong codes burn that challenge alone. A start never replaces another, so nobody else's start or guesses spend your code. A link keeps its own token (`{"token"}`). A sign-in parked at `verification_required` carries its code's `verification.challenge`.
 - Each email or phone a start sends to also has a send quota, beside the route's per-client-address budget: `passwordless_start_identifier` (30 an hour), `verify_request_identifier` (45, shared by `/verify/request` and the contact changes), `register_create_identifier` (12), `password_reset_request_identifier` (12) and `device_key_enroll_begin_identifier` (30, per email and per public key). It never refuses: past it nothing is stored or sent, and the answer is the one a sent code gets, whether or not the address has an account. Each allows at least twice what one client address may send there and has no cooldown, so one client cannot spend another account's codes. Confirming has no budget per email or phone, only the route's per-client-address one (`passwordless_confirm`, `verify_confirm`); guessing is bounded by five per challenge times the send quota. `sms_number` and `sms_account` (30 an hour) are quotas of the same kind on every text message: a code start past them answers alike and sends nothing, and any other send is refused with `rate_limited`.
@@ -47,7 +48,7 @@ Every route lives beneath `HTTPConfig.BasePath`:
 - `DefaultRateLimits()` holds the defaults. `HTTPConfig.RateLimits` overrides buckets by name; an unknown name is an error.
 - Counters live in each process's memory. Set `Deps.Redis` when you run more than one replica, to share them.
 - If Redis fails, each process uses its own counters with the same limits until Redis answers again. Shared and local counter history is not transferred: a process can admit its local allowance after the shared budget was spent, and replicas have separate allowances during the outage. The fallback remains bounded, but it does not preserve a global budget across the transition. A request waits on Redis for at most 250ms, and AuthKit logs the fallback and the recovery once each.
-- Spent DPoP proofs (the token endpoint, userinfo, SCIM and `Client.NewVerifier`) and spent JWT-bearer and client assertions (RFC 7523) are kept in `Deps.Replays` when the host gives one, else the same way as counters: in `Deps.Redis`, else in memory. A host with several replicas and no Redis implements `verify.ReplayStore` on the store they share (an insert-if-absent with an expiry); its errors refuse the proof. A capability's `jti` is a grant record and stays in PostgreSQL.
+- Spent DPoP proofs (the token endpoint, userinfo, SCIM and `Client.NewVerifier`) and spent JWT-bearer and client assertions (RFC 7523) are kept in `Deps.Replays` when the host gives one, else in `Deps.Redis`, else in memory. Unlike counters they have no fallback: while that store fails, a proof or assertion is refused (5xx, or 503 `temporarily_unavailable` at the token endpoint), since a spend another replica cannot see would let the same proof pass there. A host with several replicas and no Redis implements `verify.ReplayStore` on the store they share (an insert-if-absent with an expiry). A capability's `jti` is a grant record and stays in PostgreSQL.
 - A 429 is `rate_limited` with `Retry-After`, the `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers, and the budget in `metadata`.
 
 ## Sign-in limits

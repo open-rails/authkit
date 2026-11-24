@@ -23,6 +23,27 @@ func WithTenant(ctx context.Context, id iam.TenantID) context.Context {
 	return tenancy.With(ctx, id)
 }
 
+// WithTenantView is WithTenant for a tenant view's group reads and
+// lifecycle: they see only id's groups (and root).
+func WithTenantView(ctx context.Context, id iam.TenantID) context.Context {
+	return tenancy.WithView(ctx, id)
+}
+
+// inView reports whether a group (its persona and tenant) is visible from
+// ctx: outside a tenant view every group is; in one, its tenant's and root.
+func inView(ctx context.Context, persona iam.Persona, tenant iam.TenantID) bool {
+	view, ok := tenancy.View(ctx)
+	return !ok || persona == iam.RootPersona() || tenant == view
+}
+
+// viewTenantText is the tenant view's id as query text, "" outside one.
+func viewTenantText(ctx context.Context) string {
+	if view, ok := tenancy.View(ctx); ok {
+		return view.String()
+	}
+	return ""
+}
+
 func (s *Engine) tenantID(ctx context.Context) (iam.TenantID, error) {
 	if id, ok := tenancy.From(ctx); ok {
 		if id.IsZero() {

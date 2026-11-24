@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -285,5 +286,62 @@ func TestCriticalTokenProfiles(t *testing.T) {
 			t.Fatal("group-bound mint exceeded its documented lifetime cap")
 		}
 		f.call(t, "GET", "/me", bound.Value, nil).want(t, http.StatusForbidden, "forbidden")
+	})
+	t.Run("AK-J13-C10_failed_issuer_discovery_is_fetched_once_per_backoff", func(t *testing.T) {
+		clock := testclock.Wall()
+		oldPolicy := cachepolicy.IssuerKeys
+		cachepolicy.IssuerKeys.Clock = clock
+		t.Cleanup(func() { cachepolicy.IssuerKeys = oldPolicy })
+		var fetches atomic.Int64
+		issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fetches.Add(1)
+			http.Error(w, "metadata unavailable", http.StatusServiceUnavailable)
+		}))
+		t.Cleanup(issuer.Close)
+		const resource = "https://discovery-resource.example"
+		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.Resource = authkit.ResourceConfig{ID: resource}
+			c.Token.AllowPrivateNetworkJWKS = true
+		}))
+		group, _, _ := g.ownedGroup(t)
+		_, err := g.auth.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.RemoteApplication{Issuer: issuer.URL, Enabled: true, Mode: iam.RemoteApplicationModeJWKS})
+		noError(t, err)
+		private, err := rsa.GenerateKey(rand.Reader, 2048)
+		noError(t, err)
+		signer, err := keys.SignerFromKey("discovered", private)
+		noError(t, err)
+		now := time.Now()
+		token := signJWT(t, signer, map[string]any{"alg": signer.Algorithm(), "kid": signer.KID(), "typ": "at+jwt"},
+			map[string]any{"iss": issuer.URL, "sub": "customer", "aud": resource, "client_id": "remote-ui", "iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix(), "jti": "discovery-backoff-token"})
+		// Errors, not Fatal: it also runs on other goroutines.
+		refused := func() {
+			r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, resource+"/data", nil)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			r.Header.Set("Authorization", "Bearer "+token)
+			if _, err := g.auth.Authenticator().Authenticate(r); err == nil {
+				t.Error("token of an issuer without keys was accepted")
+			}
+		}
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(refused)
+		}
+		wg.Wait()
+		for range 5 {
+			refused()
+		}
+		// One discovery reads two documents (RFC 8414, then OpenID).
+		first := fetches.Load()
+		if first < 1 || first > 2 {
+			t.Fatalf("13 requests made %d metadata fetches, want one discovery", first)
+		}
+		clock.Advance(cachepolicy.IssuerKeys.FailureBackoff + time.Second)
+		refused()
+		if again := fetches.Load(); again <= first || again > first+2 {
+			t.Fatalf("after the backoff: %d metadata fetches, want one more discovery after %d", again, first)
+		}
 	})
 }

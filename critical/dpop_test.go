@@ -294,7 +294,7 @@ func TestCriticalSenderProofs(t *testing.T) {
 			t.Fatal("arbitrary Host became a trusted proof target")
 		}
 	})
-	t.Run("AK-J14-C06_redis_outage_retains_only_documented_process_local_replay", func(t *testing.T) {
+	t.Run("AK-J14-C06_redis_outage_refuses_proofs_on_every_replica", func(t *testing.T) {
 		value := os.Getenv("AUTHKIT_TEST_REDIS_URL")
 		if value == "" {
 			t.Fatal("Redis fixture required")
@@ -316,13 +316,13 @@ func TestCriticalSenderProofs(t *testing.T) {
 		_, a := proofServer(t, f, nil, nil)
 		_, b := proofServer(t, f, nil, nil)
 		link.cut()
+		// A spend another replica cannot see is no spend: both refuse, so the
+		// proof cannot be replayed across replicas while Redis is down.
 		proof := key.Proof(t, "GET", proofOrigin+"/protected", tokens.AccessToken, "")
-		proofCall(t, a, "GET", "/protected", tokens.AccessToken, proof, "").want(t, http.StatusNoContent, "")
-		if r := proofCall(t, a, "GET", "/protected", tokens.AccessToken, proof, ""); r.status != http.StatusUnauthorized {
-			t.Fatal("process-local fallback forgot its own spent proof")
+		for name, s := range map[string]*httptest.Server{"a": a, "b": b} {
+			if r := proofCall(t, s, "GET", "/protected", tokens.AccessToken, proof, ""); r.status < 500 {
+				t.Fatalf("replica %s answered %d to a proof it could not spend", name, r.status)
+			}
 		}
-		// This is the documented fallback boundary, not a cross-replica
-		// exactly-once claim while the shared replay store is unavailable.
-		proofCall(t, b, "GET", "/protected", tokens.AccessToken, proof, "").want(t, http.StatusNoContent, "")
 	})
 }
