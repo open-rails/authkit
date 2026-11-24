@@ -199,16 +199,18 @@ func (s *Engine) restoreGate(ctx context.Context, in authflow.PasswordLoginInput
 	}
 	s.loginFailed(ctx, in, u.ID, "account_deleted")
 	if u.Email != nil && s.EmailAvailable() {
-		if err := s.sendEmailVerificationCode(ctx, u, defaultEmailVerificationTTL); err != nil {
+		challenge, err := s.sendEmailVerificationCode(ctx, u)
+		if err != nil {
 			return authflow.LoginOutcome{}, true, stageErr("send_email_verification", fmt.Errorf("%w: %w", errmodel.ErrEmailVerificationSendFailed, err))
 		}
-		return s.verificationRequired(ctx, u.ID, *u.Email, "email", defaultEmailVerificationTTL)
+		return s.verificationRequired(ctx, u.ID, *u.Email, "email", challenge, defaultEmailVerificationTTL)
 	}
 	if u.PhoneNumber != nil && s.SMSAvailable() {
-		if err := s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID, 0); err != nil {
+		challenge, err := s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID)
+		if err != nil {
 			return authflow.LoginOutcome{}, true, stageErr("send_phone_verification", fmt.Errorf("%w: %w", errmodel.ErrPhoneVerificationSendFailed, err))
 		}
-		return s.verificationRequired(ctx, u.ID, *u.PhoneNumber, "phone", defaultPhoneVerificationTTL)
+		return s.verificationRequired(ctx, u.ID, *u.PhoneNumber, "phone", challenge, defaultPhoneVerificationTTL)
 	}
 	return authflow.LoginOutcome{}, true, errmodel.ErrVerificationUnavailable
 }

@@ -436,7 +436,7 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 		if !errors.Is(err, iam.ErrPersonalAccessTokenInvalid) {
 			t.Fatalf("deleted owner's PAT retained authority: %v", err)
 		}
-		f.call(t, "POST", "/passwordless/confirm", "", map[string]string{"identifier": u.Email, "code": proof.Code}).want(t, http.StatusUnauthorized, "invalid_code")
+		f.confirmCode(t, "/passwordless/confirm", "", proof).want(t, http.StatusUnauthorized, "invalid_code")
 		_, err = f.authenticate(t, key.Secret)
 		noError(t, err)
 	})

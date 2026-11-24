@@ -25,8 +25,8 @@ type contactChannel struct {
 	normalize       func(string) string
 	senderAvailable func() bool
 
-	requestVerification  func(context.Context, string) error
-	requestChange        func(ctx context.Context, userID, id string) error
+	requestVerification  func(context.Context, string) (string, error)
+	requestChange        func(ctx context.Context, userID, id string) (string, error)
 	requestPasswordReset func(ctx context.Context, id string, ip, ua *string) error
 
 	errUnavailable errmodel.Code
@@ -34,13 +34,11 @@ type contactChannel struct {
 
 func (s *Service) emailChannel() contactChannel {
 	return contactChannel{
-		validate:        contact.ValidateEmail,
-		normalize:       contact.NormalizeEmail,
-		senderAvailable: s.svc.EmailAvailable,
-		requestVerification: func(ctx context.Context, id string) error {
-			return s.svc.RequestEmailVerification(ctx, id, 0)
-		},
-		requestChange: s.svc.RequestEmailChange,
+		validate:            contact.ValidateEmail,
+		normalize:           contact.NormalizeEmail,
+		senderAvailable:     s.svc.EmailAvailable,
+		requestVerification: s.svc.RequestEmailVerification,
+		requestChange:       s.svc.RequestEmailChange,
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPasswordReset(ctx, id, 0, ip, ua)
 		},
@@ -50,13 +48,11 @@ func (s *Service) emailChannel() contactChannel {
 
 func (s *Service) phoneChannel() contactChannel {
 	return contactChannel{
-		validate:        contact.ValidatePhone,
-		normalize:       contact.NormalizePhone,
-		senderAvailable: s.svc.SMSAvailable,
-		requestVerification: func(ctx context.Context, id string) error {
-			return s.svc.RequestPhoneVerification(ctx, id, 0)
-		},
-		requestChange: s.svc.RequestPhoneChange,
+		validate:            contact.ValidatePhone,
+		normalize:           contact.NormalizePhone,
+		senderAvailable:     s.svc.SMSAvailable,
+		requestVerification: s.svc.RequestPhoneVerification,
+		requestChange:       s.svc.RequestPhoneChange,
 		requestPasswordReset: func(ctx context.Context, id string, ip, ua *string) error {
 			return s.svc.RequestPhonePasswordReset(ctx, id, 0, ip, ua)
 		},
@@ -93,10 +89,11 @@ func (s *Service) requireContactChannel(w http.ResponseWriter, identifier string
 	return ch, id, true
 }
 
-// POST /verify/request — {identifier}: sends a proof to the address. 202 for
-// every well-formed identifier; a code or link goes only to an unproven
-// account or pending registration, so the answer never reveals either.
-// Changing the caller's own address is PUT /me/email and /me/phone.
+// POST /verify/request — {identifier}: sends a proof to the address. 202 with
+// a challenge for every well-formed identifier; a code or link goes only to
+// an unproven account or pending registration within the address's send
+// quota, so the answer never reveals either. Changing the caller's own
+// address is PUT /me/email and /me/phone.
 func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request) {
 	var req IdentifierRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -107,44 +104,42 @@ func (s *Service) handleVerifyRequestPOST(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	// Per-identifier check: one address/number cannot be bombed from many IPs.
-	if s.rateLimitedByIdentifier(w, r, RLVerifyRequest, id) {
-		return
-	}
 	if !ch.senderAvailable() {
 		writeError(w, errmodel.E(ch.errUnavailable))
 		return
 	}
-	if err := ch.requestVerification(r.Context(), id); err != nil {
+	challenge, err := ch.requestVerification(r.Context(), id)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	accepted(w)
+	writeJSON(w, http.StatusAccepted, CodeChallenge{Challenge: challenge})
 }
 
-// POST /verify/confirm — {identifier, code} or {token, identifier?}, and a
-// sign-in's password_proof.
+// POST /verify/confirm — {challenge, code} or {token}, and a sign-in's
+// password_proof. A code is checked only against the challenge it names.
 func (s *Service) handleVerifyConfirmPOST(w http.ResponseWriter, r *http.Request) {
 	var req VerifyConfirmRequest
 	if err := decodeJSON(r, &req); err != nil {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	in := authflow.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Code: strings.ToUpper(strings.TrimSpace(req.Code)), Token: strings.TrimSpace(req.Token),
-		PasswordProof: strings.TrimSpace(req.PasswordProof), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
+	in := authflow.VerificationInput{Identifier: strings.TrimSpace(req.Identifier), Challenge: strings.TrimSpace(req.Challenge), Code: strings.ToUpper(strings.TrimSpace(req.Code)),
+		Token: strings.TrimSpace(req.Token), PasswordProof: strings.TrimSpace(req.PasswordProof), UserAgent: r.UserAgent(), IP: s.requestIP(r)}
 	if in.Token != "" && in.Code != "" || in.Token == "" && in.Code == "" {
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if in.Identifier != "" || in.Token == "" {
+	if in.Code != "" && in.Challenge == "" {
+		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("challenge"))
+		return
+	}
+	if in.Identifier != "" {
 		_, id, ok := s.requireContactChannel(w, in.Identifier)
 		if !ok {
 			return
 		}
 		in.Identifier = id
-		if s.rateLimitedByIdentifier(w, r, RLVerifyConfirm, id) {
-			return
-		}
 	}
 	if claims, ok := verify.ClaimsFromContext(r.Context()); ok {
 		in.UserID, in.SessionID = claims.UserID, claims.SessionID
@@ -181,10 +176,6 @@ func (s *Service) handlePasswordResetRequestPOST(w http.ResponseWriter, r *http.
 	}
 	ch, id, ok := s.requireContactChannel(w, req.Identifier)
 	if !ok {
-		return
-	}
-	// Per-identifier check: one address/number cannot be bombed from many IPs.
-	if s.rateLimitedByIdentifier(w, r, RLPasswordResetRequest, id) {
 		return
 	}
 	if !ch.senderAvailable() {

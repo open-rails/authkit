@@ -33,10 +33,6 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollBegin, email) ||
-		s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollBegin, strings.TrimSpace(req.PublicKey)) {
-		return
-	}
 	result, err := s.svc.BeginDeviceKeyEnrollment(r.Context(), email, req.PublicKey, req.Label)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenUnverifiable) {

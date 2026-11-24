@@ -61,8 +61,17 @@ type PasswordlessStartRequest struct {
 	InviteCode        string `json:"invite_code"`
 }
 
+// CodeChallenge answers a start that may send a code: the challenge a code
+// is confirmed with. It looks the same whether or not a code went out.
+type CodeChallenge struct {
+	Challenge string `json:"challenge"`
+}
+
+// CodeOrLinkRequest is {challenge, code} or {token}. Identifier, when given,
+// must be the address the code or link went to.
 type CodeOrLinkRequest struct {
 	Identifier string `json:"identifier"`
+	Challenge  string `json:"challenge"`
 	Code       string `json:"code"`
 	Token      string `json:"token"`
 	// Agreements are the documents a sign-up accepts: a code for a new
@@ -71,11 +80,12 @@ type CodeOrLinkRequest struct {
 	Agreements []iam.AgreementRef `json:"agreements"`
 }
 
-// VerifyConfirmRequest is POST /verify/confirm: {identifier, code} or {token,
-// identifier?}, with the sign-in's verification.password_proof when a
-// password sign-in sent the code.
+// VerifyConfirmRequest is POST /verify/confirm: {challenge, code} or {token},
+// with the sign-in's verification.password_proof when a password sign-in sent
+// the code. Identifier, when given, must be the address it went to.
 type VerifyConfirmRequest struct {
 	Identifier    string `json:"identifier"`
+	Challenge     string `json:"challenge"`
 	Code          string `json:"code"`
 	Token         string `json:"token"`
 	PasswordProof string `json:"password_proof"`
@@ -629,8 +639,10 @@ type ReauthenticationStep struct {
 // Without it, an account's first proof retires a password nobody proved
 // alongside it.
 type VerificationStep struct {
-	Identifier    string  `json:"identifier"`
-	Channel       string  `json:"channel"`
+	Identifier string `json:"identifier"`
+	Channel    string `json:"channel"`
+	// Challenge: confirm the code with it.
+	Challenge     string  `json:"challenge"`
 	PasswordProof *string `json:"password_proof"`
 }
 

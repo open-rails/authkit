@@ -126,6 +126,8 @@ func replyCreated(body any) []Reply { return []Reply{{http.StatusCreated, body}}
 var (
 	replyNoContent = []Reply{{Status: http.StatusNoContent}}
 	replyAccepted  = []Reply{{Status: http.StatusAccepted}}
+	// A start that may send a code answers its challenge.
+	replyChallenge = []Reply{{http.StatusAccepted, CodeChallenge{}}}
 )
 
 // Catalog is AuthKit's whole HTTP surface, every route a configuration can
@@ -175,7 +177,7 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/account/recovery/confirm", Group: auth, Auth: public, Bucket: RLPasswordLogin,
 			Request: TokenRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleAccountRecoveryConfirmPOST)},
 		{Method: POST, Path: "/passwordless/start", Group: auth, Auth: public, Bucket: RLPasswordlessStart, MountedWhen: FeaturePasswordless,
-			Request: PasswordlessStartRequest{}, Responses: replyAccepted, serve: handle((*Service).handlePasswordlessStartPOST)},
+			Request: PasswordlessStartRequest{}, Responses: replyChallenge, serve: handle((*Service).handlePasswordlessStartPOST)},
 		{Method: POST, Path: "/passwordless/confirm", Group: auth, Auth: public, Bucket: RLPasswordlessConfirm, MountedWhen: FeaturePasswordless,
 			Request: CodeOrLinkRequest{}, Responses: signedIn, serve: handle((*Service).handlePasswordlessConfirmPOST)},
 		{Method: POST, Path: "/passkeys/login/begin", Group: auth, Auth: public, Bucket: RLPasskeyLogin, MountedWhen: FeaturePasskeys,
@@ -211,7 +213,7 @@ func Catalog() []RouteSpec {
 			Responses: replyNoContent, serve: handle((*Service).handleDeviceKeysDELETE)},
 
 		{Method: POST, Path: "/register", Group: registration, Auth: public, Bucket: RLRegisterCreate, MountedWhen: FeatureRegistration,
-			Request: RegisterRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusAccepted, nil}}, serve: handle((*Service).handleRegisterUnifiedPOST)},
+			Request: RegisterRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusAccepted, CodeChallenge{}}}, serve: handle((*Service).handleRegisterUnifiedPOST)},
 		{Method: GET, Path: "/register/availability", Group: registration, Auth: public, Bucket: RLRegisterAvailability,
 			Query: AvailabilityQuery{}, Responses: replyOK(Availability{}), serve: handle((*Service).handleRegisterAvailabilityGET)},
 		{Method: GET, Path: "/usernames/generate", Group: registration, Auth: public, Bucket: RLRegisterAvailability,
@@ -224,7 +226,7 @@ func Catalog() []RouteSpec {
 		// Proving an address. Changing the caller's own is PUT /me/email and
 		// /me/phone; its code is confirmed here, signed in.
 		{Method: POST, Path: "/verify/request", Group: account, Auth: public, Bucket: RLVerifyRequest,
-			Request: IdentifierRequest{}, Responses: replyAccepted, serve: handle((*Service).handleVerifyRequestPOST)},
+			Request: IdentifierRequest{}, Responses: replyChallenge, serve: handle((*Service).handleVerifyRequestPOST)},
 		{Method: POST, Path: "/verify/confirm", Group: account, Auth: optional, Bucket: RLVerifyConfirm,
 			Request: VerifyConfirmRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleVerifyConfirmPOST)},
 
@@ -257,9 +259,9 @@ func Catalog() []RouteSpec {
 		{Method: PUT, Path: "/me/password", Group: account, Auth: session, StepUp: true, Bucket: RLMePasswordChange,
 			Request: PasswordChangeRequest{}, Responses: replyNoContent, serve: handle((*Service).handleMePasswordPUT)},
 		{Method: PUT, Path: "/me/email", Group: account, Auth: session, StepUp: true, Bucket: RLMeContactChange,
-			Request: EmailChangeRequest{}, Responses: replyAccepted, serve: handle((*Service).handleMeEmailPUT)},
+			Request: EmailChangeRequest{}, Responses: replyChallenge, serve: handle((*Service).handleMeEmailPUT)},
 		{Method: PUT, Path: "/me/phone", Group: account, Auth: session, StepUp: true, Bucket: RLMeContactChange,
-			Request: PhoneChangeRequest{}, Responses: replyAccepted, serve: handle((*Service).handleMePhonePUT)},
+			Request: PhoneChangeRequest{}, Responses: replyChallenge, serve: handle((*Service).handleMePhonePUT)},
 		{Method: DELETE, Path: "/me/phone", Group: account, Auth: session, StepUp: true, Bucket: RLMeUpdate,
 			Responses: replyNoContent, serve: handle((*Service).handleMePhoneDELETE)},
 		{Method: GET, Path: "/me/sessions", Group: account, Auth: required, Bucket: RLSessionList,

@@ -32,12 +32,6 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 		fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	// Per-identifier check: prevents spamming verification emails to the same
-	// address from many IPs, each spending their own per-IP budget.
-	if s.rateLimitedByIdentifier(w, r, RLRegisterCreate, identifier) {
-		return
-	}
-
 	out, err := s.svc.Register(r.Context(), authflow.RegisterInput{
 		Identifier: identifier, Username: req.Username, Password: req.Password,
 		PreferredLanguage: preferredLanguageFromRequest(r), AccountInviteToken: req.InviteCode,
@@ -49,7 +43,7 @@ func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Reque
 	}
 	if out.Kind != authflow.RegisterSignedIn {
 		// The code is sent to the identifier; confirming it signs in.
-		accepted(w)
+		writeJSON(w, http.StatusAccepted, CodeChallenge{Challenge: out.Challenge})
 		return
 	}
 	s.writeAuthResult(w, r, *out.Login, authExtras{})

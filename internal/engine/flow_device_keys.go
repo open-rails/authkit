@@ -21,6 +21,7 @@ import (
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -90,6 +91,8 @@ func deviceKeySigningMessage(domain, encodedChallenge string) ([]byte, error) {
 }
 
 // BeginDeviceKeyEnrollment sends an email proof and records the proposed key.
+// Past the address's or key's send quota it answers a ceremony like any
+// other and stores and sends nothing.
 func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey, label string) (authflow.DeviceKeyChallenge, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return authflow.DeviceKeyChallenge{}, err
@@ -119,6 +122,9 @@ func (s *Engine) BeginDeviceKeyEnrollment(ctx context.Context, email, publicKey,
 
 	now := time.Now().UTC()
 	result := authflow.DeviceKeyChallenge{ID: secret.Token(32), Challenge: secret.Token(32), ExpiresAt: now.Add(deviceKeyChallengeTTL)}
+	if !s.admitCode(ctx, httpapi.RLDeviceKeyEnrollBeginIdentifier, email) || !s.admitCode(ctx, httpapi.RLDeviceKeyEnrollBeginIdentifier, publicKey) {
+		return result, nil
+	}
 	code := secret.Digits(6)
 	record := deviceKeyEnrollment{
 		Email: email, PublicKey: publicKey, Label: label,

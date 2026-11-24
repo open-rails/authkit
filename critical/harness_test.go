@@ -192,9 +192,14 @@ func (f *fixture) requestHeaders(ctx context.Context, method, path, credential s
 }
 
 type signInResult struct {
-	Status string        `json:"status"`
-	Tokens *iam.TokenSet `json:"token_set"`
-	User   *iam.User     `json:"user"`
+	Status       string        `json:"status"`
+	Tokens       *iam.TokenSet `json:"token_set"`
+	User         *iam.User     `json:"user"`
+	Verification *struct {
+		Identifier    string  `json:"identifier"`
+		Challenge     string  `json:"challenge"`
+		PasswordProof *string `json:"password_proof"`
+	} `json:"verification"`
 }
 
 func tokensFrom(t *testing.T, r response, userID string) iam.TokenSet {

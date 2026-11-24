@@ -55,6 +55,8 @@ no contact verification code for this check, and the account stays unproven:
 proof-dependent restrictions, including adding sign-in methods, still apply.
 New sign-ups and pending-registration recovery still require their code.
 
+A sign-up waiting on its code answers 202 `{"challenge": "…"}`, and `POST /verify/confirm` takes `{"challenge", "code"}` (or the emailed link's `{"token"}`). A resend, or anyone's `POST /verify/request` for the address, sends another code under its own challenge and leaves the first good, so nobody can spend someone else's sign-up code; see [HTTP](http.md#client-addresses-and-rate-limits).
+
 ## Network accounts
 
 A network account, such as a shopper's at openrails.dev, is an ordinary user who proved an email or phone and accepted the network's agreements. The id merchants see is its `sub`, the user id: public (OIDC Core §8), stable, never reassigned.

@@ -27,6 +27,13 @@ func (f *fixture) register(t *testing.T, address, name string) response {
 	return f.call(t, "POST", "/register", "", map[string]string{"identifier": address, "username": name, "password": authtest.Password})
 }
 
+// registered is the code a pending sign-up sent to address.
+func (f *fixture) registered(t *testing.T, address, name string) codeProof {
+	t.Helper()
+	challenge := challengeOf(t, f.register(t, address, name))
+	return codeProof{f.out.Last(t, iam.MessageVerification, address), challenge}
+}
+
 // PostgreSQL owns ephemeral expiry. This changes only the clock input of
 // proofs in this journey's isolated schema; all outcomes are observed through
 // public requests, never by asserting an internal table representation.
@@ -53,7 +60,7 @@ func TestCriticalRegistration(t *testing.T) {
 			r.want(t, http.StatusOK, "")
 			var out signInResult
 			decode(t, r.body, &out)
-			if out.Status != "verification_required" || out.Tokens != nil {
+			if out.Status != "verification_required" || out.Tokens != nil || out.Verification == nil {
 				t.Fatalf("pending sign-up skipped proof: %s", r.body)
 			}
 			_, err = g.auth.User(t.Context(), iam.UserByUsername(name))
@@ -61,7 +68,7 @@ func TestCriticalRegistration(t *testing.T) {
 				t.Fatalf("pending sign-in created an account before proof: %v", err)
 			}
 			message := g.out.Last(t, iam.MessageVerification, address)
-			r = g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": address, "code": message.Code})
+			r = g.confirmCode(t, "/verify/confirm", "", codeProof{message, out.Verification.Challenge})
 			u, err := g.auth.User(t.Context(), iam.UserByUsername(name))
 			noError(t, err)
 			tokensFrom(t, r, u.ID)
@@ -73,12 +80,11 @@ func TestCriticalRegistration(t *testing.T) {
 	t.Run("AK-J03-C01_email_and_sms_require_delivered_proof", func(t *testing.T) {
 		for i, address := range []string{"signup-person@example.com", "+12025550123"} {
 			t.Run(fmt.Sprint(i), func(t *testing.T) {
-				f.register(t, address, fmt.Sprintf("provedperson%d", i)).want(t, http.StatusAccepted, "")
-				message := f.out.Last(t, iam.MessageVerification, address)
+				message := f.registered(t, address, fmt.Sprintf("provedperson%d", i))
 				if message.Code == "" {
 					t.Fatal("registration did not deliver a proof")
 				}
-				r := f.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": address, "code": message.Code})
+				r := f.confirmCode(t, "/verify/confirm", "", message)
 				r.want(t, http.StatusOK, "")
 				var result signInResult
 				decode(t, r.body, &result)
@@ -116,8 +122,8 @@ func TestCriticalRegistration(t *testing.T) {
 			noError(t, errs[i])
 			if r.status == http.StatusAccepted {
 				accepted++
-				message := f.out.Last(t, iam.MessageVerification, fmt.Sprintf("raced-person%d@example.com", i))
-				f.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": message.To, "code": message.Code}).want(t, http.StatusOK, "")
+				message := codeProof{f.out.Last(t, iam.MessageVerification, fmt.Sprintf("raced-person%d@example.com", i)), challengeOf(t, r)}
+				f.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusOK, "")
 			} else {
 				r.want(t, http.StatusBadRequest, "username_in_use")
 			}
@@ -154,9 +160,8 @@ func TestCriticalRegistration(t *testing.T) {
 	t.Run("AK-J03-C04_verification_is_scoped_expiring_and_single_use", func(t *testing.T) {
 		g := newFixture(t, proofRegistration())
 		const email = "scoped-proof@example.com"
-		g.register(t, email, "scopedproof").want(t, http.StatusAccepted, "")
-		message := g.out.Last(t, iam.MessageVerification, email)
-		g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": "wrong-person@example.com", "code": message.Code}).want(t, http.StatusUnauthorized, "invalid_code")
+		message := g.registered(t, email, "scopedproof")
+		g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": "wrong-person@example.com", "challenge": message.Challenge, "code": message.Code}).want(t, http.StatusUnauthorized, "invalid_code")
 		id := iam.NewTenantID()
 		noError(t, g.auth.CreateTenant(t.Context(), iam.Tenant{ID: id, Slug: "registration-other"}))
 		view, err := g.auth.ForTenant(t.Context(), id)
@@ -164,13 +169,12 @@ func TestCriticalRegistration(t *testing.T) {
 		server := httptest.NewServer(view.Handler())
 		t.Cleanup(server.Close)
 		other := &fixture{auth: view, server: server}
-		other.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": email, "code": message.Code}).want(t, http.StatusUnauthorized, "invalid_code")
-		g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": email, "code": message.Code}).want(t, http.StatusOK, "")
-		g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": email, "code": message.Code}).want(t, http.StatusUnauthorized, "invalid_code")
-		g.register(t, "expired-proof@example.com", "expiredproof").want(t, http.StatusAccepted, "")
-		expired := g.out.Last(t, iam.MessageVerification, "expired-proof@example.com")
+		other.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusUnauthorized, "invalid_code")
+		g.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusOK, "")
+		g.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusUnauthorized, "invalid_code")
+		expired := g.registered(t, "expired-proof@example.com", "expiredproof")
 		g.expireProofs(t)
-		g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": expired.To, "code": expired.Code}).want(t, http.StatusUnauthorized, "invalid_code")
+		g.confirmCode(t, "/verify/confirm", "", expired).want(t, http.StatusUnauthorized, "invalid_code")
 		_, err = g.auth.User(t.Context(), iam.UserByEmail(expired.To))
 		if !errors.Is(err, iam.ErrUserNotFound) {
 			t.Fatal("expired proof created an account")
@@ -178,14 +182,12 @@ func TestCriticalRegistration(t *testing.T) {
 	})
 	t.Run("AK-J03-C05_abandon_requires_the_pending_password", func(t *testing.T) {
 		const email = "abandoned-person@example.com"
-		f.register(t, email, "abandonedperson").want(t, http.StatusAccepted, "")
-		proof := f.out.Last(t, iam.MessageVerification, email)
+		proof := f.registered(t, email, "abandonedperson")
 		f.call(t, "POST", "/register/abandon", "", map[string]string{"identifier": email, "password": "wrong-secret"}).want(t, http.StatusNoContent, "")
 		f.call(t, "POST", "/register/abandon", "", map[string]string{"identifier": email, "password": authtest.Password}).want(t, http.StatusNoContent, "")
-		f.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": email, "code": proof.Code}).want(t, http.StatusUnauthorized, "invalid_code")
-		f.register(t, email, "abandonedperson").want(t, http.StatusAccepted, "")
-		fresh := f.out.Last(t, iam.MessageVerification, email)
-		f.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": email, "code": fresh.Code}).want(t, http.StatusOK, "")
+		f.confirmCode(t, "/verify/confirm", "", proof).want(t, http.StatusUnauthorized, "invalid_code")
+		fresh := f.registered(t, email, "abandonedperson")
+		f.confirmCode(t, "/verify/confirm", "", fresh).want(t, http.StatusOK, "")
 	})
 	t.Run("AK-J03-C06_taken_contact_answers_like_a_fresh_one", func(t *testing.T) {
 		owner := f.user(t)
@@ -282,6 +284,41 @@ func TestCriticalRegistration(t *testing.T) {
 		if g.out.Last(t, iam.MessagePasswordReset, u.Email).Token == "" {
 			t.Fatal("a sender without account_exists copy got no reset link")
 		}
+	})
+}
+
+func TestCriticalRegistrationLockout(t *testing.T) {
+	t.Run("AK-J03-C07_one_address_cannot_lock_a_pending_sign_up_out_of_its_code", func(t *testing.T) {
+		defaults := authkit.DefaultRateLimits()
+		request, confirm := defaults["verify_request"], defaults["verify_confirm"]
+		// No cooldown, so one address spends its whole resend budget now.
+		request.Cooldown = 0
+		f := newFixture(t, proofRegistration(), behindProxy(map[string]authkit.RateLimit{
+			"verify_request": request, "verify_confirm": confirm,
+			"verify_request_identifier":  defaults["verify_request_identifier"],
+			"register_create_identifier": defaults["register_create_identifier"],
+		}))
+		const email = "locked-out-signup@example.com"
+		const attacker, owner = "192.0.2.30", "198.51.100.40"
+		own := challengeOf(t, f.from(t, owner, "/register", map[string]string{"identifier": email, "username": "lockedoutsignup", "password": authtest.Password}))
+		code := f.out.Last(t, iam.MessageVerification, email).Code
+		// Every resend one address may ask for, then wrong codes naming the
+		// address, five per challenge, until its confirm budget is spent.
+		var spent []string
+		for range request.Limit {
+			spent = append(spent, challengeOf(t, f.from(t, attacker, "/verify/request", map[string]string{"identifier": email})))
+		}
+		f.from(t, attacker, "/verify/request", map[string]string{"identifier": email}).want(t, http.StatusTooManyRequests, "rate_limited")
+		wrong := f.wrongCode(t, email)
+		for i := range confirm.Limit {
+			f.from(t, attacker, "/verify/confirm", map[string]string{"identifier": email, "challenge": spent[i/maxFailures], "code": wrong}).want(t, http.StatusUnauthorized, "invalid_code")
+		}
+		f.from(t, attacker, "/verify/confirm", map[string]string{"challenge": spent[0], "code": wrong}).want(t, http.StatusTooManyRequests, "rate_limited")
+		// The owner's code for its own sign-up still makes the account.
+		r := f.from(t, owner, "/verify/confirm", map[string]string{"challenge": own, "code": code})
+		u, err := f.auth.User(t.Context(), iam.UserByEmail(email))
+		noError(t, err)
+		tokensFrom(t, r, u.ID)
 	})
 }
 
