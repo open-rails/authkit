@@ -166,6 +166,8 @@ export const ko: AuthUiMessageBundle = {
       "패스키를 추가하면 코드 없이 지문, 얼굴 또는 화면 잠금으로 로그인할 수 있습니다.",
     add: "패스키 추가",
     skip: "나중에",
+    window: "이 브라우저는 새 창에서 패스키를 추가합니다.",
+    openWindow: "새 창에서 계속",
   },
   register: {
     passwordHint: "{min}자 이상 사용하세요.",

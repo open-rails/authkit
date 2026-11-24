@@ -168,6 +168,8 @@ export const en = {
       "Add a passkey to sign in with your fingerprint, face or screen lock, without a code.",
     add: "Add a passkey",
     skip: "Not now",
+    window: "Your browser adds passkeys in a new window.",
+    openWindow: "Continue in a new window",
   },
   register: {
     title: "Create account",

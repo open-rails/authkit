@@ -52,6 +52,7 @@ func (s *Engine) applyDeps(d config.Deps) error {
 	s.deletionCheck = d.DeletionCheck
 	s.consentRevocationCheck = d.ConsentRevocationCheck
 	s.groupNameHook = d.GroupName
+	s.passkeyTopOrigin = d.PasskeyTopOrigin
 	return nil
 }
 

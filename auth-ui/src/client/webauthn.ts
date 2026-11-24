@@ -59,6 +59,33 @@ export function registrationBody(credential: PublicKeyCredential): Rec {
   }
 }
 
+// A credential the passkey window created, as register/finish reads it.
+export function windowRegistrationBody(c: {
+  id: string
+  rawId: ArrayBuffer
+  type: string
+  authenticatorAttachment?: string
+  clientExtensionResults: AuthenticationExtensionsClientOutputs
+  response: {
+    clientDataJSON: ArrayBuffer
+    attestationObject: ArrayBuffer
+    transports: string[]
+  }
+}): Rec {
+  return {
+    id: c.id,
+    rawId: toBase64url(c.rawId),
+    type: c.type,
+    authenticatorAttachment: c.authenticatorAttachment,
+    clientExtensionResults: c.clientExtensionResults,
+    response: {
+      clientDataJSON: toBase64url(c.response.clientDataJSON),
+      attestationObject: toBase64url(c.response.attestationObject),
+      transports: c.response.transports,
+    },
+  }
+}
+
 // The request options a passkey sign-in or step-up began with, as the browser
 // takes them.
 export function requestOptions(

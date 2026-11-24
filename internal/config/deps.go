@@ -75,6 +75,13 @@ type Deps struct {
 	// while the link it made still pays subscriptions; any other error
 	// fails the request. Client.RevokeConsent does not run it.
 	ConsentRevocationCheck func(ctx context.Context, userID, clientID string) error
+	// PasskeyTopOrigin admits passkey ceremonies inside a cross-origin
+	// iframe of Passkeys.Origins, as on a merchant's site embedding the
+	// host's sign-in: a ceremony whose client data names the framing page
+	// (topOrigin, an https origin) passes when it reports true, and one that
+	// names none (Safari) passes on its own origin. Nil refuses every
+	// ceremony in a cross-origin iframe. An error fails the ceremony.
+	PasskeyTopOrigin func(ctx context.Context, topOrigin string) (bool, error)
 	// GroupName is a group's name, as the host knows it (a merchant's
 	// verified name): the consent screen and a user's connected apps show it
 	// beside a group OAuth client's own name. Nil shows the client's alone.

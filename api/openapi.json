@@ -563,6 +563,32 @@
         "x-authkit-mounted-when": "passkeys"
       }
     },
+    "/api/v1/passkeys/window": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "capabilities_read",
+        "x-authkit-mounted-when": "passkeys"
+      }
+    },
     "/api/v1/password/reset/request": {
       "post": {
         "tags": [

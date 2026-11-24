@@ -171,6 +171,8 @@ export const es: AuthUiMessageBundle = {
       "Añade una llave de acceso para iniciar sesión con tu huella, tu cara o el bloqueo de pantalla, sin código.",
     add: "Añadir una llave de acceso",
     skip: "Ahora no",
+    window: "Tu navegador añade llaves de acceso en una ventana nueva.",
+    openWindow: "Continuar en una ventana nueva",
   },
   register: {
     passwordHint: "Usa al menos {min} caracteres.",
