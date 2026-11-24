@@ -234,6 +234,28 @@ func TestCriticalMFA(t *testing.T) {
 		tokensFrom(t, f.call(t, "POST", "/2fa/verify", "", map[string]any{"user_id": u.ID, "challenge": f.challenge(t, u).Challenge, "code": spaced, "backup_code": true}), u.ID)
 		f.call(t, "POST", "/2fa/verify", "", map[string]any{"user_id": u.ID, "challenge": f.challenge(t, u).Challenge, "code": created.Backup[0], "backup_code": true}).want(t, http.StatusUnauthorized, "invalid_code")
 	})
+	t.Run("AK-J07-C08_five_wrong_sms_setup_codes_burn_the_code", func(t *testing.T) {
+		f := mfaFixture(t, iam.TwoFactorOptional)
+		u := f.user(t)
+		session := f.signIn(t, u)
+		phone := "+12025550182"
+		f.call(t, "POST", "/me/2fa/setup", session.AccessToken, map[string]string{"method": "sms", "phone_number": phone}).want(t, http.StatusOK, "")
+		code := f.out.Last(t, iam.MessageVerification, phone).Code
+		wrong := "000000"
+		if code == wrong {
+			wrong = "111111"
+		}
+		add := func(code string) response {
+			return f.call(t, "POST", "/me/2fa/factors", session.AccessToken, map[string]any{"method": "sms", "phone_number": phone, "code": code})
+		}
+		for range 4 {
+			add(wrong).want(t, http.StatusUnauthorized, "invalid_code")
+		}
+		add(wrong).want(t, http.StatusUnauthorized, "code_expired")
+		if r := add(code); r.status != http.StatusUnauthorized {
+			t.Fatalf("the burned setup code still enrolled the phone: %d", r.status)
+		}
+	})
 	t.Run("AK-J07-C06_host_recovery_reset_never_grants_password_only_access", func(t *testing.T) {
 		f := mfaFixture(t, iam.TwoFactorRequired)
 		u := f.user(t)

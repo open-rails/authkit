@@ -51,6 +51,7 @@
   "AK-J07-C05": "backup regeneration invalidates old set",
   "AK-J07-C06": "trusted reset versus account self-service",
   "AK-J07-C07": "backup codes carry 80 bits and are accepted with or without their separators",
+  "AK-J07-C08": "five wrong SMS two-step setup codes burn the code",
   "AK-J08-C01": "stale/exact-boundary/fresh auth_time",
   "AK-J08-C02": "native password/contact-code and configured TOTP/SMS modes; single-factor proof cannot bypass enrolled strong MFA",
   "AK-J08-C03": "wrong-session and wrong-identity continuation",
