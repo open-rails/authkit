@@ -13,19 +13,20 @@ import (
 	"github.com/open-rails/authkit/iam"
 )
 
-// A workload keeps acting for its user without the user's device: a renewable
-// jwt-bearer client redeems one capability again, each time a whole grant.
+// A workload keeps acting for its user without the user's device: its key
+// redeems one capability again, each time a whole grant the authorizer
+// decides, and the authorizer refuses the renewals it does not want.
 func TestCriticalWorkloads(t *testing.T) {
 	const resource = "https://hub.example"
 	grants := &authtest.GrantAuthorizer{}
 	jwtBearer := []authkit.OAuthGrantType{authkit.GrantJWTBearer}
 	as := authtest.NewAuthorizationServer(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.DeviceKeys.Enabled = true
-		c.TwoFactor.Mode = iam.TwoFactorDisabled
+		mountGroups(c, iam.RouteDeviceKeys)
+		c.TwoFactor = iam.TwoFactorDisabled
 		c.AuthorizationServer = authkit.AuthorizationServerConfig{
 			Resources: []authkit.ResourceServerConfig{{ID: resource}},
 			Clients: []authkit.OAuthClientConfig{
-				{ID: "renewing", Resources: []string{resource}, AuthorizationDetailsTypes: []string{"hub_read"}, GrantTypes: jwtBearer, RenewableCapabilities: true},
+				{ID: "renewing", Resources: []string{resource}, AuthorizationDetailsTypes: []string{"hub_read"}, GrantTypes: jwtBearer},
 				{ID: "once", Resources: []string{resource}, AuthorizationDetailsTypes: []string{"hub_read"}, GrantTypes: jwtBearer},
 			},
 		}
@@ -70,16 +71,28 @@ func TestCriticalWorkloads(t *testing.T) {
 		if n := len(grants.Requests()) - asked; n != 3 {
 			t.Fatalf("the authorizer decided %d of 3 redemptions", n)
 		}
+		for i, r := range grants.Requests()[asked : asked+3] {
+			if r.Capability.Renewal != (i > 0) {
+				t.Fatalf("redemption %d: Renewal = %v, want only the first not a renewal", i+1, r.Capability.Renewal)
+			}
+		}
 		assertion := workload.Assertion(t, authtest.Assertion{Issuer: "renewing", Audience: as.TokenEndpoint(), Capability: c})
 		as.JWTBearer(t, authtest.JWTBearerRequest{ClientID: "renewing", Key: workload, Assertion: assertion})
 		status, body := as.JWTBearerToken(t, authtest.JWTBearerRequest{ClientID: "renewing", Key: workload, Assertion: assertion})
 		refused(t, "assertion_replayed", status, body)
 		status, body = as.JWTBearerToken(t, authtest.JWTBearerRequest{ClientID: "renewing", Key: authtest.NewDPoPKey(t), Capability: c})
 		refused(t, "key_mismatch", status, body)
+		grants.Decide = func(r iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error) {
+			if r.ClientID == "once" && r.Capability.Renewal {
+				return iam.OAuthGrantDecision{}, iam.ErrOAuthGrantRefused
+			}
+			return iam.OAuthGrantDecision{}, nil
+		}
 		once := capability(reads(1))
 		as.JWTBearer(t, authtest.JWTBearerRequest{ClientID: "once", Key: workload, Capability: once})
 		status, body = as.JWTBearerToken(t, authtest.JWTBearerRequest{ClientID: "once", Key: workload, Capability: once})
-		refused(t, "capability_replayed", status, body)
+		refused(t, "refused", status, body)
+
 	})
 
 	t.Run("AK-J35-C02_a_capability_carries_up_to_64_operations", func(t *testing.T) {

@@ -4,50 +4,30 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/lang"
-	"github.com/open-rails/authkit/internal/ratelimit"
 )
 
 // Defaults Normalize applies.
 const (
-	DefaultAPIPath = "/api"
-	// APIVersion is the version segment AuthKit owns beneath APIPath: the
-	// JSON API is {BasePath}{APIPath}/v1. A breaking change mounts /v2 beside
-	// it.
-	APIVersion                     = "/v1"
-	DefaultPasswordMinLength       = 8
-	DefaultPasswordMaxLength       = 128
-	PasswordMaxLengthCeiling       = 1024
-	DefaultUsernameMinLength       = 4
-	DefaultUsernameMaxLength       = 30
-	UsernameMaxLengthCeiling       = 64
-	DefaultRenameInterval          = 72 * time.Hour
-	DefaultNameRetention           = 90 * 24 * time.Hour
-	defaultOIDCReturnPath          = "/login/callback"
-	defaultVerifyPath              = "/verify"
-	defaultPasswordResetPath       = "/reset"
-	defaultPasswordlessPath        = "/passwordless"
-	defaultInvitePath              = "/accept-invite"
-	defaultAuthorizePath           = "/authorize"
-	maxTokenEntitlements           = 32
-	maxTokenEntitlementNameBytes   = 128
-	maxTokenEntitlementBytes       = 2048
-	defaultVerificationSendTimeout = 15 * time.Second
-	DefaultAccountsPerDevice       = 5
-	DefaultAccountsPerAddress      = 20
-	DefaultNewDevicesPerAccount    = 10
+	// APIVersion is the version segment AuthKit owns beneath Surface.API: the
+	// JSON API is {Base}{API}/v1. A breaking change mounts /v2 beside it.
+	APIVersion = "/v1"
+	// The username lengths internal/naming enforces.
+	usernameMinLength = 4
+	usernameMaxLength = 30
+
+	maxTokenEntitlements         = 32
+	maxTokenEntitlementNameBytes = 128
+	maxTokenEntitlementBytes     = 2048
 )
 
 // Normalize applies every default and checks every rule of c and d, once:
@@ -61,22 +41,23 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.Tenancy != TenancySingle && c.Tenancy != TenancyMulti {
 		return Config{}, nil, fmt.Errorf("authkit: invalid Tenancy %s (want TenancySingle or TenancyMulti)", c.Tenancy)
 	}
+	if err := singleTenantNamesNone(c); err != nil {
+		return Config{}, nil, err
+	}
 	if c.Database.Schema, err = NormalizeSchema(c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}
-	if err := normalizeNotifications(&c); err != nil {
+	if err := normalizeIssuer(&c); err != nil {
 		return Config{}, nil, err
 	}
-	if err := normalizeToken(&c.Token); err != nil {
+	if c.AccountIssuers, err = normalizeAccountIssuers(c.AccountIssuers, c.Issuer); err != nil {
 		return Config{}, nil, err
 	}
-	c.SignIn = NormalizeSignIn(c.SignIn)
-	switch c.SignIn.DPoP {
-	case "":
-		c.SignIn.DPoP = DPoPOptional
-	case DPoPOptional, DPoPRequired:
-	default:
-		return Config{}, nil, fmt.Errorf("authkit: invalid SignIn.DPoP %q (want optional or required)", c.SignIn.DPoP)
+	if c.EntitlementClaims, err = normalizeEntitlementClaims(c.EntitlementClaims); err != nil {
+		return Config{}, nil, err
+	}
+	if err := normalizeTuning(&c); err != nil {
+		return Config{}, nil, err
 	}
 	switch c.SolanaNetwork {
 	case "", iam.SolanaMainnet, iam.SolanaTestnet, iam.SolanaDevnet:
@@ -84,67 +65,32 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 		degrade(fmt.Errorf("authkit: invalid SolanaNetwork %q (want mainnet, testnet or devnet); Sign In With Solana is off", c.SolanaNetwork))
 		c.SolanaNetwork = ""
 	}
-	if err := normalizeFrontend(&c.Frontend, c.Token.Issuer, degrade); err != nil {
-		return Config{}, nil, err
-	}
-	if err := normalizeRegistration(&c.Registration); err != nil {
+
+	if c.Registration, err = normalizeRegistration(c.Registration); err != nil {
 		return Config{}, nil, err
 	}
 	if err := normalizeAgreements(&c); err != nil {
 		return Config{}, nil, err
 	}
-	if err := normalizeSMS(&c.SMS); err != nil {
+	if c.SMSCountries, err = normalizeSMSCountries(c.SMSCountries); err != nil {
 		return Config{}, nil, err
 	}
-	if c.Invitations.Disabled && c.Registration.NativeUserMode == iam.RegistrationModeInviteOnly {
-		return Config{}, nil, errors.New("authkit: Registration.NativeUserMode \"invite_only\" needs invitations, but Invitations.Disabled is set")
+	if c.HTTP != nil && !Mounted(c, iam.RouteInvitations) && c.Registration == iam.RegistrationModeInviteOnly {
+		return Config{}, nil, errors.New("authkit: Registration \"invite_only\" needs invitations, but HTTP.Groups leaves out RouteInvitations")
 	}
-	if c.Password, err = NormalizePassword(c.Password); err != nil {
+	if c.Usernames, err = normalizeUsernames(c.Usernames); err != nil {
 		return Config{}, nil, err
 	}
-	if c.Username, err = NormalizeUsername(c.Username); err != nil {
-		return Config{}, nil, err
-	}
-	if c.Tenants.FormerNames, err = normalizeNameRetention("Tenants.FormerNames", c.Tenants.FormerNames, NameRetentionFinite); err != nil {
-		return Config{}, nil, err
-	}
-	switch c.TwoFactor.Mode {
+	switch c.TwoFactor {
 	case "":
-		c.TwoFactor.Mode = iam.TwoFactorOptional
+		c.TwoFactor = iam.TwoFactorOptional
 	case iam.TwoFactorDisabled, iam.TwoFactorOptional, iam.TwoFactorRequired:
 	default:
-		return Config{}, nil, fmt.Errorf("authkit: invalid TwoFactor.Mode %q (want disabled, optional, or required)", c.TwoFactor.Mode)
+		return Config{}, nil, fmt.Errorf("authkit: invalid TwoFactor %q (want disabled, optional, or required)", c.TwoFactor)
 	}
-	c.TwoFactor.Methods = slices.Clone(c.TwoFactor.Methods)
-	c.TwoFactor.TOTPIssuer = strings.TrimSpace(c.TwoFactor.TOTPIssuer)
-	if strings.Contains(c.TwoFactor.TOTPIssuer, ":") || strings.IndexFunc(c.TwoFactor.TOTPIssuer, unicode.IsControl) >= 0 {
-		return Config{}, nil, errors.New("authkit: TwoFactor.TOTPIssuer must be a display name without colons or control characters")
-	}
-	for _, m := range c.TwoFactor.Methods {
-		switch m {
-		case iam.TwoFactorEmail, iam.TwoFactorSMS, iam.TwoFactorTOTP:
-		default:
-			return Config{}, nil, fmt.Errorf("authkit: invalid TwoFactor.Methods entry %q (want email, sms, or totp)", m)
-		}
-	}
-	if n := len(c.TwoFactor.TOTPSecretKey); n > 0 && n != 16 && n != 24 && n != 32 {
-		return Config{}, nil, fmt.Errorf("authkit: TwoFactor.TOTPSecretKey must be 16, 24, or 32 bytes, got %d", n)
-	}
-	if err := normalizePasskeys(&c.Passkeys, c.Frontend.BaseURL, c.Token.Issuer); err != nil {
-		return Config{}, nil, err
-	}
-	c.APIKeys.Prefix = strings.TrimSpace(c.APIKeys.Prefix)
-	if !validAPIKeyPrefix(c.APIKeys.Prefix) {
-		return Config{}, nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", c.APIKeys.Prefix)
-	}
-	if c.PersonalAccessTokens.DefaultTTL == 0 {
-		c.PersonalAccessTokens.DefaultTTL = 30 * 24 * time.Hour
-	}
-	if c.PersonalAccessTokens.MaxTTL == 0 {
-		c.PersonalAccessTokens.MaxTTL = 90 * 24 * time.Hour
-	}
-	if c.PersonalAccessTokens.DefaultTTL < time.Second || c.PersonalAccessTokens.MaxTTL < c.PersonalAccessTokens.DefaultTTL {
-		return Config{}, nil, errors.New("authkit: personal token TTLs must be positive and default_ttl must not exceed max_ttl")
+	c.APIKeyPrefix = strings.TrimSpace(c.APIKeyPrefix)
+	if !validAPIKeyPrefix(c.APIKeyPrefix) {
+		return Config{}, nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", c.APIKeyPrefix)
 	}
 	if err := normalizeAuthorizationServer(&c.AuthorizationServer, c); err != nil {
 		return Config{}, nil, err
@@ -153,43 +99,24 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if err := normalizeResource(&c.Resource); err != nil {
 		return Config{}, nil, err
 	}
-	normalizeLanguages(&c.Languages, degrade)
-	if c.SenderHealthInterval <= 0 {
-		c.SenderHealthInterval = 5 * time.Minute
+	c.Languages = normalizeLanguages(c.Languages, degrade)
+
+	if c.Database.RiverConns < 0 {
+		return Config{}, nil, fmt.Errorf("authkit: Database.RiverConns %d is negative", c.Database.RiverConns)
 	}
-	if c.SenderHealthRecheck <= 0 {
-		c.SenderHealthRecheck = 30 * time.Second
-	}
-	c.SenderHealthRecheck = min(c.SenderHealthRecheck, c.SenderHealthInterval)
-	if c.SessionEventRetention == 0 {
-		c.SessionEventRetention = 365 * 24 * time.Hour
-	}
-	if c.EventRetention == 0 {
-		c.EventRetention = 90 * 24 * time.Hour
-	}
-	if c.EventRetention < time.Second {
-		return Config{}, nil, errors.New("authkit: EventRetention must be at least one second")
-	}
-	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema); err != nil {
+	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema, c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}
-	if c.CleanupInterval == 0 {
-		c.CleanupInterval = time.Hour
-	}
-	if c.CleanupInterval < time.Second {
-		degrade(fmt.Errorf("authkit: CleanupInterval %s is under one second; using one hour", c.CleanupInterval))
-		c.CleanupInterval = time.Hour
-	}
-	c.Provisioning.Targets = slices.Clone(c.Provisioning.Targets)
-	for i := range c.Provisioning.Targets {
-		if c.Provisioning.Targets[i].TenantID.IsZero() {
-			c.Provisioning.Targets[i].TenantID = c.DefaultTenantID
+	c.Provisioning = slices.Clone(c.Provisioning)
+	for i := range c.Provisioning {
+		if c.Provisioning[i].TenantID.IsZero() {
+			c.Provisioning[i].TenantID = c.DefaultTenantID
 		}
-		if c.Provisioning.Targets[i].TenantID.IsZero() && !c.tenantPending() {
-			return c, nil, fmt.Errorf("authkit: Provisioning.Targets[%d] requires TenantID in an unbound deployment", i)
+		if c.Provisioning[i].TenantID.IsZero() && !c.tenantPending() {
+			return c, nil, fmt.Errorf("authkit: Provisioning[%d] requires TenantID in an unbound deployment", i)
 		}
 	}
-	if err := normalizeProvisioning(&c.Provisioning, d, degrade); err != nil {
+	if c.Provisioning, err = normalizeProvisioning(c.Provisioning, d, degrade); err != nil {
 		return Config{}, nil, err
 	}
 	if c.HTTP != nil {
@@ -219,7 +146,7 @@ func normalizeRemoteApplications(apps []RemoteApplicationConfig, degrade func(er
 	}
 	out := make([]RemoteApplicationConfig, 0, len(apps))
 	for _, app := range apps {
-		app.Issuer, app.JWKSURI = strings.TrimSpace(app.Issuer), strings.TrimSpace(app.JWKSURI)
+		app.Issuer = strings.TrimSpace(app.Issuer)
 		switch {
 		case app.Issuer == "":
 			degrade(errors.New("authkit: Config.RemoteApplications contains an application with no Issuer; it is ignored"))
@@ -236,81 +163,63 @@ func normalizeRemoteApplications(apps []RemoteApplicationConfig, degrade func(er
 	return out
 }
 
-// NormalizeSignIn applies the sign-in limit defaults; a negative limit is off
-// and stays negative.
-func NormalizeSignIn(c SignInConfig) SignInConfig {
-	for _, f := range []struct {
-		value *int
-		def   int
-	}{
-		{&c.AccountsPerDevice, DefaultAccountsPerDevice},
-		{&c.AccountsPerAddress, DefaultAccountsPerAddress},
-		{&c.NewDevicesPerAccount, DefaultNewDevicesPerAccount},
-	} {
-		if *f.value == 0 {
-			*f.value = f.def
-		}
-	}
-	return c
-}
-
-func normalizeToken(t *TokenConfig) error {
-	t.Issuer = strings.TrimSpace(t.Issuer)
-	if t.Issuer == "" {
+// normalizeIssuer checks the issuer, the one URL the HTTP surface, links and
+// relying-party names derive from, and defaults FrontendURL to its origin.
+func normalizeIssuer(c *Config) error {
+	c.Issuer = strings.TrimSpace(c.Issuer)
+	if c.Issuer == "" {
 		return errors.New("authkit: Issuer is required (e.g., \"https://myapp.com\")")
 	}
-	if err := secureURL("Token.Issuer", t.Issuer); err != nil {
+	if err := secureURL("Issuer", c.Issuer); err != nil {
 		return err
 	}
-	if len(t.IssuedAudiences) == 0 {
-		return errors.New("authkit: IssuedAudiences is required (e.g., []string{\"myapp\", \"billing-app\"})")
+	u, _ := url.Parse(c.Issuer)
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.Contains(c.Issuer, "#") {
+		return fmt.Errorf("authkit: Issuer %q must not carry user info, a query or a fragment", c.Issuer)
 	}
-	t.IssuedAudiences = slices.Clone(t.IssuedAudiences)
-	if len(t.ExpectedAudiences) == 0 {
-		t.ExpectedAudiences = slices.Clone(t.IssuedAudiences)
+	if _, err := MountPath("Issuer path", u.EscapedPath()); err != nil {
+		return err
 	}
-	accountIssuers := []string{t.Issuer}
-	for _, raw := range t.AccountIssuers {
-		issuer := strings.TrimSpace(raw)
-		if issuer == "" {
-			return errors.New("authkit: Token.AccountIssuers contains a blank issuer")
-		}
-		if !slices.Contains(accountIssuers, issuer) {
-			accountIssuers = append(accountIssuers, issuer)
-		}
+	c.FrontendURL = strings.TrimRight(strings.TrimSpace(c.FrontendURL), "/")
+	if c.FrontendURL == "" {
+		c.FrontendURL = u.Scheme + "://" + u.Host
 	}
-	t.AccountIssuers = accountIssuers
-	if t.SessionMaxPerUser == 0 {
-		t.SessionMaxPerUser = 3
+	if err := secureURL("FrontendURL", c.FrontendURL); err != nil {
+		return err
 	}
-	if t.RefreshTokenDuration == 0 {
-		t.RefreshTokenDuration = 30 * 24 * time.Hour
+	if f, _ := url.Parse(c.FrontendURL); f.User != nil || f.RawQuery != "" || f.Fragment != "" || strings.Contains(c.FrontendURL, "#") {
+		return fmt.Errorf("authkit: FrontendURL %q must not carry user info, a query or a fragment", c.FrontendURL)
 	}
-	if t.RefreshRotationGrace == 0 {
-		t.RefreshRotationGrace = 30 * time.Second
-	}
-	if t.AccessTokenDuration == 0 {
-		// Short: it bounds how long a revoked session's token still passes
-		// stateless verification. Refresh rotation re-issues silently.
-		t.AccessTokenDuration = 15 * time.Minute
-	}
-	var err error
-	t.EntitlementAllowlist, err = normalizeEntitlementAllowlist(t.EntitlementAllowlist)
-	return err
+	return nil
 }
 
-func normalizeEntitlementAllowlist(names []string) ([]string, error) {
+// normalizeAccountIssuers puts issuer first and drops repeats.
+func normalizeAccountIssuers(raw []string, issuer string) ([]string, error) {
+	out := []string{issuer}
+	for _, r := range raw {
+		other := strings.TrimSpace(r)
+		if other == "" {
+			return nil, errors.New("authkit: AccountIssuers contains a blank issuer")
+		}
+		if !slices.Contains(out, other) {
+			out = append(out, other)
+		}
+	}
+	return out, nil
+}
+
+func normalizeEntitlementClaims(names []string) ([]string, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
 	unique := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		if name == "" || strings.TrimSpace(name) != name || !utf8.ValidString(name) || len(name) > maxTokenEntitlementNameBytes {
-			return nil, fmt.Errorf("authkit: Token.EntitlementAllowlist names must be nonempty UTF-8 values without surrounding whitespace and at most %d bytes", maxTokenEntitlementNameBytes)
+			return nil, fmt.Errorf("authkit: EntitlementClaims names must be nonempty UTF-8 values without surrounding whitespace and at most %d bytes", maxTokenEntitlementNameBytes)
 		}
 		unique[name] = struct{}{}
 		if len(unique) > maxTokenEntitlements {
-			return nil, fmt.Errorf("authkit: Token.EntitlementAllowlist exceeds %d distinct names", maxTokenEntitlements)
+			return nil, fmt.Errorf("authkit: EntitlementClaims exceeds %d distinct names", maxTokenEntitlements)
 		}
 	}
 	out := make([]string, 0, len(unique))
@@ -320,86 +229,20 @@ func normalizeEntitlementAllowlist(names []string) ([]string, error) {
 	slices.Sort(out)
 	raw, err := json.Marshal(out)
 	if err != nil || len(raw) > maxTokenEntitlementBytes {
-		return nil, fmt.Errorf("authkit: Token.EntitlementAllowlist exceeds %d encoded bytes", maxTokenEntitlementBytes)
+		return nil, fmt.Errorf("authkit: EntitlementClaims exceeds %d encoded bytes", maxTokenEntitlementBytes)
 	}
 	return out, nil
 }
 
-func normalizeFrontend(f *FrontendConfig, issuer string, degrade func(error)) error {
-	f.BaseURL = strings.TrimSpace(f.BaseURL)
-	if f.BaseURL == "" {
-		f.BaseURL = issuer
-	}
-	// Its scheme decides whether cookies are Secure (and __Host-).
-	if err := secureURL("Frontend.BaseURL", f.BaseURL); err != nil {
-		return err
-	}
-	for _, p := range []struct {
-		field string
-		value *string
-		def   string
-	}{
-		{"OIDCReturnPath", &f.OIDCReturnPath, defaultOIDCReturnPath},
-		{"FrontendVerifyPath", &f.VerifyPath, defaultVerifyPath},
-		{"FrontendPasswordResetPath", &f.PasswordResetPath, defaultPasswordResetPath},
-		{"FrontendPasswordlessPath", &f.PasswordlessPath, defaultPasswordlessPath},
-		{"FrontendInvitePath", &f.InvitePath, defaultInvitePath},
-		{"FrontendAuthorizePath", &f.AuthorizePath, defaultAuthorizePath},
-	} {
-		v, err := frontendPath(p.field, *p.value, p.def)
-		if err != nil {
-			degrade(fmt.Errorf("%w; using %s", err, p.def))
-			v = p.def
-		}
-		*p.value = v
-	}
-	return nil
-}
-
-func frontendPath(name, raw, defaultPath string) (string, error) {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return defaultPath, nil
-	}
-	if strings.Contains(value, "#") {
-		return "", fmt.Errorf("authkit: %s must not contain a fragment", name)
-	}
-	u, err := url.Parse(value)
-	if err != nil {
-		return "", fmt.Errorf("authkit: invalid %s %q: %w", name, raw, err)
-	}
-	if u.IsAbs() || u.Host != "" || strings.HasPrefix(value, "//") {
-		return "", fmt.Errorf("authkit: %s must be a relative absolute-path, got %q", name, raw)
-	}
-	if u.Path == "" || !strings.HasPrefix(u.Path, "/") {
-		return "", fmt.Errorf("authkit: %s must start with '/', got %q", name, raw)
-	}
-	return u.RequestURI(), nil
-}
-
-func normalizeRegistration(r *RegistrationConfig) error {
-	v := iam.RegistrationVerificationPolicy(strings.ToLower(strings.TrimSpace(string(r.Verification))))
-	switch v {
-	case "":
-		v = iam.RegistrationVerificationNone
-	case iam.RegistrationVerificationNone, iam.RegistrationVerificationOptional, iam.RegistrationVerificationRequired:
-	default:
-		return fmt.Errorf("authkit: invalid RegistrationVerification %q (want \"none\", \"optional\", or \"required\")", r.Verification)
-	}
-	r.Verification = v
-	mode := iam.RegistrationMode(strings.ToLower(strings.TrimSpace(string(r.NativeUserMode))))
+func normalizeRegistration(raw iam.RegistrationMode) (iam.RegistrationMode, error) {
+	mode := iam.RegistrationMode(strings.ToLower(strings.TrimSpace(string(raw))))
 	switch mode {
 	case "":
-		mode = iam.RegistrationModeOpen
+		return iam.RegistrationModeOpen, nil
 	case iam.RegistrationModeOpen, iam.RegistrationModeInviteOnly, iam.RegistrationModeClosed:
-	default:
-		return fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, closed)", r.NativeUserMode)
+		return mode, nil
 	}
-	r.NativeUserMode = mode
-	if r.VerificationSendTimeout <= 0 {
-		r.VerificationSendTimeout = defaultVerificationSendTimeout
-	}
-	return nil
+	return "", fmt.Errorf("authkit: invalid Registration %q (want one of: open, invite_only, closed)", raw)
 }
 
 var randomUsernameBase = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
@@ -431,29 +274,21 @@ func normalizeAgreements(c *Config) error {
 		out = nil
 	}
 	c.Agreements = out
-	required := dedup(c.Registration.Agreements)
-	for _, key := range required {
-		if !declared[key] {
-			return fmt.Errorf("authkit: Registration.Agreements names %q, which Agreements does not declare", key)
-		}
-	}
-	c.Registration.Agreements = required
 	return nil
 }
 
-// normalizeSMS upper-cases the allowed regions and refuses one that is not
-// two letters.
-func normalizeSMS(s *SMSConfig) error {
-	regions := make([]string, 0, len(s.AllowedCountries))
-	for _, r := range s.AllowedCountries {
+// normalizeSMSCountries upper-cases the allowed regions and refuses one that
+// is not two letters.
+func normalizeSMSCountries(raw []string) ([]string, error) {
+	regions := make([]string, 0, len(raw))
+	for _, r := range raw {
 		r = strings.ToUpper(strings.TrimSpace(r))
 		if len(r) != 2 || r[0] < 'A' || r[0] > 'Z' || r[1] < 'A' || r[1] > 'Z' {
-			return fmt.Errorf("authkit: SMS.AllowedCountries entry %q is not an ISO 3166-1 alpha-2 region", r)
+			return nil, fmt.Errorf("authkit: SMSCountries entry %q is not an ISO 3166-1 alpha-2 region", r)
 		}
 		regions = append(regions, r)
 	}
-	s.AllowedCountries = dedup(regions)
-	return nil
+	return dedup(regions), nil
 }
 
 func isHTTPURL(raw string) bool {
@@ -461,126 +296,28 @@ func isHTTPURL(raw string) bool {
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
-// NormalizePassword returns the policy with its zero lengths defaulted.
-func NormalizePassword(out PasswordPolicy) (PasswordPolicy, error) {
-	if out.MinLength == 0 {
-		out.MinLength = DefaultPasswordMinLength
+// normalizeUsernames checks the generated-username pool: each entry fits
+// the username length with its three-digit suffix.
+func normalizeUsernames(pool []string) ([]string, error) {
+	if pool == nil {
+		return nil, nil
 	}
-	if out.MaxLength == 0 {
-		out.MaxLength = max(DefaultPasswordMaxLength, out.MinLength)
+	if len(pool) == 0 {
+		return nil, errors.New("authkit: Usernames must not be empty")
 	}
-	if out.MinLength < 1 || out.MaxLength < out.MinLength || out.MaxLength > PasswordMaxLengthCeiling {
-		return PasswordPolicy{}, fmt.Errorf("authkit: invalid password policy min_length=%d max_length=%d (want 1 <= min <= max <= %d)", out.MinLength, out.MaxLength, PasswordMaxLengthCeiling)
+	seen := make(map[string]bool, len(pool))
+	out := slices.Clone(pool)
+	for _, name := range out {
+		canonical := strings.ToLower(name)
+		if !randomUsernameBase.MatchString(name) || len(name)+3 < usernameMinLength || len(name)+3 > usernameMaxLength {
+			return nil, fmt.Errorf("authkit: Usernames entry %q must be a valid base whose length plus three fits %d..%d", name, usernameMinLength, usernameMaxLength)
+		}
+		if seen[canonical] {
+			return nil, fmt.Errorf("authkit: Usernames repeats %q (case-insensitive)", name)
+		}
+		seen[canonical] = true
 	}
 	return out, nil
-}
-
-// NormalizeUsername applies the username defaults and rules.
-func NormalizeUsername(u UsernameConfig) (UsernameConfig, error) {
-	if u.MinLength == 0 {
-		u.MinLength = DefaultUsernameMinLength
-	}
-	if u.MaxLength == 0 {
-		u.MaxLength = max(DefaultUsernameMaxLength, u.MinLength)
-	}
-	if u.MinLength < 1 || u.MaxLength < u.MinLength || u.MaxLength > UsernameMaxLengthCeiling {
-		return u, fmt.Errorf("authkit: invalid username policy min_length=%d max_length=%d (want 1 <= min <= max <= %d)", u.MinLength, u.MaxLength, UsernameMaxLengthCeiling)
-	}
-	if u.RandomNames != nil {
-		if len(u.RandomNames) == 0 {
-			return u, errors.New("authkit: Username.RandomNames must not be empty")
-		}
-		seen := make(map[string]bool, len(u.RandomNames))
-		u.RandomNames = slices.Clone(u.RandomNames)
-		for _, name := range u.RandomNames {
-			canonical := strings.ToLower(name)
-			if !randomUsernameBase.MatchString(name) || len(name)+3 < u.MinLength || len(name)+3 > u.MaxLength {
-				return u, fmt.Errorf("authkit: Username.RandomNames entry %q must be a valid base whose length plus three fits %d..%d", name, u.MinLength, u.MaxLength)
-			}
-			if seen[canonical] {
-				return u, fmt.Errorf("authkit: Username.RandomNames repeats %q (case-insensitive)", name)
-			}
-			seen[canonical] = true
-		}
-	}
-	if u.RenameInterval == 0 {
-		u.RenameInterval = DefaultRenameInterval
-	}
-	var err error
-	if u.FormerNames, err = normalizeNameRetention("Username.FormerNames", u.FormerNames, NameRetentionFinite); err != nil {
-		return u, err
-	}
-	u.DeletedNames, err = normalizeNameRetention("Username.DeletedNames", u.DeletedNames, NameRetentionForever)
-	return u, err
-}
-
-// normalizeNameRetention gives an empty Mode the field's fallback, or finite
-// when a Duration is set.
-func normalizeNameRetention(field string, r NameRetention, fallback NameRetentionMode) (NameRetention, error) {
-	if r.Mode == "" {
-		r.Mode = fallback
-		if r.Duration != 0 {
-			r.Mode = NameRetentionFinite
-		}
-	}
-	switch r.Mode {
-	case NameRetentionFinite:
-		if r.Duration < 0 {
-			return r, fmt.Errorf("authkit: %s.Duration must not be negative", field)
-		}
-		if r.Duration == 0 {
-			r.Duration = DefaultNameRetention
-		}
-	case NameRetentionForever, NameRetentionImmediate:
-		if r.Duration != 0 {
-			return r, fmt.Errorf("authkit: %s.Duration needs Mode %q", field, NameRetentionFinite)
-		}
-	default:
-		return r, fmt.Errorf("authkit: invalid %s.Mode %q", field, r.Mode)
-	}
-	return r, nil
-}
-
-// Passkey relying-party identity derives from the BaseURL origin; without a
-// usable BaseURL passkeys stay unconfigured unless RPID is set.
-func normalizePasskeys(p *PasskeyConfig, baseURL, issuer string) error {
-	// Every accepted credential/assertion already requires UV; advertise that
-	// requirement to the authenticator instead of requesting presence-only.
-	p.UserVerification = "required"
-	if baseURL == "" {
-		return nil
-	}
-	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return errors.New("authkit: Passkeys require a valid BaseURL origin")
-	}
-	u.Path, u.RawQuery, u.Fragment = "", "", ""
-	p.RPID = strings.ToLower(strings.TrimSpace(p.RPID))
-	if p.RPID == "" {
-		p.RPID = strings.ToLower(u.Hostname())
-	}
-	p.RPDisplayName = strings.TrimSpace(p.RPDisplayName)
-	if p.RPDisplayName == "" {
-		p.RPDisplayName = issuer
-	}
-	origins := slices.Clone(p.Origins)
-	if len(origins) == 0 {
-		origins = []string{u.String()}
-	}
-	for i, raw := range origins {
-		o, err := url.Parse(strings.TrimRight(strings.TrimSpace(raw), "/"))
-		if err != nil || o.Scheme == "" || o.Host == "" {
-			return errors.New("authkit: invalid Passkey origin")
-		}
-		host := strings.ToLower(o.Hostname())
-		if host != p.RPID && !strings.HasSuffix(host, "."+p.RPID) {
-			return errors.New("authkit: Passkey origin host must match RPID or a subdomain")
-		}
-		o.Path, o.RawQuery, o.Fragment = "", "", ""
-		origins[i] = o.String()
-	}
-	p.Origins = origins
-	return nil
 }
 
 // validAPIKeyPrefix: empty, or 1-16 lowercase alphanumeric characters.
@@ -596,38 +333,29 @@ func validAPIKeyPrefix(p string) bool {
 	return true
 }
 
-// normalizeLanguages drops a Supported entry that is not a language code and
-// replaces an unusable Default with "en", or the first supported language.
-func normalizeLanguages(l *LanguageConfig, degrade func(error)) {
-	var supported []string
-	for _, raw := range l.Supported {
-		code := lang.Normalize(raw)
+// normalizeLanguages drops an entry that is not a language code, and
+// repeats: the first is the default.
+func normalizeLanguages(raw []string, degrade func(error)) []string {
+	var out []string
+	for _, r := range raw {
+		code := lang.Normalize(r)
 		if code == "" {
-			degrade(fmt.Errorf("authkit: Languages.Supported %q is not a language code; it is ignored", raw))
+			degrade(fmt.Errorf("authkit: Languages %q is not a language code; it is ignored", r))
 			continue
 		}
-		if !slices.Contains(supported, code) {
-			supported = append(supported, code)
+		if !slices.Contains(out, code) {
+			out = append(out, code)
 		}
 	}
-	l.Supported = supported
-	fallback := lang.Default
-	if len(supported) > 0 && !slices.Contains(supported, fallback) {
-		fallback = supported[0]
+	return out
+}
+
+// DefaultLanguage is c's default language: its first, else English.
+func DefaultLanguage(c Config) string {
+	if len(c.Languages) > 0 {
+		return c.Languages[0]
 	}
-	if strings.TrimSpace(l.Default) == "" {
-		l.Default = fallback
-	}
-	code := lang.Normalize(l.Default)
-	switch {
-	case code == "":
-		degrade(fmt.Errorf("authkit: Languages.Default %q is not a language code; using %q", l.Default, fallback))
-		code = fallback
-	case len(supported) > 0 && !slices.Contains(supported, code):
-		degrade(fmt.Errorf("authkit: Languages.Default %q is not in Languages.Supported; using %q", l.Default, fallback))
-		code = fallback
-	}
-	l.Default = code
+	return lang.Default
 }
 
 // NormalizeSchema trims and validates a PostgreSQL schema name, defaulting to
@@ -644,11 +372,12 @@ func NormalizeSchema(raw string) (string, error) {
 	return schema, nil
 }
 
-// NormalizeRiverSchema defaults River's schema to public.
-func NormalizeRiverSchema(raw string) (string, error) {
-	schema := strings.TrimSpace(raw)
-	if schema == "" {
-		schema = "public"
+// NormalizeRiverSchema defaults River's schema to AuthKit's own, the
+// normalized schema.
+func NormalizeRiverSchema(raw, schema string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw != "" {
+		schema = raw
 	}
 	if !db.ValidSchemaName(schema) {
 		return "", fmt.Errorf("authkit: invalid Database.RiverSchema %q", raw)
@@ -657,33 +386,10 @@ func NormalizeRiverSchema(raw string) (string, error) {
 }
 
 func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
-	if h.RefreshCookieName != "" {
-		if strings.HasPrefix(h.RefreshCookieName, "__Host-") || (&http.Cookie{Name: h.RefreshCookieName, Value: "valid"}).Valid() != nil {
-			return errors.New("authkit: HTTP.RefreshCookieName must be a valid base cookie name without __Host-")
-		}
-	}
 	if d.Postgres == nil {
 		return errors.New("authkit: HTTP requires Deps.Postgres")
 	}
-	var err error
-	if h.BasePath, err = basePath(h.BasePath, c.Token.Issuer); err != nil {
-		return err
-	}
-	h.APIPath = strings.TrimSpace(h.APIPath)
-	if h.APIPath == "" {
-		h.APIPath = DefaultAPIPath
-	}
-	if h.APIPath, err = MountPath("APIPath", h.APIPath); err != nil {
-		return err
-	}
-	if h.APIPath == "" {
-		h.APIPath = "/" // the version segment sits right beneath BasePath
-	}
-	if h.PublicURL, err = publicURL(h.PublicURL, c.Token.Issuer, h.BasePath); err != nil {
-		return err
-	}
 	h.Groups = slices.Clone(h.Groups)
-	h.Exclude = slices.Clone(h.Exclude)
 	if _, err := ParseCIDRs("trusted proxy", h.TrustedProxies); err != nil {
 		return err
 	}
@@ -702,19 +408,9 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 	case postures > 1:
 		return errors.New("authkit: declare one client-IP posture, not several — HTTPConfig.TrustedProxies/CloudflareProxies for the proxies in front, DirectPeerIP for none, or Deps.ClientIP for the host's own")
 	}
-	if err := ratelimit.ValidateLimits(h.RateLimits); err != nil {
-		return err
-	}
-	if h.RedisKeyPrefix, err = redisKeyPrefix(h.RedisKeyPrefix, c.Database.Schema); err != nil {
-		degrade(err)
-		h.RedisKeyPrefix, _ = redisKeyPrefix("", c.Database.Schema)
-	}
+
 	if d.Email == nil && d.SMS == nil {
-		if c.Registration.Verification == iam.RegistrationVerificationRequired && !c.Registration.AllowMissingSenders {
-			degrade(fmt.Errorf("authkit: registration verification policy is %q but no email or SMS sender is configured; registration answers email_unavailable until one is", iam.RegistrationVerificationRequired))
-		} else {
-			d.Logger.Warn("authkit: no email or SMS sender configured; verification delivery is disabled")
-		}
+		degrade(errors.New("authkit: no email or SMS sender is configured, so sign-ups and codes answer email_unavailable until one is"))
 	}
 	for _, cl := range c.AuthorizationServer.Clients {
 		if len(cl.AuthorizationDetailsTypes) > 0 && d.OAuthGrants == nil {
@@ -722,45 +418,6 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 		}
 	}
 	return nil
-}
-
-// basePath derives the base from the issuer's path, or checks a set one
-// against it: JWKS is only found where the issuer says.
-func basePath(configured, issuer string) (string, error) {
-	u, err := url.Parse(issuer)
-	if err != nil {
-		return "", err
-	}
-	derived, err := MountPath("Token.Issuer path", u.EscapedPath())
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(configured) == "" {
-		return derived, nil
-	}
-	base, err := MountPath("BasePath", configured)
-	if err != nil {
-		return "", err
-	}
-	if base != derived {
-		return "", fmt.Errorf("authkit: BasePath %q must equal the path of Token.Issuer %q, where verifiers look for JWKS", configured, issuer)
-	}
-	return base, nil
-}
-
-// publicURL defaults to the issuer's origin plus base; a set value is an
-// http(s) URL without query or fragment, kept without a trailing slash.
-func publicURL(raw, issuer, base string) (string, error) {
-	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
-	if raw == "" {
-		u, _ := url.Parse(issuer)
-		return u.Scheme + "://" + u.Host + base, nil
-	}
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("authkit: HTTPConfig.PublicURL %q must be an http(s) URL without credentials, query or fragment", raw)
-	}
-	return raw, nil
 }
 
 // Plain segments only: framework routers read them literally, and escaped
@@ -788,22 +445,6 @@ func ParseCIDRs(kind string, cidrs []string) ([]netip.Prefix, error) {
 		prefixes = append(prefixes, p)
 	}
 	return prefixes, nil
-}
-
-var redisKeyPrefixRE = regexp.MustCompile(`^[a-z0-9_.:-]{1,64}$`)
-
-func redisKeyPrefix(prefix, schema string) (string, error) {
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" {
-		prefix = "authkit:" + schema + ":"
-	}
-	if !strings.HasSuffix(prefix, ":") {
-		prefix += ":"
-	}
-	if !redisKeyPrefixRE.MatchString(prefix) {
-		return "", fmt.Errorf("authkit: invalid HTTPConfig.RedisKeyPrefix %q (want ^[a-z0-9_.:-]{1,64}$)", prefix)
-	}
-	return prefix, nil
 }
 
 // secureURL refuses raw unless it is an https URL, or http on a loopback

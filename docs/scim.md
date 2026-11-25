@@ -14,22 +14,20 @@ What push, pull and in process show of an account: its id, its username (also th
 ## Push
 
 ```go
-cfg.Provisioning = authkit.ProvisioningConfig{
-	Targets: []authkit.ProvisioningTarget{{
-		Name:        "billing",
-		URL:         "https://billing.example.com/billing/v1/app/scim/v2",
-		BearerToken: os.Getenv("BILLING_SCIM_TOKEN"),
-	}},
-}
+cfg.Provisioning = []authkit.ProvisioningTarget{{
+	Name:        "billing",
+	URL:         "https://billing.example.com/billing/v1/app/scim/v2",
+	BearerToken: os.Getenv("BILLING_SCIM_TOKEN"),
+}}
 ```
 
-- A target is a SCIM base `URL`, or a `Handler` served in process. It authenticates with a static `BearerToken` (another AuthKit's [directory](#directory): an API key bound to your remote application there) or `ClientCredentials` (an OAuth 2.0 token endpoint, client id and secret, optional `Scopes` and `Resource`).
+- A target is a SCIM base `URL`, or without one an in-process service provider, `Deps.SCIMHandlers[Name]`. It authenticates with a static `BearerToken` (another AuthKit's [directory](#directory): an API key bound to your remote application there) or `ClientID` and `ClientSecret`: the client-credentials grant for `URL` as the resource (RFC 8707), its token endpoint and scopes discovered from `URL`'s protected-resource metadata (RFC 9728) and its authorization server's metadata (RFC 8414).
 - Every change to what a SCIM User shows (creation, email or its verification, username, ban, deletion, restore, purge) records the account for each target in the change's own transaction, whichever code or SQL makes it: triggers on `users` write the outbox and `NOTIFY authkit_provisioning`.
-- On that notification each app's listener (from `Start` to `Close`, on a connection of its own) queues the target's River job, which sends each pending account's latest state, one operation per account, in `POST /Bulk` requests within the target's advertised `maxOperations` and `maxPayloadSize` (`/ServiceProviderConfig`). A target without bulk gets the same operations as single requests. A change reaches the target within a second or so. The listener catches up every target when it (re)connects, so a change made while it was down is sent then. A target has at most one run waiting: with nothing pending and no reconciliation due, nothing runs.
+- On that notification each app's listener (from `Start` to `Close`, on a connection of its own) queues the target's River job, which sends each pending account's latest state, one operation per account, in `POST /Bulk` requests within the target's advertised `maxOperations` and `maxPayloadSize` (`/ServiceProviderConfig`). A target without bulk gets the same operations as single requests. A change reaches the target within a second or so. The listener catches up every target when it (re)connects, so a change made while it was down is sent then. A target has at most one run waiting: with nothing pending, nothing runs.
 - An account the target does not hold yet is `POST /Users` with `externalId` = the account id; afterwards `PUT /Users/{the target's id}`. Every resource carries `meta.lastModified`, when what it shows last changed, so a target keeps the newest of what it hears. A purged account is `DELETE`d. Deletion within its 30 days and bans push `active: false`; a temporary ban's end pushes `active: true`.
 - Only what the target accepted leaves the outbox. An unreachable target, or one refusing a whole request, is retried from a second doubling up to an hour; a refused account waits its own backoff while the rest go on. Each retry, a temporary ban's end and a run that stopped at its 4-minute budget is scheduled at the instant it is due. A create the target answers 409 is matched to its user by `externalId` and replaced.
-- A new target first gets every account (the initial sync, in bulk too). Every `ReconcileInterval` (a day; negative turns it off) after the last, AuthKit lists the target's users and queues every account whose resource drifted, went missing, or belongs to a purged account; a resource the listing did not show is asked for by its id. The listing saves its place with each page, so a reconciliation of a large directory spans runs. A resource whose `externalId` is not an account AuthKit pushed is left alone.
-- Status: `Client.ProvisioningTargets` and `GET /api/v1/admin/provisioning/targets` (`root:users:read`) give each target's `last_success_at`, `failing_since`, `last_error` and `backlog` (accounts waiting).
+- A new target first gets every account (the initial sync, in bulk too). Nothing lists a target's users on a schedule: work follows changes, and a failed push stays pending until its retry is due.
+- Status: `Client.ProvisioningTargets` and `GET /auth/v1/admin/provisioning/targets` (`root:users:read`) give each target's `last_success_at`, `failing_since`, `last_error` and `backlog` (accounts waiting).
 - A target removed from the configuration is forgotten, with its outbox, when its app's River fleet starts. Apps sharing one account store each push to their own targets; every app's changes reach every target.
 
 ## Pull
@@ -62,7 +60,7 @@ Errors are SCIM's (`application/scim+json`): 401 and 403 with a `WWW-Authenticat
 
 ## Token claims
 
-`ResourceServerConfig.ContactClaims` puts the contact in every user access token for that resource: `email` with `email_verified` (as OIDC has it: keep the address only when verified), `preferred_username`, `name` and `updated_at` (seconds since the epoch, when one of them last changed). `verify.Claims` reads them as `Email`, `EmailVerified`, `Username`, `Name` and `UpdatedAt`. Tokens for other resources carry only what their scopes grant.
+A user access token for a resource carries `email` with `email_verified` only with the `email` scope (as OIDC has it: keep the address only when verified). `verify.Claims` reads them as `Email` and `EmailVerified`.
 
 ## Directory
 
@@ -70,7 +68,7 @@ A group whose persona has `RemoteApplications` keeps a directory of its remote a
 
 **Tenant.** The credential names the directory (RFC 7644 §6.1): one issuer's users in one group. A user is its issuer and subject together (OpenID Connect Core §2, §5.7), so two issuers' users never mix, and another group's credential sees none of them (404).
 
-- An API key bound to a remote application of its group: `iam.NewAPIKey.ProvisionsFor`, or `provisions_for` on `POST /api/v1/groups/{group_id}/api-keys`. It is sent as `Authorization: Bearer` (RFC 6750 §2.1): a push target's `BearerToken`, or Okta's and Entra's secret token. It is deleted with the application.
+- An API key bound to a remote application of its group: `iam.NewAPIKey.ProvisionsFor`, or `provisions_for` on `POST /auth/v1/groups/{group_id}/api-keys`. It is sent as `Authorization: Bearer` (RFC 6750 §2.1): a push target's `BearerToken`, or Okta's and Entra's secret token. It is deleted with the application.
 - The remote application's own access token (client credentials, `sub` equal to `client_id`) for `Config.Resource.ID` ([resource server](resource-server.md)), carrying `<persona>:directory:manage` (or `:read`) within the application's role.
 
 A credential with no application, or whose application is disabled, is refused 403. Reads need `<persona>:directory:read` in the group, writes `<persona>:directory:manage`.

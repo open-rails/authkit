@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,6 +55,10 @@ type Engine struct {
 	// a live keys.Source (e.g. the reloadable file source) hot-swaps keys
 	// behind an atomic pointer, and the engine must observe every swap (#238).
 	keys keys.Source
+	// scimHandlers are the in-process SCIM targets (Deps.SCIMHandlers).
+	scimHandlers map[string]http.Handler
+	// totpKey encrypts stored authenticator-app secrets (keys.TOTPSource).
+	totpKey []byte
 
 	// Only resources allocated by New are closed with the client.
 	ownedKeySource *keys.FileSource
@@ -64,15 +69,18 @@ type Engine struct {
 	providers           []provider.Provider
 	configuredProviders []provider.Provider
 	providerProblems    map[string]error
-	// signs reports whether the engine mints tokens (not Keys.VerifyOnly).
+	// signs reports whether the engine mints tokens: its KeySource has a signer.
 	signs bool
 	// degraded are the survivable problems New handled (Probes).
-	degraded           []error
-	email              config.EmailSender
-	sms                config.SMSSender
-	emailHealth        senderHealth
-	smsHealth          senderHealth
-	healthMu           sync.Mutex
+	degraded    []error
+	email       config.EmailSender
+	sms         config.SMSSender
+	emailHealth senderHealth
+	smsHealth   senderHealth
+	healthMu    sync.Mutex
+	// producers are the registered notification producers, by tenant and name.
+	producersMu        sync.Mutex
+	producers          map[string]notificationProducer
 	stopHealth         context.CancelFunc
 	entitlements       func(context.Context, []string) (map[string][]string, error)
 	entitlementHolders func(context.Context, string) ([]string, error)
@@ -104,6 +112,8 @@ type Engine struct {
 	nameAdmission func(context.Context, iam.NameAdmissionRequest) error
 	// cfg is the host configuration, normalized once (config.Normalize).
 	cfg config.Config
+	// passkeys is the WebAuthn relying party, from cfg.FrontendURL.
+	passkeys config.PasskeyRP
 	// rootGroupID caches the root group id (string) once resolved.
 	rootGroupID atomic.Value
 

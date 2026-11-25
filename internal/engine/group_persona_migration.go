@@ -207,7 +207,7 @@ func (s *Engine) personaMigrationPlan(ctx context.Context, st *permissionGroupSt
 	}
 	slices.Sort(p.report.Issuers)
 	for _, issuer := range p.report.Issuers {
-		if issuer != s.cfg.Token.Issuer {
+		if issuer != s.cfg.Issuer {
 			return p, migrationRefusal("a credential belongs to an unknown issuer catalog")
 		}
 	}

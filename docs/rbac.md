@@ -53,7 +53,7 @@ Handing out a role takes `members:manage` in that group, and the grantor's own g
 - is never held by an API key or a remote application;
 - prevents its holder from removing their last second factor while the requirement applies.
 
-`root:members:manage` and `root:users:manage` always need MFA, so `root:owner` does too. The requirement is off while `TwoFactor.Mode` is disabled. When a role needs MFA but no second factor can be enrolled, `New` logs it and the `authkit_two_factor` probe fails: those accounts can't sign in until a method works.
+`root:members:manage` and `root:users:manage` always need MFA, so `root:owner` does too. The requirement is off while `TwoFactor` is `iam.TwoFactorDisabled`. When a role needs MFA but no second factor can be enrolled, `New` logs it and the `authkit_two_factor` probe fails: those accounts can't sign in until a method works.
 
 ## Requiring MFA after a promotion
 
@@ -173,7 +173,7 @@ checks enforce current authority even before a peer's cleanup runs.
 
 ## Apps sharing an account store
 
-Apps that share one account store (the same schema, listed in `TokenConfig.AccountIssuers`) share membership, root included: who holds which role. Each app declares its own `Roles`, so a role means what that app's catalog says. A role only a peer declares grants nothing in this app, and doesn't count as drift here. This app can't take it away or replace it either, since it can't tell what it grants; do that through the peer.
+Apps that share one account store (the same schema, listed in `Config.AccountIssuers`) share membership, root included: who holds which role. Each app declares its own `Roles`, so a role means what that app's catalog says. A role only a peer declares grants nothing in this app, and doesn't count as drift here. This app can't take it away or replace it either, since it can't tell what it grants; do that through the peer.
 
 Fingerprints and sweeps are per app. Each app judges only the API keys, invitations and applications issued through it, and an API key works only at the app that minted it. When a change through one app demotes a user, every other app sweeps its own credentials from that user.
 
@@ -189,7 +189,7 @@ A library that serves routes inside your app, such as OpenRails' billing routes,
 | `KnownPermission(p)` | `p` is one registered permission, so the library refuses a misspelled one when it mounts |
 | `RootScope(ctx)` | `client.Scope(ctx, iam.RootGroup())` (authkit/auth `Root`): where root roles hold their `root:` permissions, which the library checks there |
 
-A user acting for themself carries their email and username, read from the account. A permission's persona says where the library checks it: a `root:` permission in the Authenticator's `RootScope`, so the host passes no scope; a group persona's in the group it serves, `client.Scope(ctx, ref)` (`{Authority: Config.Token.Issuer, ID: <the group's id>}`).
+A user acting for themself carries their email and username, read from the account. A permission's persona says where the library checks it: a `root:` permission in the Authenticator's `RootScope`, so the host passes no scope; a group persona's in the group it serves, `client.Scope(ctx, ref)` (`{Authority: Config.Issuer, ID: <the group's id>}`).
 
 A credential bound to a group (`BoundScope`) acts only there:
 
@@ -222,12 +222,12 @@ Staff of every merchant hold the `root:` names on root. A root role holding `mer
 ## Related
 
 - **`verify.Claims.RootRole`** is the user's root role when the token was minted. It is for display only, can be stale for the token's lifetime, and must never authorize anything.
-- **`Client.RolePermissions(role)`** returns a declared role's grants, with includes flattened; `Client.GroupRole` and `Client.ListGroupRoles` read a group's roles, custom ones included. `Client.EffectivePermissions` and `GET /api/v1/me/permissions` return what an identity holds, for UIs.
-- **`PersonaDef.Permissions()`** lists a persona's catalog, built-ins included. **`PersonaDef.Expand(grants)`** lists the catalog permissions some grant covers, as `GET /api/v1/me/permissions` does, with no database read: `Roles.Root.Expand(grants)` over a token's `RootRole` and `Client.RolePermissions` shows a user's permissions.
+- **`Client.RolePermissions(role)`** returns a declared role's grants, with includes flattened; `Client.GroupRole` and `Client.ListGroupRoles` read a group's roles, custom ones included. `Client.EffectivePermissions` and `GET /auth/v1/me/permissions` return what an identity holds, for UIs.
+- **`PersonaDef.Permissions()`** lists a persona's catalog, built-ins included. **`PersonaDef.Expand(grants)`** lists the catalog permissions some grant covers, as `GET /auth/v1/me/permissions` does, with no database read: `Roles.Root.Expand(grants)` over a token's `RootRole` and `Client.RolePermissions` shows a user's permissions.
 - **Members over HTTP:**
-  - `PUT /api/v1/groups/{group_id}/members/users/{id}` with `{"role": "channel:moderator"}` gives a role.
+  - `PUT /auth/v1/groups/{group_id}/members/users/{id}` with `{"role": "channel:moderator"}` gives a role.
   - `DELETE` on the same path takes it away.
-  - `GET /api/v1/groups/{group_id}/roles` lists the group's roles, its [custom roles](#custom-roles) included.
+  - `GET /auth/v1/groups/{group_id}/roles` lists the group's roles, its [custom roles](#custom-roles) included.
 
   `{group_id}` may be `root`, and changes on root need a recent sign-in.
 

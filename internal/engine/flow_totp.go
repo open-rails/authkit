@@ -18,6 +18,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
@@ -43,7 +44,7 @@ func (s *Engine) startTOTPEnrollment(ctx context.Context, userID string) (secret
 	if !s.twoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
 		return "", "", errmodel.ErrTwoFAMethodUnavailable
 	}
-	if _, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey); err != nil {
+	if _, err := aes.NewCipher(s.totpKey); err != nil {
 		return "", "", fmt.Errorf("totp secret encryption key not configured")
 	}
 	if !s.useEphemeralStore() {
@@ -73,11 +74,8 @@ func (s *Engine) startTOTPEnrollment(ctx context.Context, userID string) (secret
 	} else if user.Username != nil && strings.TrimSpace(*user.Username) != "" {
 		label = *user.Username
 	}
-	issuer := s.cfg.TwoFactor.TOTPIssuer
-	if issuer == "" {
-		issuer = s.cfg.Token.Issuer
-	}
-	return secret, buildTOTPURI(issuer, label, secret), nil
+	return secret, buildTOTPURI(config.TOTPIssuer(s.cfg.FrontendURL), label, secret), nil
+
 }
 
 // TOTPEnrollment completes a pending authenticator-app enrollment: Code is the
@@ -134,7 +132,7 @@ func generateTOTPSecret() (string, error) {
 
 func buildTOTPURI(issuer, label, secret string) string {
 	issuer = strings.TrimSpace(issuer)
-	// Token.Issuer is often a URL. An otpauth label instead requires a
+	// The Issuer is often a URL. An otpauth label instead requires a
 	// human service name with no colon, matching the issuer query exactly.
 	if parsed, err := url.Parse(issuer); err == nil && parsed.Hostname() != "" {
 		issuer = parsed.Hostname()
@@ -204,7 +202,7 @@ func totpCode(secret string, step int64) (string, error) {
 const totpKeyVersion byte = 1
 
 func (s *Engine) encryptTOTPSecret(secret string) ([]byte, error) {
-	block, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey)
+	block, err := aes.NewCipher(s.totpKey)
 	if err != nil {
 		return nil, fmt.Errorf("totp secret encryption key not configured")
 	}
@@ -223,7 +221,7 @@ func (s *Engine) encryptTOTPSecret(secret string) ([]byte, error) {
 }
 
 func (s *Engine) decryptTOTPSecret(data []byte) (string, error) {
-	block, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey)
+	block, err := aes.NewCipher(s.totpKey)
 	if err != nil {
 		return "", fmt.Errorf("totp secret encryption key not configured")
 	}
@@ -265,11 +263,7 @@ func (s *Engine) sendPhone2FASetupCode(ctx context.Context, userID, phone, code 
 	if s.sms != nil {
 		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, UserID: userID, Language: s.userLanguage(ctx, userID), Code: code, Purpose: iam.PurposeTwoFactorSetup})
 	}
-	// In production, require SMS to be configured
-	if !s.cfg.Registration.AllowMissingSenders {
-		return errSMSNotConfigured
-	}
-	return nil
+	return errSMSNotConfigured
 }
 
 // verifyPhone2FASetupCode checks the code for 2FA phone setup. Like the email

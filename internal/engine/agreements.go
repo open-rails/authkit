@@ -2,7 +2,7 @@ package engine
 
 // Agreements (#449): the documents users accept (Config.Agreements), each
 // acceptance an append-only row of user_agreements. A self-registration
-// accepts Registration.Agreements at their current versions in the
+// accepts the sign-up agreements at their current versions in the
 // transaction that creates the account; an OAuth client's approval needs its
 // client's; everything else is the host's to gate on (Client.UserAgreements).
 
@@ -66,9 +66,9 @@ func (s *Engine) missingAgreements(keys []string, accepted []iam.AgreementRef) [
 }
 
 // requireRegistrationAgreements refuses a sign-up that does not accept every
-// Registration.Agreements document at its current version.
+// sign-up agreement at its current version.
 func (s *Engine) requireRegistrationAgreements(accepted []iam.AgreementRef) error {
-	if missing := s.missingAgreements(s.cfg.Registration.Agreements, accepted); len(missing) > 0 {
+	if missing := s.missingAgreements(config.SignUpAgreements(s.cfg), accepted); len(missing) > 0 {
 		return agreementRequired(missing)
 	}
 	return nil
@@ -201,10 +201,9 @@ func (s *Engine) UserAgreements(ctx context.Context, userID string) ([]iam.Agree
 	return out, nil
 }
 
-// AgreementsDue are the documents userID is asked to accept now: one
-// Registration.Agreements names that the account never accepted (created
-// before it was required, or by the host), and one marked Reaccept whose
-// earlier version it accepted.
+// AgreementsDue are the sign-up documents userID is asked to accept now: one
+// the account never accepted (created before it was required, or by the
+// host), or accepted at an earlier version.
 func (s *Engine) AgreementsDue(ctx context.Context, userID string) ([]iam.Agreement, error) {
 	if err := s.requireTenantUser(ctx, s.q, userID); err != nil {
 		return nil, err
@@ -225,7 +224,7 @@ func (s *Engine) AgreementsDue(ctx context.Context, userID string) ([]iam.Agreem
 				earlier = earlier || acc.Version != a.Version
 			}
 		}
-		if !current && (earlier && a.Reaccept || !earlier && slices.Contains(s.cfg.Registration.Agreements, a.Key)) {
+		if !current && a.SignUp {
 			out = append(out, iam.Agreement{Key: a.Key, Version: a.Version, URL: a.URL})
 		}
 	}

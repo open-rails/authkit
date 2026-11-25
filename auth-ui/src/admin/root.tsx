@@ -24,7 +24,7 @@ import { AdminContext } from "./context.ts"
 export interface AdminProps {
   /** Sends the signed-in person's credentials: auth-ui's `AuthClient` or `IssuerClient`, or anything with `authFetch`. */
   auth: AdminAuth
-  /** AuthKit's JSON API mount. Default `/api/v1`. */
+  /** AuthKit's JSON API mount. Default `/auth/v1`. */
   baseUrl?: string
   /** Where the component is mounted; its views are deep links beneath it. */
   basePath: string
@@ -75,7 +75,7 @@ export function AdminRoot({
     () => ({ ...host, ...appearance, theme: appearance?.theme ?? "inherit" }),
     [host, appearance]
   )
-  const scopeKey = JSON.stringify([baseUrl ?? "/api/v1", tenantId ?? null])
+  const scopeKey = JSON.stringify([baseUrl ?? "/auth/v1", tenantId ?? null])
   const context = useMemo(
     () => ({ client, guard, tenantId, language, scopeKey }),
     [client, guard, tenantId, language, scopeKey]

@@ -22,7 +22,7 @@ func (s *Engine) RequestPasswordReset(ctx context.Context, email string, ttl tim
 		return nil
 	}
 	// Refused before the lookup, so the answer never depends on the account.
-	if s.email == nil && !s.cfg.Registration.AllowMissingSenders {
+	if s.email == nil {
 		return errEmailNotConfigured
 	}
 	// Past the address's quota nothing is sent, answered alike.
@@ -99,7 +99,7 @@ func resetGateError(err error) error {
 // RequestPhonePasswordReset creates a password reset token and sends a reset link via SMS.
 // Always returns nil for unknown phone numbers to prevent user enumeration (202-like behavior).
 func (s *Engine) RequestPhonePasswordReset(ctx context.Context, phone string, ttl time.Duration, ip *string, ua *string) error {
-	if s.sms == nil && !s.cfg.Registration.AllowMissingSenders {
+	if s.sms == nil {
 		return errSMSNotConfigured
 	}
 	if !s.admitCode(ctx, httpapi.RLPasswordResetRequestIdentifier, phone) {

@@ -3,9 +3,10 @@ package engine
 import (
 	"context"
 	"errors"
-	jwt "github.com/golang-jwt/jwt/v5"
 	"strings"
 	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/open-rails/authkit/internal/authflow"

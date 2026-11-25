@@ -58,7 +58,7 @@ func SignInDeviceFrom(ctx context.Context) SignInDevice {
 }
 
 // DeviceChallenge is a sign-in from a new device past
-// Config.SignIn.NewDevicesPerAccount: a code went to the account's proven
+// the new-device limit (ten a day): a code went to the account's proven
 // Channel ("email" or "sms") at Destination, unmasked. Channels are the
 // proven channels a resend may choose.
 type DeviceChallenge struct {

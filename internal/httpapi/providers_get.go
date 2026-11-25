@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/naming"
+	policy "github.com/open-rails/authkit/naming"
 )
 
 func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, r *http.Request) {
@@ -38,34 +40,26 @@ func (s *Service) Capabilities() Capabilities {
 	}
 	return Capabilities{
 		Captcha:       captcha,
-		Notifications: cfg.Notifications != nil,
-		DPoP:          string(cfg.SignIn.DPoP),
+		Notifications: true,
+		DPoP:          "required",
 		Registration: RegistrationCapabilities{
-			Mode:                string(cfg.Registration.NativeUserMode),
-			InviteTokenRequired: cfg.Registration.NativeUserMode == iam.RegistrationModeInviteOnly,
-			Agreements:          nonNil(cfg.Registration.Agreements),
+			Mode:                string(cfg.Registration),
+			InviteTokenRequired: cfg.Registration == iam.RegistrationModeInviteOnly,
+			Agreements:          nonNil(config.SignUpAgreements(cfg)),
 		},
 		Agreements:             s.svc.Agreements(),
 		ExternalLoginProviders: s.providerSummaries(),
 		Username: UsernameCapabilities{
-			MinLength:             cfg.Username.MinLength,
-			MaxLength:             cfg.Username.MaxLength,
+			MinLength:             naming.MinLength,
+			MaxLength:             naming.MaxLength,
 			Pattern:               naming.UsernamePattern,
-			Renames:               cfg.Username.Renames,
-			RenameIntervalSeconds: int64(naming.Cooldown(cfg.Username) / time.Second),
-			FormerNames:           naming.NewState(cfg.Username, nil, time.Time{}).Policy,
+			Renames:               true,
+			RenameIntervalSeconds: int64(policy.RenameCooldown / time.Second),
+			FormerNames:           naming.Policy,
 		},
-		Password: PasswordCapabilities{
-			MinLength:        cfg.Password.MinLength,
-			MaxLength:        cfg.Password.MaxLength,
-			RequireUppercase: cfg.Password.RequireUppercase,
-			RequireLowercase: cfg.Password.RequireLowercase,
-			RequireDigit:     cfg.Password.RequireDigit,
-			RequireSymbol:    cfg.Password.RequireSymbol,
-			AllowCommon:      cfg.Password.AllowCommon,
-		},
+		Password: PasswordCapabilities{MinLength: config.PasswordMinLength, MaxLength: config.PasswordMaxLength},
 		Passwordless: PasswordlessCapabilities{
-			Enabled:  cfg.Registration.PasswordlessLogin,
+			Enabled:  config.Mounted(cfg, iam.RoutePasswordless),
 			Channels: channels,
 		},
 		Passkeys: PasskeyCapabilities{
@@ -75,13 +69,13 @@ func (s *Service) Capabilities() Capabilities {
 			Login: cfg.SolanaNetwork != "",
 		},
 		Verification: VerificationCapabilities{
-			Registration: string(cfg.Registration.Verification),
+			Registration: string(iam.RegistrationVerificationRequired),
 		},
 		Channels:    ChannelCapabilities{Email: email, SMS: sms},
-		SMS:         SMSCapabilities{Countries: nonNil(cfg.SMS.AllowedCountries)},
-		TwoFactor:   TwoFactorCapabilities{Mode: cfg.TwoFactor.Mode, Methods: s.svc.TwoFactorMethods()},
-		Invitations: InvitationCapabilities{Enabled: !cfg.Invitations.Disabled},
-		Languages:   cfg.Languages.Supported,
+		SMS:         SMSCapabilities{Countries: nonNil(cfg.SMSCountries)},
+		TwoFactor:   TwoFactorCapabilities{Mode: cfg.TwoFactor, Methods: s.svc.TwoFactorMethods()},
+		Invitations: InvitationCapabilities{Enabled: config.InvitationsOn(cfg)},
+		Languages:   cfg.Languages,
 	}
 }
 

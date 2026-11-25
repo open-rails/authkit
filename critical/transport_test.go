@@ -25,6 +25,7 @@ import (
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/keys"
 )
@@ -34,7 +35,7 @@ func wire(t *testing.T, client *http.Client, method, address, credential, mediaT
 	r, err := http.NewRequestWithContext(t.Context(), method, address, strings.NewReader(body))
 	noError(t, err)
 	if credential != "" {
-		r.Header.Set("Authorization", "Bearer "+credential)
+		authorize(t, r, credential)
 	}
 	if mediaType != "" {
 		r.Header.Set("Content-Type", mediaType)
@@ -77,7 +78,8 @@ func TestCriticalTransport(t *testing.T) {
 						noError(t, <-done)
 					})
 				}
-				client := &http.Client{Timeout: 10 * time.Second}
+				// A host's client of its adapters: sign-ins prove the fixture's key.
+				client := &http.Client{Timeout: 10 * time.Second, Transport: f.dpop.Transport(t, f.auth, nil)}
 				call := func(method, path, token, body string) response {
 					return wire(t, client, method, address+f.auth.APIBase()+path, token, "application/json", body, nil)
 				}
@@ -98,7 +100,7 @@ func TestCriticalTransport(t *testing.T) {
 				clock.Advance(16 * time.Minute)
 				call("DELETE", "/me", session.AccessToken, "").want(t, 401, "step_up_required")
 				call("PATCH", "/me", session.AccessToken, `{"preferred_language":"en"}`).want(t, 200, "")
-				cl, err := f.auth.Verify(t.Context(), session.AccessToken)
+				cl, err := verifyToken(t, f.auth, session.AccessToken)
 				noError(t, err)
 				noError(t, f.auth.RevokeSession(t.Context(), iam.SystemIdentity(), u.ID, cl.SessionID))
 				call("PATCH", "/me", session.AccessToken, `{"preferred_language":"fr"}`).want(t, 401, "session_revoked")
@@ -108,9 +110,7 @@ func TestCriticalTransport(t *testing.T) {
 	})
 	t.Run("AK-J31-C03_base_path_HEAD_and_protocol_OPTIONS_are_confined", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Token.Issuer = "https://example.com/identity"
-			c.HTTP.BasePath = "/identity"
-			c.HTTP.APIPath = "/service"
+			c.Issuer = "https://example.com/identity"
 			c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: "browser", RedirectURIs: []string{"https://client.example/callback"}}}
 		}))
 		client := f.server.Client()
@@ -119,10 +119,11 @@ func TestCriticalTransport(t *testing.T) {
 		mounted := httptest.NewServer(mux)
 		t.Cleanup(mounted.Close)
 		wire(t, mounted.Client(), "GET", mounted.URL+f.auth.APIBase()+"/capabilities", "", "", "", nil).want(t, 200, "")
-		if f.auth.APIBase() != "/identity/service/v1" {
-			t.Fatal("custom API base was not applied")
+		if f.auth.APIBase() != "/identity/v1" {
+			t.Fatal("the issuer's path did not root the API")
 		}
-		if f.auth.PublicAPIBase() != "https://example.com/identity/service/v1" {
+		if f.auth.PublicAPIBase() != "https://example.com/identity/v1" {
+
 			t.Fatal("public API address lost the declared issuer/base path")
 		}
 		get := wire(t, client, "GET", f.server.URL+f.auth.APIBase()+"/capabilities", "", "", "", nil)
@@ -153,7 +154,7 @@ func TestCriticalTransport(t *testing.T) {
 				}
 			}
 		}
-		for _, p := range []string{"/api/v1/capabilities", "/service/v1/capabilities", "/.well-known/jwks.json"} {
+		for _, p := range []string{"/auth/v1/capabilities", "/v1/capabilities", "/.well-known/jwks.json"} {
 			wire(t, client, "GET", f.server.URL+p, "", "", "", nil).want(t, 404, "")
 		}
 		for _, p := range []string{"token", "revoke", "userinfo"} {
@@ -194,7 +195,6 @@ func TestCriticalTransport(t *testing.T) {
 	})
 	t.Run("AK-J31-C05_cookie_origin_CORS_and_proxy_headers_cannot_grant_trust", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RefreshCookie = true
 			c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: "web", RedirectURIs: []string{"https://client.example/callback"}}}
 		}))
 		f.server.Close()
@@ -203,14 +203,19 @@ func TestCriticalTransport(t *testing.T) {
 		u := f.user(t)
 		body, _ := json.Marshal(map[string]string{"identifier": u.Email, "password": u.Password})
 		address := f.server.URL + f.auth.APIBase() + "/password/login"
+		// proved adds a fresh proof of the fixture's key for path.
+		proved := func(h http.Header, path string) http.Header {
+			h.Set("DPoP", f.dpop.Proof(t, "POST", origin(f.cfg.Issuer)+f.auth.APIBase()+path, "", ""))
+			return h
+		}
 		for _, h := range []http.Header{{"Origin": {"https://attacker.example"}}, {"Origin": {"null"}}, {"Origin": {f.server.URL}, "Sec-Fetch-Site": {"cross-site"}}, {"Origin": {"https://attacker.example"}, "X-Forwarded-Host": {"attacker.example"}, "X-Forwarded-Proto": {"https"}}} {
-			r := wire(t, f.server.Client(), "POST", address, "", "application/json", string(body), h)
+			r := wire(t, f.server.Client(), "POST", address, "", "application/json", string(body), proved(h, "/password/login"))
 			r.want(t, 403, "origin_not_allowed")
 			if r.header.Get("Set-Cookie") != "" {
 				t.Fatal("rejected origin received a sign-in cookie")
 			}
 		}
-		good := wire(t, f.server.Client(), "POST", address, "", "application/json", string(body), http.Header{"Origin": {f.server.URL}, "Sec-Fetch-Site": {"same-origin"}})
+		good := wire(t, f.server.Client(), "POST", address, "", "application/json", string(body), proved(http.Header{"Origin": {f.server.URL}, "Sec-Fetch-Site": {"same-origin"}}, "/password/login"))
 		good.want(t, 200, "")
 		var signed signInResult
 		decode(t, good.body, &signed)
@@ -230,8 +235,8 @@ func TestCriticalTransport(t *testing.T) {
 		if cookie == "" {
 			t.Fatal("valid origin received no HttpOnly refresh cookie")
 		}
-		wire(t, f.server.Client(), "POST", f.server.URL+f.auth.APIBase()+"/token", "", "application/json", `{"grant_type":"refresh_token"}`, http.Header{"Origin": {"https://attacker.example"}, "Cookie": {cookie}}).want(t, 403, "origin_not_allowed")
-		wire(t, f.server.Client(), "POST", f.server.URL+f.auth.APIBase()+"/token", "", "application/json", `{"grant_type":"refresh_token"}`, http.Header{"Origin": {f.server.URL}, "Cookie": {cookie}}).want(t, 200, "")
+		wire(t, f.server.Client(), "POST", f.server.URL+f.auth.APIBase()+"/token", "", "application/json", `{"grant_type":"refresh_token"}`, proved(http.Header{"Origin": {"https://attacker.example"}, "Cookie": {cookie}}, "/token")).want(t, 403, "origin_not_allowed")
+		wire(t, f.server.Client(), "POST", f.server.URL+f.auth.APIBase()+"/token", "", "application/json", `{"grant_type":"refresh_token"}`, proved(http.Header{"Origin": {f.server.URL}, "Cookie": {cookie}}, "/token")).want(t, 200, "")
 		for _, origin := range []string{"https://client.example", "https://attacker.example"} {
 			r := wire(t, f.server.Client(), "OPTIONS", f.server.URL+"/oauth2/token", "", "", "", http.Header{"Origin": {origin}})
 			r.want(t, 204, "")
@@ -244,7 +249,9 @@ func TestCriticalTransport(t *testing.T) {
 			}
 		}
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits = map[string]authkit.RateLimit{"capabilities_read": {Limit: 1, Window: time.Minute}}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits = map[string]config.RateLimit{"capabilities_read": {Limit: 1, Window: time.Minute}}
+			})
 		}))
 		for i := range 2 {
 			r, err := g.requestHeaders(t.Context(), "GET", "/capabilities", "", nil, http.Header{"X-Forwarded-For": {fmt.Sprintf("198.51.100.%d", i+1)}, "CF-Connecting-IP": {fmt.Sprintf("198.51.100.%d", i+1)}})
@@ -324,7 +331,9 @@ func TestCriticalTransport(t *testing.T) {
 		}
 		// The posture alone picks the address a budget is kept for.
 		limited := authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["capabilities_read"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["capabilities_read"] = config.RateLimit{Limit: 1, Window: time.Hour}
+			})
 		})
 		for _, posture := range []struct {
 			name    string

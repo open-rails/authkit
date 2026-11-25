@@ -16,6 +16,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
@@ -65,9 +66,9 @@ func (s *Engine) accountsLimit(d authflow.SignInDevice) int {
 	case d.ID == "":
 		return 0
 	case d.ByAddress():
-		return max(0, s.cfg.SignIn.AccountsPerAddress)
+		return max(0, config.Tuned(s.cfg).AccountsPerAddress)
 	}
-	return max(0, s.cfg.SignIn.AccountsPerDevice)
+	return max(0, config.Tuned(s.cfg).AccountsPerDevice)
 }
 
 // admitNewAccount refuses to create an account from a device that already
@@ -128,7 +129,7 @@ func (s *Engine) admitAccountOnDevice(ctx context.Context, userID string, d auth
 	}); err != nil {
 		return err
 	}
-	if refused != nil || d.Issued == "" || s.cfg.SignIn.AccountsPerDevice <= 0 {
+	if refused != nil || d.Issued == "" || config.Tuned(s.cfg).AccountsPerDevice <= 0 {
 		return refused
 	}
 	return updateEphemeralJSON(ctx, s, keySignInDevice+digest(d.Issued), signInWindow, func(accounts *deviceAccounts) bool {
@@ -154,7 +155,7 @@ func pruneAccounts(accounts deviceAccounts, now int64) deviceAccounts {
 // everyNew makes every new device need the proof, whatever the limit (a
 // phone-only account).
 func (s *Engine) admitDeviceOnAccount(ctx context.Context, userID string, d authflow.SignInDevice, provesOwner, everyNew bool) (needsCode bool, refused error, err error) {
-	limit := s.cfg.SignIn.NewDevicesPerAccount
+	limit := config.Tuned(s.cfg).NewDevicesPerAccount
 	if everyNew {
 		limit = 0
 	} else if limit <= 0 {
@@ -278,7 +279,7 @@ func (s *Engine) challengeNewDevice(ctx context.Context, user *db.User, proof lo
 		return authflow.LoginOutcome{}, refused
 	}
 	nonce := secret.Token(32)
-	proof.NonceHash, proof.Issuer, proof.Enrollment, proof.DeviceCode = secret.Hash(nonce), s.cfg.Token.Issuer, false, true
+	proof.NonceHash, proof.Issuer, proof.Enrollment, proof.DeviceCode = secret.Hash(nonce), s.cfg.Issuer, false, true
 	if proof.AuthenticatedAt.IsZero() {
 		proof.AuthenticatedAt = time.Now().UTC()
 	}
@@ -309,7 +310,7 @@ func (s *Engine) sendDeviceCode(ctx context.Context, u *db.User, nonceHash, chan
 	if n, err := s.ephemIncr(ctx, keyDeviceCodeSent+u.ID, time.Hour); err != nil {
 		return "", err
 	} else if n > maxDeviceCodesPerHour {
-		return "", signInLimit(errmodel.CodeTooManyDevices, s.cfg.SignIn.NewDevicesPerAccount, time.Hour)
+		return "", signInLimit(errmodel.CodeTooManyDevices, config.Tuned(s.cfg).NewDevicesPerAccount, time.Hour)
 	}
 	code := secret.Digits(6)
 	if err := s.storeTwoFactorCode(ctx, deviceCodeKey(u.ID, nonceHash), twoFactorData{CodeHash: secret.Hash(code), Method: channel, Destination: to}); err != nil {

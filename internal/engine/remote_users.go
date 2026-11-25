@@ -69,7 +69,7 @@ func (s *Engine) SCIMTenant(ctx context.Context, who auth.Identity, boundGroup s
 			return scim.Tenant{}, scim.ErrNoTenant
 		}
 		return s.scimTenant(ctx, row.GroupID, row.Persona, row.Issuer)
-	case who.SubjectKind == auth.SubjectApplication && boundGroup != "" && who.Issuer != "" && who.Issuer != s.cfg.Token.Issuer:
+	case who.SubjectKind == auth.SubjectApplication && boundGroup != "" && who.Issuer != "" && who.Issuer != s.cfg.Issuer:
 		row, err := s.q.SCIMTenantByIssuer(ctx, who.Issuer)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):

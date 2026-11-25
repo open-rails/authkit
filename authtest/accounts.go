@@ -72,11 +72,8 @@ func SignIn(t testing.TB, auth *authkit.Client, u User) iam.TokenSet {
 	if identifier == "" {
 		identifier = u.Username
 	}
-	// A deployment requiring DPoP binds the session to a key, as a browser's.
-	var key *DPoPKey
-	if requiresDPoP(t, auth) {
-		key = NewDPoPKey(t)
-	}
+	// The session is bound to a DPoP key, as a browser's.
+	key := NewDPoPKey(t)
 	res := signInCall(t, auth, identifier, "/password/login", key, map[string]string{"identifier": identifier, "password": u.Password})
 	for range 3 {
 		switch res.Status {
@@ -254,7 +251,7 @@ type DeviceKey struct {
 
 // EnrollDeviceKey enrolls a new Ed25519 device key on u with the devicekey
 // client, reading the emailed code from outbox and answering a second factor
-// with u.TOTP. The Client needs Config.DeviceKeys.Enabled.
+// with u.TOTP. The Client needs HTTP.Groups to mount iam.RouteDeviceKeys.
 func EnrollDeviceKey(t testing.TB, auth *authkit.Client, outbox *Outbox, u User) DeviceKey {
 	t.Helper()
 	ctx := context.Background()

@@ -33,7 +33,7 @@ func (s *Engine) completeProviderLink(ctx context.Context, link authflow.Externa
 	if err := requireProvenContactOn(ctx, tx, link.UserID); err != nil {
 		return err
 	}
-	session, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: link.UserID, SessionID: link.SessionID, Issuer: s.cfg.Token.Issuer})
+	session, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: link.UserID, SessionID: link.SessionID, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errmodel.E(errmodel.CodeAuthRequiredForLink)
 	}

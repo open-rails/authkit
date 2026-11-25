@@ -38,7 +38,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 			return authflow.RegisterOutcome{}, err
 		}
 	}
-	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
+	if s.cfg.Registration == iam.RegistrationModeClosed {
 		return authflow.RegisterOutcome{}, errmodel.ErrRegistrationDisabled
 	}
 	language, err := authflow.NormalizePreferredLanguage(in.PreferredLanguage)
@@ -112,11 +112,6 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		if err != nil {
 			return authflow.RegisterOutcome{}, err
 		}
-		if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.SMSAvailable() {
-			if _, err := s.sendPhoneVerificationToUser(ctx, phone, account.ID); err != nil {
-				s.log.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
-			}
-		}
 		return s.registeredSession(ctx, in, out, account)
 	}
 
@@ -152,11 +147,6 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	account, err := s.registerAccount(ctx, accountRegistration{User: newAccount{Email: email, Username: username, PasswordHash: phc, HashAlgo: "argon2id"}, Language: in.PreferredLanguage, InviteToken: in.AccountInviteToken, Agreements: agreements, IP: in.IP, UserAgent: in.UserAgent})
 	if err != nil {
 		return authflow.RegisterOutcome{}, err
-	}
-	if s.cfg.Registration.Verification == iam.RegistrationVerificationOptional && s.EmailAvailable() {
-		if _, err := s.requestEmailVerification(ctx, email); err != nil {
-			s.log.Warn("optional registration verification unavailable", "user_id", account.ID, "error", err)
-		}
 	}
 	return s.registeredSession(ctx, in, out, account)
 }

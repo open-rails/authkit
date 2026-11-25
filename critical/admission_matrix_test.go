@@ -24,9 +24,8 @@ var admissionRows []byte
 func fullSurfaceFixture(t *testing.T) *fixture {
 	t.Helper()
 	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.TwoFactor.Mode = iam.TwoFactorOptional
-		c.Passkeys = authkit.PasskeyConfig{RPID: "example.com", Origins: []string{"https://example.com"}}
-		c.DeviceKeys.Enabled = true
+		c.TwoFactor = iam.TwoFactorOptional
+		mountGroups(c, iam.RouteDeviceKeys)
 		c.SolanaNetwork = iam.SolanaMainnet
 		c.Roles.Persona("oauthshop", authkit.OAuthClients)
 		c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: "browser", RedirectURIs: []string{"https://client.example/callback"}}}
@@ -53,7 +52,7 @@ func TestCriticalHTTPAdmission(t *testing.T) {
 		cl["iat"] = time.Now().Add(-time.Hour).Unix()
 		expired := signJWT(t, f.deps.KeySource.ActiveSigner(), h, cl)
 		revoked := f.signIn(t, outsider)
-		claims, err := f.auth.Verify(t.Context(), revoked.AccessToken)
+		claims, err := verifyToken(t, f.auth, revoked.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.RevokeSession(t.Context(), iam.SystemIdentity(), outsider.ID, claims.SessionID))
 		var rows []struct{ ID, Method, Path, Gate, Coverage, Owner string }
@@ -106,7 +105,7 @@ func TestCriticalHTTPAdmission(t *testing.T) {
 						wire(t, f.server.Client(), row.Method, f.server.URL+path, revoked.AccessToken, mediaType, body, nil).want(t, 401, "session_revoked")
 					})
 				}
-				if strings.HasPrefix(path, "/api/v1/groups/") || strings.HasPrefix(path, "/api/v1/admin/") || path == "/api/v1/events" {
+				if strings.HasPrefix(path, "/auth/v1/groups/") || strings.HasPrefix(path, "/auth/v1/admin/") || path == "/auth/v1/events" {
 					t.Run("unprivileged_live_session", func(t *testing.T) {
 						if row.Method == "PATCH" && strings.Contains(path, "/admin/users/") {
 							body = `{"preferred_language":"en"}`

@@ -456,8 +456,7 @@ type Capabilities struct {
 	// Captcha is the bot challenge /passwordless/start and /register
 	// require (Deps.Captcha); null when none.
 	Captcha *iam.CaptchaWidget `json:"captcha"`
-	// DPoP is SignIn.DPoP: optional (each client chooses) or required (a
-	// sign-in proves a DPoP key, RFC 9449).
+	// DPoP is "required": every sign-in proves a DPoP key (RFC 9449).
 	DPoP  string     `json:"dpop"`
 	Paths MountPaths `json:"paths"`
 }
@@ -510,7 +509,7 @@ type ChannelCapabilities struct {
 	SMS   bool `json:"sms"`
 }
 
-// SMSCapabilities is the text-message policy (Config.SMS).
+// SMSCapabilities is the text-message policy (Config.SMSCountries).
 type SMSCapabilities struct {
 	// Countries are the regions messages may go to (ISO 3166-1 alpha-2);
 	// empty allows every region.
@@ -527,13 +526,8 @@ type TwoFactorCapabilities struct {
 // PasswordCapabilities is everything a browser needs to pre-validate a new
 // password except the blocklist itself. AllowCommon says the blocklist is off.
 type PasswordCapabilities struct {
-	MinLength        int  `json:"min_length"`
-	MaxLength        int  `json:"max_length"`
-	RequireUppercase bool `json:"require_uppercase"`
-	RequireLowercase bool `json:"require_lowercase"`
-	RequireDigit     bool `json:"require_digit"`
-	RequireSymbol    bool `json:"require_symbol"`
-	AllowCommon      bool `json:"allow_common"`
+	MinLength int `json:"min_length"`
+	MaxLength int `json:"max_length"`
 }
 
 type PasswordlessCapabilities struct {
@@ -576,7 +570,7 @@ const (
 	// restores it and continues this sign-in.
 	AuthAccountRecoveryRequired AuthStatus = "account_recovery_required"
 	// AuthDeviceVerificationRequired: a new device past the account's limit
-	// (Config.SignIn.NewDevicesPerAccount); a code went to the owner's
+	// (ten new devices a day); a code went to the owner's
 	// device_verification.channel. Confirm it at POST
 	// /device-verification/confirm (or resend at /device-verification/send).
 	AuthDeviceVerificationRequired AuthStatus = "device_verification_required"

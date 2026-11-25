@@ -2,7 +2,6 @@ package critical_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -16,6 +15,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/password"
 )
 
@@ -37,7 +37,7 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		u := f.user(t)
 		noError(t, f.auth.Ban(t.Context(), iam.SystemIdentity(), u.ID, iam.Ban{}))
 		f.call(t, "POST", "/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password}).want(t, http.StatusUnauthorized, "user_banned")
-		g := newFixture(t, proofRegistration())
+		g := newFixture(t)
 		noError(t, g.auth.Start(context.Background()))
 		deleted := g.user(t)
 		results, err := g.auth.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{deleted.ID})
@@ -46,18 +46,17 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 			t.Fatalf("delete: %+v", results)
 		}
 		g.call(t, "POST", "/password/login", "", map[string]string{"identifier": deleted.Email, "password": deleted.Password}).want(t, http.StatusUnauthorized, "account_disabled")
+		// A host-created account signs in unproven, and stays unproven.
 		unverified, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "unverified-login@example.com", Username: "unverifiedlogin", Password: authtest.Password})
 		noError(t, err)
 		r := g.call(t, "POST", "/password/login", "", map[string]string{"identifier": *unverified.Email, "password": authtest.Password})
-		r.want(t, http.StatusOK, "")
-		var pending signInResult
-		decode(t, r.body, &pending)
-		if pending.Status != "verification_required" || pending.Tokens != nil {
-			t.Fatalf("unverified login skipped contact proof: %s", r.body)
+		tokensFrom(t, r, unverified.ID)
+		if still, err := g.auth.User(t.Context(), iam.UserByID(unverified.ID)); err != nil || still.EmailVerified {
+			t.Fatalf("an unproven sign-in proved the address: %v", err)
 		}
+		var pending signInResult
 		m := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.TwoFactor.Mode = iam.TwoFactorRequired
-			c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP}
+			c.TwoFactor = iam.TwoFactorRequired
 		}))
 		required := m.user(t)
 		r = m.call(t, "POST", "/password/login", "", map[string]string{"identifier": required.Email, "password": required.Password})
@@ -103,7 +102,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 	})
 	t.Run("AK-J04-C05_IP_and_identifier_budgets_are_enforced", func(t *testing.T) {
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["password_login"] = config.RateLimit{Limit: 1, Window: time.Hour}
+			})
 		}))
 		g.call(t, "POST", "/password/login", "", map[string]string{"identifier": "first@example.com", "password": "bad-password"}).want(t, http.StatusUnauthorized, "invalid_credentials")
 		r := g.call(t, "POST", "/password/login", "", map[string]string{"identifier": "different@example.com", "password": "bad-password"})
@@ -115,10 +116,12 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		// it sends to; trusted distinct source addresses must not buy
 		// unlimited email sends. Past it the sign-up answers as one does and
 		// sends nothing.
-		h := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
+		h := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.HTTP.DirectPeerIP = false
 			c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
-			c.HTTP.RateLimits["register_create_identifier"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["register_create_identifier"] = config.RateLimit{Limit: 1, Window: time.Hour}
+			})
 		}))
 		body := map[string]string{"identifier": "budgeted@example.com", "username": "budgetedperson", "password": authtest.Password}
 		a, err := h.requestHeaders(t.Context(), "POST", "/register", "", body, http.Header{"X-Forwarded-For": {"192.0.2.10"}})
@@ -133,47 +136,6 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 			t.Fatal("identifier budget allowed duplicate external delivery")
 		}
 	})
-	t.Run("AK-J04-C06_unproven_sign_in_is_refused_while_no_channel_can_send", func(t *testing.T) {
-		g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) { c.SenderHealthRecheck = 100 * time.Millisecond }))
-		unproven, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-outage@example.com", Username: "unprovenoutage", Password: authtest.Password})
-		noError(t, err)
-		phoneProven, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "phone-proven@example.com", Phone: "+12025550177", Username: "phoneproven", Password: authtest.Password, PhoneVerified: true})
-		noError(t, err)
-		verified := g.user(t)
-		login := func(identifier, password string) response {
-			return g.call(t, "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": password})
-		}
-		status := func(r response) signInResult {
-			r.want(t, http.StatusOK, "")
-			var out signInResult
-			decode(t, r.body, &out)
-			return out
-		}
-
-		if out := status(login(*unproven.Email, authtest.Password)); out.Status != "verification_required" || out.Tokens != nil {
-			t.Fatalf("healthy sender did not park the unproven sign-in: %+v", out)
-		}
-		g.out.Last(t, iam.MessageVerification, *unproven.Email)
-
-		g.out.SetEmailHealth(errors.New("owned email outage"))
-		noError(t, g.auth.Start(context.Background()))
-		eventually(t, "email health failure", func() bool { return !g.auth.EmailAvailable() })
-		login(*unproven.Email, authtest.Password).want(t, http.StatusServiceUnavailable, "verification_unavailable")
-		login(*unproven.Email, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
-		sessions, err := g.auth.Sessions(t.Context(), unproven.ID)
-		noError(t, err)
-		if len(sessions) != 0 {
-			t.Fatal("unproven sign-in got a session without its code")
-		}
-		if out := status(login(verified.Email, authtest.Password)); out.Status != "complete" || out.Tokens == nil {
-			t.Fatalf("verified account was refused during the outage: %+v", out)
-		}
-		// A proven phone passes the gate to the usual phone-only device code.
-		if out := status(login(*phoneProven.Email, authtest.Password)); out.Status != "device_verification_required" {
-			t.Fatalf("account with a proven phone was refused during the outage: %+v", out)
-		}
-		g.out.Last(t, iam.MessageNewDeviceCode, *phoneProven.Phone)
-	})
 	t.Run("AK-J04-C07_identifier_budget_spans_addresses_and_treats_missing_accounts_alike", func(t *testing.T) {
 		for _, store := range []struct {
 			name string
@@ -183,10 +145,12 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 			{"redis", []authtest.Option{authtest.WithDeps(func(d *authkit.Deps) { d.Redis = realRedis(t) })}},
 		} {
 			t.Run(store.name, func(t *testing.T) {
-				g := newFixture(t, append([]authtest.Option{proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
+				g := newFixture(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
 					c.HTTP.DirectPeerIP = false
 					c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
-					c.HTTP.RateLimits["password_login_identifier"] = authkit.RateLimit{Limit: 2, Window: time.Hour}
+					config.Tune(c, func(tn *config.Tuning) {
+						tn.RateLimits["password_login_identifier"] = config.RateLimit{Limit: 2, Window: time.Hour}
+					})
 				})}, store.deps...)...)
 				u, other, taken := g.user(t), g.user(t), g.user(t)
 				phone, err := g.auth.CreateUser(t.Context(), iam.NewUser{Phone: "+12025550179", PhoneVerified: true, Username: "budgetphone", Password: authtest.Password})
@@ -265,7 +229,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 
 				// A spent budget frees itself as its window passes.
 				h := newFixture(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
-					c.HTTP.RateLimits["password_login_identifier"] = authkit.RateLimit{Limit: 1, Window: 5 * time.Second}
+					config.Tune(c, func(tn *config.Tuning) {
+						tn.RateLimits["password_login_identifier"] = config.RateLimit{Limit: 1, Window: 5 * time.Second}
+					})
 				})}, store.deps...)...)
 				v := h.user(t)
 				h.call(t, "POST", "/password/login", "", map[string]string{"identifier": v.Email, "password": "wrong-password"}).want(t, http.StatusUnauthorized, "invalid_credentials")
@@ -280,8 +246,10 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		}
 	})
 	t.Run("AK-J04-C08_account_state_shows_only_after_the_password_is_proved", func(t *testing.T) {
-		g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 1000, Window: time.Hour}
+		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["password_login"] = config.RateLimit{Limit: 1000, Window: time.Hour}
+			})
 		}))
 		banned, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "banned-state@example.com", Phone: "+12025550181", Username: "bannedstate", Password: authtest.Password, EmailVerified: true, PhoneVerified: true})
 		noError(t, err)
@@ -322,7 +290,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 	t.Run("AK-J04-C09_missing_account_costs_a_password_check_after_the_hash_budget_was_full", func(t *testing.T) {
 		// A cached dummy hash fails this only as the process's first missing-account sign-in: run it alone to prove that.
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 100000, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["password_login"] = config.RateLimit{Limit: 100000, Window: time.Hour}
+			})
 		}))
 		u := g.user(t)
 		// Ten times the default cost, so a few rounds of these keep the budget full past its one-second wait.
@@ -379,11 +349,7 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 
 func TestCriticalUnprovenPasswordSignIn(t *testing.T) {
 	t.Run("required_MFA_still_applies", func(t *testing.T) {
-		f := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
-			c.Registration.UnprovenPasswordSignIn = true
-			c.TwoFactor.Mode = iam.TwoFactorRequired
-			c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP}
-		}))
+		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor = iam.TwoFactorRequired }))
 		u, err := f.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-mfa@example.com", Username: "unprovenmfa", Password: authtest.Password})
 		noError(t, err)
 		r := f.call(t, "POST", "/password/login", "", map[string]string{"identifier": *u.Email, "password": authtest.Password})
@@ -396,15 +362,11 @@ func TestCriticalUnprovenPasswordSignIn(t *testing.T) {
 	})
 	hash, err := password.HashArgon2id(t.Context(), authtest.Password)
 	noError(t, err)
-	for _, allow := range []bool{false, true} {
-		name := "verification_required"
-		if allow {
-			name = "unproven_password_sign_in"
-		}
-		t.Run(name, func(t *testing.T) {
-			f := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
-				c.Registration.UnprovenPasswordSignIn = allow
-			}))
+	// An imported account's contact is unproven: it signs in by password,
+	// and stays unproven.
+	for _, allow := range []bool{true} {
+		t.Run("unproven_password_sign_in", func(t *testing.T) {
+			f := newFixture(t)
 			for _, imported := range []iam.ImportUser{
 				{Email: "imported-login@example.com", Username: "importedemail"},
 				{Phone: "+12025550178", Username: "importedphone"},
@@ -461,7 +423,7 @@ type deviceStep struct {
 }
 
 func deviceFixture(t *testing.T) *fixture {
-	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.SignIn.NewDevicesPerAccount = 1 }))
+	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) { config.Tune(c, func(tn *config.Tuning) { tn.NewDevicesPerAccount = 1 }) }))
 }
 func (f *fixture) deviceStep(t *testing.T, u authtest.User) (deviceStep, string) {
 	t.Helper()

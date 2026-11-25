@@ -1,5 +1,6 @@
-// Package naming applies the username rule of a normalized
-// config.UsernameConfig: validation, derivation, renames and name retention.
+// Package naming applies AuthKit's username rule and its naming policy
+// (github.com/open-rails/authkit/naming): validation, derivation, renames
+// and name retention.
 package naming
 
 import (
@@ -7,9 +8,31 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/naming"
+)
+
+// Username lengths: MinLength to MaxLength, MaxImportLength for a
+// host-provisioned name.
+const (
+	MinLength       = 4
+	MaxLength       = 30
+	MaxImportLength = 64
+)
+
+// Retention is how long a name its owner let go of stays reserved: Forever,
+// or For.
+type Retention struct {
+	Forever bool
+	For     time.Duration
+}
+
+// FormerNames and DeletedNames are the policy's retentions: a name renamed
+// away from forwards for naming.FormerNameReservation; a deleted owner's
+// stays reserved forever.
+var (
+	FormerNames  = Retention{For: naming.FormerNameReservation}
+	DeletedNames = Retention{Forever: true}
 )
 
 // UsernamePattern is the fixed character rule for interactive usernames,
@@ -23,14 +46,14 @@ func Canonical(username string) string { return strings.ToLower(strings.TrimSpac
 
 // Validate checks a trimmed username against the length rule and
 // UsernamePattern. Length failures carry min_length/max_length metadata.
-func Validate(c config.UsernameConfig, username string) error {
-	return validate(c.MinLength, c.MaxLength, username, false)
+func Validate(username string) error {
+	return validate(MinLength, MaxLength, username, false)
 }
 
-// ValidateImport checks a host-provisioned username: the configured minimum,
-// a maximum of at least 64, and hyphens are also allowed.
-func ValidateImport(c config.UsernameConfig, username string) error {
-	return validate(c.MinLength, max(c.MaxLength, config.UsernameMaxLengthCeiling), username, true)
+// ValidateImport checks a host-provisioned username: up to MaxImportLength,
+// and hyphens are also allowed.
+func ValidateImport(username string) error {
+	return validate(MinLength, MaxImportLength, username, true)
 }
 
 func validate(minLen, maxLen int, username string, hyphens bool) error {
@@ -57,7 +80,7 @@ func validate(minLen, maxLen int, username string, hyphens bool) error {
 }
 
 // Derive turns arbitrary text into a username that satisfies Validate.
-func Derive(c config.UsernameConfig, s string) string {
+func Derive(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
@@ -71,21 +94,21 @@ func Derive(c config.UsernameConfig, s string) string {
 	if !asciiLetter(out[0]) {
 		out = "u" + out
 	}
-	for len(out) < c.MinLength {
+	for len(out) < MinLength {
 		out += "_user"
 	}
-	return out[:min(len(out), c.MaxLength)]
+	return out[:min(len(out), MaxLength)]
 }
 
 // WithSuffix appends suffix to a derived username, trimming base (and, under a
 // very small maximum, suffix) so the result still satisfies Validate.
-func WithSuffix(c config.UsernameConfig, base, suffix string) string {
-	keep := max(1, c.MaxLength-len(suffix))
+func WithSuffix(base, suffix string) string {
+	keep := max(1, MaxLength-len(suffix))
 	if len(base) > keep {
 		base = base[:keep]
 	}
 	out := base + suffix
-	return out[:min(len(out), c.MaxLength)]
+	return out[:min(len(out), MaxLength)]
 }
 
 func asciiLetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
@@ -93,14 +116,14 @@ func asciiLetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c 
 // CheckRename runs under the account lock. Callers authorize and detect a
 // same-canonical-name no-op first. Trusted import updates skip it, never
 // namespace ownership checks.
-func CheckRename(c config.UsernameConfig, lastRenamedAt *time.Time, now time.Time) error {
-	if !c.Renames {
-		return iam.ErrRenamesDisabled
+func CheckRename(lastRenamedAt *time.Time, now time.Time) error {
+	if lastRenamedAt == nil {
+		return nil
 	}
-	if next, ok := nextRename(c, lastRenamedAt); ok && now.Before(next) {
+	if next := naming.NextRename(*lastRenamedAt); now.Before(next) {
 		next = next.UTC()
 		retry := int64((next.Sub(now) + time.Second - time.Nanosecond) / time.Second)
-		cooldown := int64(Cooldown(c) / time.Second)
+		cooldown := int64(naming.RenameCooldown / time.Second)
 		return errmodel.E(errmodel.CodeRenameRateLimited, errmodel.WithDetails(errmodel.ActionAvailability{
 			Action: "update_username", Reason: "cooldown", RetryAfterSeconds: retry, NextAllowedAt: &next, CooldownSeconds: &cooldown,
 		}))
@@ -108,27 +131,13 @@ func CheckRename(c config.UsernameConfig, lastRenamedAt *time.Time, now time.Tim
 	return nil
 }
 
-func nextRename(c config.UsernameConfig, last *time.Time) (time.Time, bool) {
-	if last == nil || c.RenameInterval <= 0 {
-		return time.Time{}, false
-	}
-	return last.Add(c.RenameInterval), true
-}
-
-// Cooldown is the least time between two renames.
-func Cooldown(c config.UsernameConfig) time.Duration { return max(c.RenameInterval, 0) }
-
-// ExpiresAt is the promise made when a name is let go of: nil means forever,
-// and immediate returns now (lookups and claims use the same strict
-// now.Before(deadline)). Later policy changes never rewrite it.
-func ExpiresAt(r config.NameRetention, now time.Time) *time.Time {
-	switch r.Mode {
-	case config.NameRetentionForever:
+// ExpiresAt is the promise made when a name is let go of: nil means forever.
+// Later policy changes never rewrite it.
+func ExpiresAt(r Retention, now time.Time) *time.Time {
+	if r.Forever {
 		return nil
-	case config.NameRetentionImmediate:
-		return &now
 	}
-	deadline := now.Add(r.Duration)
+	deadline := now.Add(r.For)
 	return &deadline
 }
 
@@ -139,15 +148,15 @@ type Alias struct {
 }
 
 // PolicyInfo is the naming policy account UIs show: renames, and how long a
-// renamed-away or purged account's name stays reserved (seconds are 0 unless
-// the mode is finite). Rename timing is reported by State.NextRenameAt and
-// RetryAfterSeconds.
+// renamed-away or purged account's name stays reserved ("finite" with its
+// seconds, or "forever" with 0). Rename timing is reported by
+// State.NextRenameAt and RetryAfterSeconds.
 type PolicyInfo struct {
-	Enabled                     bool                     `json:"enabled"`
-	FormerNameRetentionMode     config.NameRetentionMode `json:"former_name_retention_mode"`
-	FormerNameRetentionSeconds  int64                    `json:"former_name_retention_seconds"`
-	DeletedNameRetentionMode    config.NameRetentionMode `json:"deleted_name_retention_mode"`
-	DeletedNameRetentionSeconds int64                    `json:"deleted_name_retention_seconds"`
+	Enabled                     bool   `json:"enabled"`
+	FormerNameRetentionMode     string `json:"former_name_retention_mode"`
+	FormerNameRetentionSeconds  int64  `json:"former_name_retention_seconds"`
+	DeletedNameRetentionMode    string `json:"deleted_name_retention_mode"`
+	DeletedNameRetentionSeconds int64  `json:"deleted_name_retention_seconds"`
 }
 
 // State is an account's rename state.
@@ -159,16 +168,19 @@ type State struct {
 	RetryAfterSeconds int64      `json:"retry_after_seconds"`
 }
 
+// Policy is the policy as PolicyInfo shows it.
+var Policy = PolicyInfo{
+	Enabled:                    true,
+	FormerNameRetentionMode:    "finite",
+	FormerNameRetentionSeconds: int64(naming.FormerNameReservation / time.Second),
+	DeletedNameRetentionMode:   "forever",
+}
+
 // NewState is the rename state of an account last renamed at last.
-func NewState(c config.UsernameConfig, last *time.Time, now time.Time) State {
-	out := State{Policy: PolicyInfo{
-		Enabled:                     c.Renames,
-		FormerNameRetentionMode:     c.FormerNames.Mode,
-		FormerNameRetentionSeconds:  retentionSeconds(c.FormerNames),
-		DeletedNameRetentionMode:    c.DeletedNames.Mode,
-		DeletedNameRetentionSeconds: retentionSeconds(c.DeletedNames),
-	}, Allowed: c.Renames}
-	if next, ok := nextRename(c, last); ok {
+func NewState(last *time.Time, now time.Time) State {
+	out := State{Policy: Policy, Allowed: true}
+	if last != nil {
+		next := naming.NextRename(*last)
 		out.NextRenameAt = &next
 		if next.After(now) {
 			out.Allowed = false
@@ -180,11 +192,4 @@ func NewState(c config.UsernameConfig, last *time.Time, now time.Time) State {
 		}
 	}
 	return out
-}
-
-func retentionSeconds(r config.NameRetention) int64 {
-	if r.Mode != config.NameRetentionFinite {
-		return 0
-	}
-	return int64(r.Duration / time.Second)
 }

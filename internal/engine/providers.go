@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ops"
@@ -116,7 +117,7 @@ func (s *Engine) signsInWith(slug string) bool {
 // passwordless code to its email or phone.
 func (s *Engine) hasSignInBesidesProviders(ctx context.Context, tx pgx.Tx, userID string, account db.UserCredentialVersionForUpdateRow) (bool, error) {
 	q := s.qtx(tx)
-	if s.cfg.Registration.PasswordlessLogin && (account.Email != nil && s.email != nil || account.PhoneNumber != nil && s.sms != nil) {
+	if config.Mounted(s.cfg, iam.RoutePasswordless) && (account.Email != nil && s.email != nil || account.PhoneNumber != nil && s.sms != nil) {
 		return true, nil
 	}
 	if ok, err := q.UserHasPassword(ctx, userID); ok || err != nil {
@@ -125,7 +126,7 @@ func (s *Engine) hasSignInBesidesProviders(ctx context.Context, tx pgx.Tx, userI
 	if ok, err := s.holdsPasskey(ctx, tx, userID); ok || err != nil {
 		return ok, err
 	}
-	if !s.cfg.DeviceKeys.Enabled {
+	if !config.Mounted(s.cfg, iam.RouteDeviceKeys) {
 		return false, nil
 	}
 	keys, err := q.DeviceKeysByUser(ctx, userID)

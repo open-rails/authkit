@@ -166,7 +166,7 @@ func (s *Engine) ApproveOAuthAuthorization(ctx context.Context, userID, sessionI
 		return "", err
 	}
 	s.oauthAudit(ctx, "oauth_authorization_approved", userID, map[string]string{"client_id": a.ClientID, "session_id": sessionID})
-	return oauthRedirect(a.RedirectURI, url.Values{"code": {code}, "state": optional(a.State), "iss": {s.cfg.Token.Issuer}})
+	return oauthRedirect(a.RedirectURI, url.Values{"code": {code}, "state": optional(a.State), "iss": {s.cfg.Issuer}})
 }
 
 // DeclineOAuthAuthorization ends a pending request without a code and
@@ -192,7 +192,7 @@ func (s *Engine) DeclineOAuthAuthorization(ctx context.Context, id, code string)
 	case !ok:
 		return "", errmodel.E(errmodel.CodeAuthorizationRequestNotFound)
 	}
-	return oauthRedirect(a.RedirectURI, url.Values{"error": {code}, "state": optional(a.State), "iss": {s.cfg.Token.Issuer}})
+	return oauthRedirect(a.RedirectURI, url.Values{"error": {code}, "state": optional(a.State), "iss": {s.cfg.Issuer}})
 }
 
 // ExchangeOAuthCode redeems an authorization code once (RFC 6749 §4.1.3,
@@ -458,7 +458,7 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 		return authflow.OAuthTokens{}, iam.ErrSigningNotConfigured
 	}
 	now := s.nowTime()
-	ttl := s.cfg.AuthorizationServer.AccessTokenTTL
+	ttl := config.AccessTokenTTL
 	if m.workload {
 		ttl = devicekey.MaxCapabilityLifetime + authflow.AssertionSkew // grantEnd, the capability's exp, bounds it
 	}
@@ -473,7 +473,7 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 			return authflow.OAuthTokens{}, errOAuthGrantRefused
 		}
 	}
-	issuer := s.cfg.Token.Issuer
+	issuer := s.cfg.Issuer
 	audience := m.resource
 	if audience == "" {
 		audience = issuer
@@ -557,14 +557,8 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	}
 	if m.client.ThirdParty() {
 		addVerifiedContactClaims(at, u, m.scopes)
-	} else if (slices.Contains(m.scopes, "email") || resource.ContactClaims) && u.Email != nil {
+	} else if slices.Contains(m.scopes, "email") && u.Email != nil {
 		at["email"], at["email_verified"] = *u.Email, u.EmailVerified
-	}
-	if resource.ContactClaims && !m.client.ThirdParty() {
-		if u.Username != nil {
-			at["preferred_username"], at["name"] = *u.Username, *u.Username
-		}
-		at["updated_at"] = u.ProfileUpdatedAt.Unix()
 	}
 	access, err := jose.Sign(ctx, signer, jose.ResourceAccessTokenType, at)
 	if err != nil {
@@ -715,7 +709,7 @@ func (s *Engine) verifyOwnToken(token, typ string) (map[string]any, error) {
 	if typ != "" && !strings.EqualFold(gotTyp, typ) {
 		return nil, fmt.Errorf("token typ %q, want %q", gotTyp, typ)
 	}
-	if jose.String(claims, "iss") != s.cfg.Token.Issuer {
+	if jose.String(claims, "iss") != s.cfg.Issuer {
 		return nil, errors.New("token issued by another issuer")
 	}
 	return claims, nil

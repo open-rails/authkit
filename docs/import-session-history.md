@@ -19,7 +19,7 @@ result, err := client.ImportSessionEvents(ctx, []iam.ImportSessionEvent{{
 
 Use `SessionEventCreated` for a successful sign-in and `SessionEventFailed` for
 a failed attempt. Other kinds are refused. `OccurredAt` must be nonzero and no
-later than the import starts. `Issuer` defaults to `Config.Token.Issuer`; the host
+later than the import starts. `Issuer` defaults to `Config.Issuer`; the host
 may instead name the legacy site. `Method` or `Reason` must name the source.
 `IP` takes a literal IPv4 or IPv6 address; decode binary `inet_pton` data in the
 host. An empty IP or user agent means unknown. Text must be valid UTF-8 without
@@ -38,7 +38,7 @@ an empty call succeeds. Options, including `InTx`, are unsupported.
 | `duplicate` | empty | This account already has the stable ID; nothing changed. |
 | `refused` | `unknown_account` | No account in the selected tenant, including a foreign account. |
 | `refused` | `deleted_account` | The account is deleted. |
-| `refused` | `too_old` | Entry predates `SessionEventRetention` (365 days by default). |
+| `refused` | `too_old` | Entry predates session-event retention (365 days). |
 | `refused` | `invalid` | An input field failed the rules above, or the account ID is invalid. |
 
 Validation runs before retention, then account lookup. Invalid or expired

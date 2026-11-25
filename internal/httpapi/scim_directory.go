@@ -54,7 +54,7 @@ func scimDirectory(manage bool, f func(*Service, http.ResponseWriter, *http.Requ
 			return
 		}
 		bound := ""
-		if b, ok := v.(auth.Bound); ok && b.BoundScope().Authority == s.cfg.Token.Issuer {
+		if b, ok := v.(auth.Bound); ok && b.BoundScope().Authority == s.cfg.Issuer {
 			bound = b.BoundScope().ID
 		}
 		t, err := s.svc.SCIMTenant(ctx, v.Identity(), bound)
@@ -73,7 +73,7 @@ func scimDirectory(manage bool, f func(*Service, http.ResponseWriter, *http.Requ
 		checker, ok := v.(auth.PermissionChecker)
 		allowed := false
 		if ok {
-			allowed, err = checker.Can(ctx, auth.Scope{Authority: s.cfg.Token.Issuer, ID: t.GroupID}, perm.String())
+			allowed, err = checker.Can(ctx, auth.Scope{Authority: s.cfg.Issuer, ID: t.GroupID}, perm.String())
 		}
 		if err != nil {
 			s.scimRefuse(w, r, err)

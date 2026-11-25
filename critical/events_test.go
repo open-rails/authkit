@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/helpers/eventlog"
 )
@@ -98,7 +99,7 @@ func TestCriticalRetainedEvents(t *testing.T) {
 		authtest.GrantRole(t, f.auth, iam.RootGroup(), iam.UserSubject(reader.ID), f.rootReader)
 		session := f.signIn(t, reader)
 		f.user(t)
-		remote, err := authkit.NewRemoteEventReader(authkit.RemoteEventConfig{BaseURL: f.server.URL + f.auth.APIBase(), HTTPClient: f.server.Client(), Headers: http.Header{"Authorization": {"Bearer " + session.AccessToken}}})
+		remote, err := authkit.NewRemoteEventReader(authkit.RemoteEventConfig{BaseURL: f.server.URL + f.auth.APIBase(), HTTPClient: &http.Client{Transport: credentialTransport{t, session.AccessToken, f.server.Client().Transport}}})
 		noError(t, err)
 		query := eventlog.Query{Types: []string{"user.registered"}, Limit: 50}
 		local, err := f.auth.EventReader().ListEvents(t.Context(), query)
@@ -127,7 +128,7 @@ func TestCriticalRetainedEvents(t *testing.T) {
 		noError(t, err)
 		server := httptest.NewServer(other.Handler())
 		t.Cleanup(server.Close)
-		g := &fixture{auth: other, server: server}
+		g := &fixture{auth: other, server: server, t: t, dpop: f.dpop, cfg: f.cfg}
 		g.call(t, "GET", "/events", session.AccessToken, nil).want(t, http.StatusForbidden, "forbidden")
 		page, err := f.auth.ListEvents(t.Context(), iam.EventQuery{})
 		noError(t, err)
@@ -139,7 +140,7 @@ func TestCriticalRetainedEvents(t *testing.T) {
 		f.call(t, "GET", "/events", session.AccessToken, nil).want(t, http.StatusForbidden, "forbidden")
 	})
 	t.Run("AK-J26-C05_empty_malformed_and_expired_cursors_are_explicit", func(t *testing.T) {
-		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.EventRetention = time.Hour }))
+		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { config.Tune(c, func(tn *config.Tuning) { tn.EventRetention = time.Hour }) }))
 		clock := testclock.Wall()
 		testclock.Use(f.auth, clock.Now)
 		empty, err := f.auth.ListEvents(t.Context(), iam.EventQuery{Types: []string{"future.unknown.type"}})

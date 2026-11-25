@@ -74,11 +74,11 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, who auth.Identity,
 				return err
 			}
 		}
-		if out, err = s.upsertRemoteApplication(ctx, st, in); err != nil {
+		if out, err = s.upsertRemoteApplication(ctx, st, in, false); err != nil {
 			return err
 		}
 		if rekey {
-			if err := db.New(st.q).RemoteApplicationSetRegistrar(ctx, db.RemoteApplicationSetRegistrarParams{ID: out.ID, RegisteredBy: stateOf(who).ID(), CatalogIssuer: s.cfg.Token.Issuer}); err != nil {
+			if err := db.New(st.q).RemoteApplicationSetRegistrar(ctx, db.RemoteApplicationSetRegistrarParams{ID: out.ID, RegisteredBy: stateOf(who).ID(), CatalogIssuer: s.cfg.Issuer}); err != nil {
 				return err
 			}
 		}

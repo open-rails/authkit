@@ -21,7 +21,7 @@ type accountRegistration struct {
 	InviteToken       string
 	Provider          *authflow.ExternalIdentity
 	// Agreements are the documents the sign-up accepts: at least
-	// Registration.Agreements, recorded with the account.
+	// sign-up agreements (AgreementConfig.SignUp), recorded with the account.
 	Agreements []iam.AgreementRef
 	IP         string
 	UserAgent  string

@@ -50,12 +50,6 @@ func (s *Engine) CreateAPIKey(ctx context.Context, a auth.Identity, ref iam.Grou
 	if expiresAt != nil && !expiresAt.After(now) {
 		return iam.APIKeyCreated{}, errmodel.ErrInvalidExpiry
 	}
-	if maxTTL := s.cfg.APIKeys.MaxTTL; maxTTL > 0 {
-		capAt := now.Add(maxTTL)
-		if expiresAt == nil || expiresAt.After(capAt) {
-			expiresAt = &capAt
-		}
-	}
 	var out iam.APIKeyCreated
 	err = s.withGroupMutationIn(ctx, a, host, ref, func(st *permissionGroupStore, g groupTarget) error {
 		// A persona without API keys has none, whoever asks (the system too).
@@ -88,14 +82,14 @@ func (s *Engine) CreateAPIKey(ctx context.Context, a auth.Identity, ref iam.Grou
 			provisions = &id
 		}
 		for range 5 {
-			minted, err := apikey.Mint(s.cfg.APIKeys.Prefix)
+			minted, err := apikey.Mint(s.cfg.APIKeyPrefix)
 			if err != nil {
 				return err
 			}
 			out.APIKey = iam.APIKey{LookupID: minted.LookupID, GroupID: g.ID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: nullable(creator), ExpiresAt: expiresAt, ProvisionsFor: provisions}
 			row, err := db.New(st.q).APIKeyInsert(ctx, db.APIKeyInsertParams{
 				GroupID: g.ID, KeyID: minted.LookupID, SecretHash: minted.SecretHash, Name: name,
-				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt, CatalogIssuer: s.cfg.Token.Issuer, ProvisionsFor: provisions,
+				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt, CatalogIssuer: s.cfg.Issuer, ProvisionsFor: provisions,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue // lookup id collision
@@ -187,13 +181,13 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedA
 	if err := s.requirePG(); err != nil {
 		return iam.ResolvedAPIKey{}, err
 	}
-	lookupID, secret, ok := apikey.Parse(s.cfg.APIKeys.Prefix, strings.TrimSpace(token))
+	lookupID, secret, ok := apikey.Parse(s.cfg.APIKeyPrefix, strings.TrimSpace(token))
 	if !ok {
 		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyInvalid
 	}
 	// A key resolves only at the app it was issued through: another app's
 	// catalog may give its role name other permissions (ak#417).
-	k, err := s.q.APIKeyByLookupID(ctx, db.APIKeyByLookupIDParams{KeyID: lookupID, Issuer: s.cfg.Token.Issuer})
+	k, err := s.q.APIKeyByLookupID(ctx, db.APIKeyByLookupIDParams{KeyID: lookupID, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyInvalid
 	}
@@ -224,7 +218,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedA
 		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyRevoked
 	}
 	p.LookupID = lookupID
-	p.Issuer = s.cfg.Token.Issuer
+	p.Issuer = s.cfg.Issuer
 	return p, nil
 }
 

@@ -12,7 +12,7 @@ import (
 )
 
 // Request authentication. The Client is a verify.Authority for
-// Config.Token.ExpectedAudiences: pass it to verify.Required,
+// the Issuer: pass it to verify.Required,
 // verify.RequirePermission and the adapters. NewVerifier builds one for a
 // host resource server's own audiences.
 

@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/apikey"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -49,7 +50,7 @@ func (s *Engine) personalPermission(raw string) bool {
 // personalTokenManager requires an actual live interactive session, including
 // its tenant binding. A PAT cannot turn itself into another credential.
 func (s *Engine) personalTokenManager(ctx context.Context, st *permissionGroupStore, who auth.Identity, fresh bool) (string, error) {
-	if !s.cfg.PersonalAccessTokens.Enabled {
+	if !config.Mounted(s.cfg, iam.RoutePersonalAccessTokens) {
 		return "", errmodel.E(errmodel.CodeForbidden)
 	}
 	state := stateOf(who)
@@ -70,7 +71,7 @@ func (s *Engine) personalTokenManager(ctx context.Context, st *permissionGroupSt
 	}
 	if fresh {
 		q := db.New(st.q)
-		proof, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: session.SessionID, Issuer: s.cfg.Token.Issuer})
+		proof, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: session.SessionID, Issuer: s.cfg.Issuer})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", iam.ErrSessionRevoked
 		}
@@ -107,11 +108,11 @@ func (s *Engine) CreatePersonalAccessToken(ctx context.Context, who auth.Identit
 		}
 	}
 	now := s.nowTime()
-	expires := now.Add(s.cfg.PersonalAccessTokens.DefaultTTL)
+	expires := now.Add(config.PersonalAccessTokenTTL)
 	if in.ExpiresAt != nil {
 		expires = in.ExpiresAt.UTC()
 	}
-	if !expires.After(now) || expires.After(now.Add(s.cfg.PersonalAccessTokens.MaxTTL)) {
+	if !expires.After(now) || expires.After(now.Add(config.PersonalAccessTokenMaxTTL)) {
 		return out, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("expires_at"))
 	}
 	err := s.withAuthorityMutation(ctx, who, func(st *permissionGroupStore) error {
@@ -135,7 +136,7 @@ func (s *Engine) CreatePersonalAccessToken(ctx context.Context, who auth.Identit
 			if err != nil {
 				return err
 			}
-			row, err := db.New(st.q).PersonalTokenInsert(ctx, db.PersonalTokenInsertParams{OwnerUserID: owner, GroupID: group.ID, Issuer: s.cfg.Token.Issuer,
+			row, err := db.New(st.q).PersonalTokenInsert(ctx, db.PersonalTokenInsertParams{OwnerUserID: owner, GroupID: group.ID, Issuer: s.cfg.Issuer,
 				LookupID: m.LookupID, SecretHash: m.SecretHash, Name: name, Permissions: permissions, ExpiresAt: expires})
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
@@ -166,7 +167,7 @@ func (s *Engine) ListPersonalAccessTokens(ctx context.Context, who auth.Identity
 		if err != nil {
 			return err
 		}
-		rows, err := db.New(st.q).PersonalTokensByOwner(ctx, db.PersonalTokensByOwnerParams{OwnerUserID: owner, Issuer: s.cfg.Token.Issuer, After: after, PageLimit: int64(page.PageLimit() + 1)})
+		rows, err := db.New(st.q).PersonalTokensByOwner(ctx, db.PersonalTokensByOwnerParams{OwnerUserID: owner, Issuer: s.cfg.Issuer, After: after, PageLimit: int64(page.PageLimit() + 1)})
 		if err != nil {
 			return err
 		}
@@ -193,7 +194,7 @@ func (s *Engine) RevokePersonalAccessToken(ctx context.Context, who auth.Identit
 		if !isUUID(id) {
 			return errmodel.E(errmodel.CodeInvalidRequest)
 		}
-		return db.New(st.q).PersonalTokenRevoke(ctx, db.PersonalTokenRevokeParams{ID: id, OwnerUserID: owner, Issuer: s.cfg.Token.Issuer})
+		return db.New(st.q).PersonalTokenRevoke(ctx, db.PersonalTokenRevokeParams{ID: id, OwnerUserID: owner, Issuer: s.cfg.Issuer})
 	})
 	if errors.Is(err, errPersonalTokenFresh) {
 		return s.StepUpRequired(ctx, stateOf(who).ID())
@@ -204,10 +205,10 @@ func (s *Engine) RevokePersonalAccessToken(ctx context.Context, who auth.Identit
 // Only this token's group is reachable. Current owner grants are intersected
 // with concrete stored permissions every time; positive checks are not cached.
 func (s *Engine) personalTokenAuthority(ctx context.Context, st *permissionGroupStore, out authority, id string, group groupTarget) (authority, error) {
-	if !s.cfg.PersonalAccessTokens.Enabled || !isUUID(id) {
+	if !config.Mounted(s.cfg, iam.RoutePersonalAccessTokens) || !isUUID(id) {
 		return out, iam.ErrInsufficientAuthority
 	}
-	row, err := db.New(st.q).PersonalTokenByID(ctx, db.PersonalTokenByIDParams{ID: id, Issuer: s.cfg.Token.Issuer})
+	row, err := db.New(st.q).PersonalTokenByID(ctx, db.PersonalTokenByIDParams{ID: id, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, iam.ErrInsufficientAuthority
 	}
@@ -238,13 +239,13 @@ func (s *Engine) personalTokenAuthority(ctx context.Context, st *permissionGroup
 func (s *Engine) ResolvePersonalAccessToken(ctx context.Context, token string) (iam.ResolvedPersonalAccessToken, error) {
 	var out iam.ResolvedPersonalAccessToken
 	lookup, secret, ok := parsePersonalToken(token)
-	if !ok || !s.cfg.PersonalAccessTokens.Enabled {
+	if !ok || !config.Mounted(s.cfg, iam.RoutePersonalAccessTokens) {
 		return out, iam.ErrPersonalAccessTokenInvalid
 	}
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
-	row, err := s.q.PersonalTokenByLookupID(ctx, db.PersonalTokenByLookupIDParams{LookupID: lookup, Issuer: s.cfg.Token.Issuer})
+	row, err := s.q.PersonalTokenByLookupID(ctx, db.PersonalTokenByLookupIDParams{LookupID: lookup, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, iam.ErrPersonalAccessTokenInvalid
 	}
@@ -272,7 +273,7 @@ func (s *Engine) ResolvePersonalAccessToken(ctx context.Context, token string) (
 		_ = s.q.PersonalTokenTouch(ctx, row.ID)
 	}()
 	return iam.ResolvedPersonalAccessToken{ID: row.ID, OwnerUserID: row.OwnerUserID, TenantID: tenant,
-		Group: iam.Group{ID: group.ID, Persona: group.Persona, CreatedAt: row.GroupCreatedAt}, Issuer: s.cfg.Token.Issuer, Permissions: ident.Perms(authority.grants)}, nil
+		Group: iam.Group{ID: group.ID, Persona: group.Persona, CreatedAt: row.GroupCreatedAt}, Issuer: s.cfg.Issuer, Permissions: ident.Perms(authority.grants)}, nil
 }
 
 func (s *Engine) personalTokenClaims(ctx context.Context, token string) (verify.Claims, error) {

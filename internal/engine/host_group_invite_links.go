@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -38,7 +39,7 @@ const (
 // stranger has no way to obtain an account, so the capability is OFF (an admin
 // assigns roles directly via the members endpoint instead).
 func (s *Engine) externalInvitesEnabled() bool {
-	mode := s.cfg.Registration.NativeUserMode
+	mode := s.cfg.Registration
 	return mode == iam.RegistrationModeOpen || mode == iam.RegistrationModeInviteOnly
 }
 
@@ -48,7 +49,7 @@ func (s *Engine) externalInvitesEnabled() bool {
 func (s *Engine) inviteURL(code string) string {
 	q := url.Values{}
 	q.Set("code", code)
-	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
+	return s.authkitURL(config.InvitePath, q)
 }
 
 // RedeemInvitation redeems code for the signed-in user a (redeemInvitation):

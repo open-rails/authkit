@@ -132,7 +132,7 @@ func WithPublicHosts(hosts func(ctx context.Context, host string) (bool, error))
 // WithPublicURL is where clients reach the paths this verifier sees:
 // "https://api.example.com", or "https://example.com/api" when a proxy in
 // front strips /api. A DPoP proof must name it plus the request's path, the
-// rule HTTPConfig.PublicURL sets for AuthKit's own routes. No Host or
+// rule AuthKit's own routes follow (the issuer). No Host or
 // Forwarded header is consulted.
 func WithPublicURL(url string) VerifierOption {
 	return func(c *verifierConfig) { c.publicURL = strings.TrimRight(strings.TrimSpace(url), "/") }
@@ -190,6 +190,9 @@ type IssuerOptions struct {
 	// KeySource is read live on every verification: a co-located, rotating
 	// key source such as AuthKit's own.
 	KeySource keys.Source
+	// HTTPClient fetches JWKSURI in place of the Verifier's client
+	// (WithHTTPClient): one allowed a private network for this issuer alone.
+	HTTPClient *http.Client
 
 	// IsLocal marks the issuer whose users are this host's own: only its
 	// access tokens set Claims.UserID (others set Subject).
@@ -217,7 +220,7 @@ func (v *Verifier) AddIssuer(issuerID string, audiences []string, opts IssuerOpt
 	sources := 0
 	if url := strings.TrimSpace(opts.JWKSURI); url != "" {
 		sources++
-		is.jwks = &jwks.Issuer{Issuer: issuerID, URL: url}
+		is.jwks = &jwks.Issuer{Issuer: issuerID, URL: url, Client: opts.HTTPClient}
 	}
 	if len(opts.Keys) > 0 {
 		sources++

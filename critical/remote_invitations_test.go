@@ -40,7 +40,7 @@ func TestCriticalRemoteInvitations(t *testing.T) {
 				"exp": now.Add(10 * time.Minute).Unix(), "jti": uuid.NewString(), "email": email, "email_verified": true})
 			r, err := http.NewRequestWithContext(ctx, http.MethodGet, resource+"/invitations", nil)
 			noError(t, err)
-			r.Header.Set("Authorization", "Bearer "+token)
+			authorize(t, r, token)
 			v, err := client.Authenticator().Authenticate(r)
 			noError(t, err)
 			return v
@@ -79,7 +79,7 @@ func TestCriticalRemoteInvitations(t *testing.T) {
 
 		t.Run("another_catalog", func(t *testing.T) {
 			const email = "other-catalog@remote.example"
-			peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Token.Issuer = "https://other-catalog.example" }))
+			peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Issuer = "https://other-catalog.example" }))
 			id := invite(t, peer, email, f.reader)
 			if _, err := f.auth.AcceptRemoteInvitation(ctx, remoteUser(t, f.auth, email), id); code(err) != "invitation_revoked" {
 				t.Fatalf("an invitation of another application's catalog was redeemed: %v", err)
@@ -114,7 +114,7 @@ func TestCriticalRemoteInvitations(t *testing.T) {
 		t.Run("invitations_disabled", func(t *testing.T) {
 			const email = "disabled@remote.example"
 			id := invite(t, f.auth, email, f.reader)
-			off := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Invitations.Disabled = true }))
+			off := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { unmountGroup(c, iam.RouteInvitations) }))
 			if _, err := off.AcceptRemoteInvitation(ctx, remoteUser(t, off, email), id); !errors.Is(err, iam.ErrInvitationsDisabled) {
 				t.Fatalf("an invitation was redeemed while invitations are disabled: %v", err)
 			}

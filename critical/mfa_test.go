@@ -33,7 +33,7 @@ type loginChallenge struct {
 }
 
 func mfaFixture(t *testing.T, mode iam.TwoFactorMode) *fixture {
-	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor.Mode = mode }))
+	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor = mode }))
 }
 func (f *fixture) totp(t *testing.T, token string) (string, factorResult) {
 	t.Helper()
@@ -132,22 +132,12 @@ func TestCriticalMFA(t *testing.T) {
 		challenge := f.challenge(t, smsUser)
 		loginCode := f.out.Last(t, iam.MessageLoginCode, phone).Code
 		tokensFrom(t, f.call(t, "POST", "/2fa/verify", "", map[string]any{"user_id": smsUser.ID, "challenge": challenge.Challenge, "factor_id": sms.Factor.ID, "code": loginCode}), smsUser.ID)
-		// Legacy optional email-factor support must not be mistaken for the
-		// stronger policy applied when this account is promoted.
+		// Email is no second factor (NIST SP 800-63B-4 §3.1.3.1).
 		weakUser := f.user(t)
 		weakSession := f.signIn(t, weakUser)
-		f.call(t, "POST", "/me/2fa/setup", weakSession.AccessToken, map[string]string{"method": "email"}).want(t, http.StatusOK, "")
-		emailCode := f.out.Last(t, iam.MessageVerification, weakUser.Email).Code
-		r = f.call(t, "POST", "/me/2fa/factors", weakSession.AccessToken, map[string]string{"method": "email", "code": emailCode})
-		r.want(t, http.StatusCreated, "")
-		var email factorResult
-		decode(t, r.body, &email)
-		weakToken := factorSession(t, email, weakUser.ID)
-		required := true
-		_, err := f.auth.UpdateUser(t.Context(), iam.SystemIdentity(), weakUser.ID, iam.UserUpdate{MFARequired: &required})
-		noError(t, err)
-		f.call(t, "PATCH", "/me", weakToken.AccessToken, map[string]string{"username": "emailonlyelevation"}).want(t, http.StatusForbidden, "2fa_enrollment_required")
-		enrollmentToken(t, f.call(t, "POST", "/password/login", "", map[string]string{"identifier": weakUser.Email, "password": weakUser.Password}))
+		if r := f.call(t, "POST", "/me/2fa/setup", weakSession.AccessToken, map[string]string{"method": "email"}); r.status < 400 {
+			t.Fatalf("an email second factor was offered: %d %s", r.status, r.body)
+		}
 	})
 	t.Run("AK-J07-C03_wrong_replayed_expired_and_parallel_factor_proofs", func(t *testing.T) {
 		f := mfaFixture(t, iam.TwoFactorOptional)

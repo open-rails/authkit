@@ -23,6 +23,7 @@ type Service struct {
 	svc                 Backend
 	cfg                 config.Config     // normalized
 	http                config.HTTPConfig // *cfg.HTTP
+	surface             config.Surface    // from Issuer
 	wrap                func(iam.Route, http.Handler) http.Handler
 	rl                  ratelimit.Limiter
 	replays             *dpop.Replays // spent DPoP proofs: Deps.Redis, else memory

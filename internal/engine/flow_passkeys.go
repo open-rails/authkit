@@ -39,7 +39,7 @@ const (
 // WebAuthn ceremony fails closed (the origin must match the RPID). The HTTP
 // transport uses this to skip mounting the /passkeys/* routes entirely rather
 // than exposing endpoints that can only error.
-func (s *Engine) PasskeysEnabled() bool { return strings.TrimSpace(s.cfg.Passkeys.RPID) != "" }
+func (s *Engine) PasskeysEnabled() bool { return strings.TrimSpace(s.passkeys.ID) != "" }
 
 // VerifiedPasskey is the identity proof a discoverable assertion yields: the
 // stable user and the credential that signed. It carries no session, token,
@@ -73,9 +73,9 @@ func (s *Engine) passkeyUserVerification() protocol.UserVerificationRequirement 
 
 func (s *Engine) webAuthnConfig() *webauthn.Config {
 	return &webauthn.Config{
-		RPID:                  s.cfg.Passkeys.RPID,
-		RPDisplayName:         s.cfg.Passkeys.RPDisplayName,
-		RPOrigins:             append([]string(nil), s.cfg.Passkeys.Origins...),
+		RPID:                  s.passkeys.ID,
+		RPDisplayName:         s.passkeys.Name,
+		RPOrigins:             append([]string(nil), s.passkeys.Origins...),
 		AttestationPreference: protocol.PreferNoAttestation,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			UserVerification: s.passkeyUserVerification(),
@@ -313,7 +313,7 @@ func (s *Engine) acceptAssertion(ctx context.Context, userID string, parsed *pro
 }
 
 func (s *Engine) ListPasskeys(ctx context.Context, userID string) ([]iam.Passkey, error) {
-	rows, err := s.q.PasskeysByUser(ctx, db.PasskeysByUserParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
+	rows, err := s.q.PasskeysByUser(ctx, db.PasskeysByUserParams{UserID: userID, Rpid: s.passkeys.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +464,7 @@ func (s *Engine) passkeyHandle(ctx context.Context, userID string, create bool) 
 }
 
 func (s *Engine) passkeyCredentialsByUser(ctx context.Context, userID string) ([]webauthn.Credential, error) {
-	rows, err := s.q.PasskeysByUser(ctx, db.PasskeysByUserParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
+	rows, err := s.q.PasskeysByUser(ctx, db.PasskeysByUserParams{UserID: userID, Rpid: s.passkeys.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +521,7 @@ func webAuthnCredential(p db.UserPasskey) webauthn.Credential {
 
 func (s *Engine) insertPasskeyOn(ctx context.Context, q *db.Queries, userID string, cred *webauthn.Credential, label *string) (iam.Passkey, error) {
 	p, err := q.PasskeyInsert(ctx, db.PasskeyInsertParams{
-		UserID: userID, Rpid: s.cfg.Passkeys.RPID, CredentialID: cred.ID, PublicKey: cred.PublicKey,
+		UserID: userID, Rpid: s.passkeys.ID, CredentialID: cred.ID, PublicKey: cred.PublicKey,
 		SignCount: int64(cred.Authenticator.SignCount), CloneWarning: cred.Authenticator.CloneWarning, Aaguid: nullBytes(cred.Authenticator.AAGUID),
 		Transports: transportStrings(cred.Transport), AuthenticatorAttachment: string(cred.Authenticator.Attachment),
 		Flags: []byte{byte(cred.Flags.ProtocolValue())}, AttestationType: cred.AttestationType, AttestationFmt: cred.AttestationFormat, Label: label,
@@ -535,7 +535,7 @@ func (s *Engine) insertPasskeyOn(ctx context.Context, q *db.Queries, userID stri
 func (s *Engine) updatePasskeyAfterUse(ctx context.Context, userID string, cred *webauthn.Credential) (string, error) {
 	id, err := s.q.PasskeyRecordUse(ctx, db.PasskeyRecordUseParams{
 		SignCount: int64(cred.Authenticator.SignCount), CloneWarning: cred.Authenticator.CloneWarning, Flags: []byte{byte(cred.Flags.ProtocolValue())},
-		UserID: userID, Rpid: s.cfg.Passkeys.RPID, CredentialID: cred.ID,
+		UserID: userID, Rpid: s.passkeys.ID, CredentialID: cred.ID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", errmodel.ErrPasskeyNotFound

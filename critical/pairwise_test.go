@@ -22,7 +22,7 @@ import (
 // merchants can join their buyers, and the network still knows each one.
 func TestCriticalPairwiseSubjects(t *testing.T) {
 	t.Run("AK-J43-C01_each_group_knows_a_user_and_sign_in_by_its_own_ids_and_only_the_network_maps_them_back", func(t *testing.T) {
-		const resource = "https://network-api.example"
+		const resource = proofOrigin // the network's resource server
 		const redirect = "https://shop.example/callback"
 		var selected atomic.Pointer[http.Handler]
 		front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +35,7 @@ func TestCriticalPairwiseSubjects(t *testing.T) {
 		t.Cleanup(front.Close)
 		var persona iam.Persona
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Token.Issuer = front.URL
+			c.Issuer = front.URL
 			persona = c.Roles.Persona("merchant", authkit.OAuthClients).Persona
 			c.Resource = authkit.ResourceConfig{ID: resource, Scopes: map[string][]string{"customer:self": {}}}
 			c.AuthorizationServer.Resources = []authkit.ResourceServerConfig{{ID: resource, Scopes: []string{"customer:self"}}}
@@ -44,7 +44,7 @@ func TestCriticalPairwiseSubjects(t *testing.T) {
 		}))
 		h := f.auth.Handler()
 		selected.Store(&h)
-		caller := &fixture{auth: f.auth, server: front}
+		caller := &fixture{auth: f.auth, server: front, t: t, dpop: f.dpop, cfg: f.cfg}
 		as := authtest.Attach(t, f.auth, front)
 		u := f.user(t)
 		session := caller.signIn(t, u)
@@ -65,7 +65,7 @@ func TestCriticalPairwiseSubjects(t *testing.T) {
 		}
 		signIn := func(c iam.OAuthClientCreated) authtest.OAuthTokens {
 			return as.AuthorizeAs(t, session, authtest.CodeFlow{ClientID: c.ClientID, ClientSecret: *c.ClientSecret, RedirectURI: redirect,
-				Scopes: []string{"openid", "email", "customer:self"}, Consent: true})
+				Scopes: []string{"openid", "email", "customer:self"}, Consent: true, DPoP: newFixtureKey(t)})
 		}
 		a, b := merchant(), merchant()
 		a1, a2, b1 := client(a), client(a), client(b)
@@ -114,7 +114,7 @@ func TestCriticalPairwiseSubjects(t *testing.T) {
 		if info["sub"] != subA1 || info["email"] != u.Email {
 			t.Fatalf("userinfo: %s", r.body)
 		}
-		v, _ := liveProofRequest(t, f.auth.Authenticator(), tb1.AccessToken, nil)
+		v, _ := liveProofRequest(t, f.auth.Authenticator(), tb1.AccessToken, tb1.DPoP)
 		if v.Identity().Subject != u.ID || v.(auth.Bound).BoundScope().ID != b.ID {
 			t.Fatalf("the network's resource server saw %+v", v.Identity())
 		}
@@ -144,7 +144,7 @@ func oauthGet(t *testing.T, as *authtest.AuthorizationServer, path, bearer strin
 	r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, as.URL+path, nil)
 	noError(t, err)
 	if bearer != "" {
-		r.Header.Set("Authorization", "Bearer "+bearer)
+		authorize(t, r, bearer)
 	}
 	res, err := as.HTTPClient().Do(r)
 	noError(t, err)

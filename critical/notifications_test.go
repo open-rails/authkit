@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
-	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/notify"
@@ -26,7 +25,8 @@ import (
 	"github.com/riverqueue/river/rivertype"
 )
 
-const notificationApp = "00000000-0000-4000-8000-000000000470"
+// notificationApp is the fixture's app: its issuer.
+const notificationApp = authtest.Issuer
 
 // This is the already-released source job envelope, intentionally independent
 // of the new producer structs. The current worker must still decode it.
@@ -37,21 +37,31 @@ type legacyNotificationDeliveryArgs struct {
 
 func (legacyNotificationDeliveryArgs) Kind() string { return "authkit_notification_delivery" }
 
+// applicationProducer is the fixture's producer, publishing remotely with
+// permission in the tenant's group.
+func applicationProducer(tenant iam.TenantID, permission iam.Perm) authkit.NotificationProducer {
+	return authkit.NotificationProducer{Name: "application", Origin: notify.OriginScope{System: "application", Scope: "app"},
+		PermissionGroupID: tenant.String(), Permission: permission.String()}
+}
+
 func notificationFixture(t *testing.T, options ...authtest.Option) (*fixture, notify.Publisher, iam.Role) {
+	t.Helper()
+	return notificationFixtureWith(t, func(p *authkit.NotificationProducer) {}, options...)
+}
+
+// notificationFixtureWith registers the fixture's producer as edit leaves it.
+func notificationFixtureWith(t *testing.T, edit func(*authkit.NotificationProducer), options ...authtest.Option) (*fixture, notify.Publisher, iam.Role) {
 	t.Helper()
 	roles := authkit.NewRoles(authkit.APIKeys, authkit.CustomRoles)
 	permission := roles.Tenant.Permission("notifications", "publish")
 	role := roles.Tenant.Role("notificationpublisher", permission)
-	base := authtest.WithConfig(func(c *authkit.Config) {
-		c.Roles = roles
-		c.Notifications = &authkit.NotificationsConfig{Schema: c.Database.Schema, AppID: notificationApp, Producers: []authkit.NotificationProducer{{
-			Name: "application", TenantID: c.DefaultTenantID, Origin: notify.OriginScope{System: "application", Scope: "app"}, Visibility: notify.VisibilityApp, AppID: notificationApp,
-			PermissionGroupID: c.DefaultTenantID.String(), Permission: permission.String(),
-		}}}
-	})
+	base := authtest.WithConfig(func(c *authkit.Config) { c.Roles = roles })
 	f := newFixture(t, append([]authtest.Option{base}, options...)...)
-	sink, err := f.auth.Notifications("application")
+	producer := applicationProducer(f.tenant, permission)
+	edit(&producer)
+	sink, err := f.auth.Notifications(producer)
 	noError(t, err)
+	f.notify = permission
 	return f, sink, role
 }
 
@@ -297,9 +307,16 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: otherID, Slug: "inbox-other"}))
 		other, err := f.auth.ForTenant(t.Context(), otherID)
 		noError(t, err)
-		_, err = other.Notifications("application")
-		if !errors.Is(err, auth.ErrForbidden) {
-			t.Fatalf("producer escaped selected tenant: %v", err)
+		// The other tenant's own registration publishes only in its tenant.
+		otherSink, err := other.Notifications(applicationProducer(otherID, f.notify))
+		noError(t, err)
+		noError(t, publishNotificationBatch(t.Context(), otherSink, []notify.Mutation{notificationChange(alice.ID, "other:one", 1)}))
+		page, err = f.auth.ListNotifications(t.Context(), alice.ID, notify.ListOptions{Dismissed: true})
+		noError(t, err)
+		for _, item := range page.Items {
+			if item.Origin.ID == "other:one" {
+				t.Fatal("producer escaped its tenant")
+			}
 		}
 	})
 	t.Run("AK-J34-C03_remote_delivery_survives_rollback_restart_and_lost_response", func(t *testing.T) {
@@ -371,56 +388,38 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J34-C04_existing_scope_adoption_preserves_receipts_and_erasure", func(t *testing.T) {
-		f := newFixture(t)
+	t.Run("AK-J34-C04_the_inbox_lives_beside_the_accounts", func(t *testing.T) {
+		f, sink, _ := notificationFixture(t)
 		u := f.user(t)
-		m := notificationChange(u.ID, "migration:one", 1)
-		const scope = "contentkit:accounts"
-		noError(t, notifypg.Migrate(t.Context(), f.pool, f.schema))
-		store, err := notifypg.New(f.pool, notifypg.Config{Schema: f.schema, Scope: scope})
+		var tables int
+		noError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name IN ('notify_items', 'notify_recipients', 'notify_app_erasures')`, f.schema).Scan(&tables))
+		if tables != 3 {
+			t.Fatalf("the account schema holds %d of the inbox's 3 tables", tables)
+		}
+		scope, err := f.auth.NotificationScope()
 		noError(t, err)
-		item, err := store.Publish(t.Context(), m.Input)
-		noError(t, err)
-		id := item.ID
-		_, err = store.SetRead(t.Context(), item.Recipient, id, true)
-		noError(t, err)
-		_, err = store.SetDismissed(t.Context(), item.Recipient, id, true)
-		noError(t, err)
+		if scope != "authkit:"+f.tenant.String() {
+			t.Fatalf("inbox scope %q is not the tenant's", scope)
+		}
+		// A replica that only validates the schema serves the same inbox.
 		cfg := f.cfg
 		cfg.Database.SkipMigrations = true
-		cfg.Notifications = &authkit.NotificationsConfig{Schema: f.schema, Scopes: map[string]string{f.tenant.String(): scope}, AppID: notificationApp, Producers: []authkit.NotificationProducer{{Name: "application", TenantID: f.tenant, Origin: notify.OriginScope{System: "application", Scope: "app"}, Visibility: notify.VisibilityApp, AppID: notificationApp}}}
-		noError(t, authkit.MigrateNotifications(t.Context(), f.pool, cfg, nil))
-		adopted, err := authkit.New(t.Context(), cfg, f.deps)
+		replica, err := authkit.New(t.Context(), cfg, f.deps)
 		noError(t, err)
-		t.Cleanup(func() { noError(t, adopted.Close(context.Background())) })
-		actual, err := adopted.NotificationScope()
+		t.Cleanup(func() { noError(t, replica.Close(context.Background())) })
+		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{notificationChange(u.ID, "beside:one", 1)}))
+		page, err := replica.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
 		noError(t, err)
-		if actual != scope {
-			t.Fatal("legacy logical namespace was silently replaced")
-		}
-		archived, err := adopted.ListNotifications(t.Context(), u.ID, notify.ListOptions{Dismissed: true})
-		noError(t, err)
-		if len(archived.Items) != 1 || archived.Items[0].ID != id || archived.Items[0].ReadAt == nil || archived.Items[0].DismissedAt == nil {
-			t.Fatal("adoption lost retained inbox state")
-		}
-		noError(t, store.EraseRecipient(t.Context(), item.Recipient))
-		sink, err := adopted.Notifications("application")
-		noError(t, err)
-		m.Revision = 2
-		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{m}))
-		page, err := adopted.ListNotifications(t.Context(), u.ID, notify.ListOptions{})
-		noError(t, err)
-		if len(page.Items) != 0 {
-			t.Fatal("delayed notification resurrected an erased inbox")
+		if len(page.Items) != 1 || page.Items[0].Origin.ID != "beside:one" {
+			t.Fatal("a validating replica does not serve the inbox")
 		}
 	})
 
 	t.Run("AK-J34-C06_exact_legacy_adoption_preserves_identity_and_never_replays_history", func(t *testing.T) {
-		f, sink, _ := notificationFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Notifications.Producers[0].Origin = notify.OriginScope{System: "openrails", Scope: "merchant"}
-			c.Notifications.Producers[0].Visibility = notify.VisibilityTenant
-			c.Notifications.Producers[0].AppID = ""
-		}))
+		f, sink, _ := notificationFixtureWith(t, func(p *authkit.NotificationProducer) {
+			p.Origin = notify.OriginScope{System: "openrails", Scope: "merchant"}
+			p.Visibility = notify.VisibilityTenant
+		})
 		u := f.user(t)
 		scope, err := f.auth.NotificationScope()
 		noError(t, err)
@@ -751,9 +750,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 	t.Run("AK-J34-C12_app_erasure_does_not_suppress_tenant_billing_notices", func(t *testing.T) {
-		f, app, _ := notificationFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Notifications.Producers = append(c.Notifications.Producers, authkit.NotificationProducer{Name: "billing", TenantID: c.DefaultTenantID, Origin: notify.OriginScope{System: "billing", Scope: "merchant"}, Visibility: notify.VisibilityTenant})
-		}))
+		f, app, _ := notificationFixture(t)
 		u := f.user(t)
 		scope, err := f.auth.NotificationScope()
 		noError(t, err)
@@ -764,7 +761,7 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		// application, but cannot withdraw unrelated tenant-wide billing notices.
 		noError(t, store.EraseAppRecipient(t.Context(), recipient, "", notify.OriginScope{System: "application", Scope: "app"}))
 		noError(t, publishNotificationBatch(t.Context(), app, []notify.Mutation{notificationChange(u.ID, "app:erased", 1)}))
-		billing, err := f.auth.Notifications("billing")
+		billing, err := f.auth.Notifications(authkit.NotificationProducer{Name: "billing", Origin: notify.OriginScope{System: "billing", Scope: "merchant"}, Visibility: notify.VisibilityTenant})
 		noError(t, err)
 		notice := notificationChange(u.ID, "billing:active", 1)
 		notice.Origin.System = "billing"
@@ -786,58 +783,58 @@ func TestCriticalAccountNotifications(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J34-C13_separate_instances_cannot_alias_another_tenants_inbox", func(t *testing.T) {
-		f, sink, _ := notificationFixture(t, multiTenant, authtest.WithConfig(func(c *authkit.Config) {
-			c.Notifications.Scopes = map[string]string{c.DefaultTenantID.String(): "contentkit:accounts"}
-		}))
+	t.Run("AK-J34-C13_each_tenant_has_its_own_inbox", func(t *testing.T) {
+		f, sink, _ := notificationFixture(t, multiTenant)
 		alice := f.user(t)
 		noError(t, publishNotificationBatch(t.Context(), sink, []notify.Mutation{notificationChange(alice.ID, "ownership:alice", 1)}))
 		other := iam.NewTenantID()
 		noError(t, f.auth.CreateTenant(t.Context(), iam.Tenant{ID: other, Slug: "inbox-foreign"}))
-		cfg := f.cfg
-		cfg.DefaultTenantID = other
-		n := *cfg.Notifications
-		n.Scopes = map[string]string{other.String(): "contentkit:accounts"}
-		n.Producers = append([]authkit.NotificationProducer(nil), n.Producers...)
-		for i := range n.Producers {
-			n.Producers[i].TenantID = other
-			n.Producers[i].PermissionGroupID = other.String()
-		}
-		cfg.Notifications = &n
-		if err := authkit.MigrateNotifications(t.Context(), f.pool, cfg, nil); !errors.Is(err, authkit.ErrNotificationScopeConflict) {
-			t.Fatalf("explicit migration aliased another tenant's inbox: %v", err)
-		}
-		cfg.Database.SkipMigrations = true
-		refused, err := authkit.New(t.Context(), cfg, f.deps)
-		if refused != nil {
-			noError(t, refused.Close(context.Background()))
-		}
-		if !errors.Is(err, authkit.ErrNotificationScopeConflict) {
-			t.Fatalf("separate runtime aliased another tenant's inbox: %v", err)
-		}
-		n.Scopes = nil
-		allowed, err := authkit.New(t.Context(), cfg, f.deps)
+		view, err := f.auth.ForTenant(t.Context(), other)
 		noError(t, err)
-		defer allowed.Close(context.Background())
-		bob := authtest.NewUser(t, allowed)
-		otherSink, err := allowed.Notifications("application")
+		bob := authtest.NewUser(t, view)
+		otherSink, err := view.Notifications(applicationProducer(other, f.notify))
 		noError(t, err)
 		noError(t, publishNotificationBatch(t.Context(), otherSink, []notify.Mutation{notificationChange(bob.ID, "ownership:bob", 1)}))
+		mine, err := f.auth.NotificationScope()
+		noError(t, err)
+		theirs, err := view.NotificationScope()
+		noError(t, err)
+		if mine == theirs {
+			t.Fatal("two tenants share an inbox scope")
+		}
 		page, err := f.auth.ListNotifications(t.Context(), alice.ID, notify.ListOptions{})
 		noError(t, err)
 		if len(page.Items) != 1 || page.Items[0].Recipient.ID != alice.ID {
-			t.Fatal("refused ownership claim changed existing receipts")
+			t.Fatal("another tenant's publication reached this inbox")
 		}
-		if _, err = allowed.ListNotifications(t.Context(), alice.ID, notify.ListOptions{}); !errors.Is(err, iam.ErrUserNotFound) {
-			t.Fatalf("separate tenant read existing account inbox: %v", err)
+		if _, err = view.ListNotifications(t.Context(), alice.ID, notify.ListOptions{}); !errors.Is(err, iam.ErrUserNotFound) {
+			t.Fatalf("another tenant read this account's inbox: %v", err)
 		}
 	})
-	t.Run("AK-J34-C05_disabled_addon_has_no_inbox_or_delivery_worker", func(t *testing.T) {
+	t.Run("AK-J34-C05_producers_register_by_call", func(t *testing.T) {
 		f := newFixture(t)
-		if _, err := f.auth.Notifications("application"); !errors.Is(err, authkit.ErrNotificationsDisabled) {
-			t.Fatalf("disabled addon published: %v", err)
+		u := f.user(t)
+		session := f.signIn(t, u)
+		// The inbox is built in, empty until a producer publishes.
+		listed := f.call(t, "GET", "/me/notifications", session.AccessToken, nil)
+		listed.want(t, http.StatusOK, "")
+		body := map[string]any{"mutations": []notify.Mutation{notificationChange(u.ID, "unregistered:one", 1)}}
+		f.call(t, "POST", "/notifications/application", session.AccessToken, body).want(t, http.StatusForbidden, "")
+		producer := authkit.NotificationProducer{Name: "application", Origin: notify.OriginScope{System: "application", Scope: "app"}}
+		first, err := f.auth.Notifications(producer)
+		noError(t, err)
+		again, err := f.auth.Notifications(producer)
+		noError(t, err)
+		if first == nil || again == nil {
+			t.Fatal("registering a producer again returned no publisher")
 		}
-		f.call(t, "GET", "/me/notifications", "", nil).want(t, http.StatusNotFound, "")
+		producer.Origin.Scope = "another"
+		if _, err := f.auth.Notifications(producer); err == nil {
+			t.Fatal("a second binding took an existing producer's name")
+		}
+		if _, err := f.auth.Notifications(authkit.NotificationProducer{Name: "Bad Name", Origin: producer.Origin}); err == nil {
+			t.Fatal("an invalid producer registered")
+		}
 	})
 }
 

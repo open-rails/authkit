@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -139,6 +140,11 @@ func (k *DPoPKey) coordinates() (string, string) {
 	return base64.RawURLEncoding.EncodeToString(public[1:33]), base64.RawURLEncoding.EncodeToString(public[33:])
 }
 
+// Holds records that k binds tokens, which the host's own sign-ins
+// obtained with k's proofs: Authorize, Transport and the authorization
+// server's helpers then present them with k's proofs.
+func (k *DPoPKey) Holds(tokens ...string) { bindTokens(k, tokens...) }
+
 // boundKeys remembers the DPoP key SignIn bound each session's tokens to.
 var boundKeys sync.Map
 
@@ -176,10 +182,57 @@ func Authorize(t testing.TB, auth *authkit.Client, r *http.Request, token string
 	r.Header.Set("DPoP", key.Proof(t, r.Method, base.Scheme+"://"+base.Host+r.URL.EscapedPath(), token, ""))
 }
 
-// requiresDPoP reports whether auth's sign-ins need a DPoP key, from its
-// configuration: asking /capabilities would spend the caller's rate limit.
-func requiresDPoP(t testing.TB, auth *authkit.Client) bool {
-	t.Helper()
-	cfg, _ := builtWith(t, auth)
-	return cfg.SignIn.DPoP == authkit.DPoPRequired
+// Transport presents token on every request base sends, as Authorize does: a
+// token SignIn bound goes as DPoP with a fresh proof, any other as Bearer.
+// Hand it to code that calls the host's APIs with a signed-in user's
+// session, such as another service in a host's end-to-end fixture. Nil base
+// is http.DefaultTransport.
+func Transport(t testing.TB, auth *authkit.Client, token string, base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		r = r.Clone(r.Context())
+		Authorize(t, auth, r, token)
+		return base.RoundTrip(r)
+	})
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// Transport sends base's requests as a browser holding k does, for a host's
+// client of its own HTTP adapters: a request presenting a token k binds
+// (Holds, or SignIn's) goes as DPoP with a fresh proof; one presenting no
+// token (a sign-in) proves k, so the session it opens binds to k; any other
+// keeps its credential. Proofs name auth's public origin. Nil base is
+// http.DefaultTransport.
+func (k *DPoPKey) Transport(t testing.TB, auth *authkit.Client, base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("DPoP") != "" {
+			return base.RoundTrip(r)
+		}
+		r = r.Clone(r.Context())
+		u, err := url.Parse(auth.PublicAPIBase())
+		if err != nil {
+			return nil, err
+		}
+		target := u.Scheme + "://" + u.Host + r.URL.EscapedPath()
+		token, scheme := "", ""
+		if s, v, ok := strings.Cut(r.Header.Get("Authorization"), " "); ok {
+			scheme, token = s, v
+		}
+		switch {
+		case token == "":
+			r.Header.Set("DPoP", k.Proof(t, r.Method, target, "", ""))
+		case keyFor(token) == k && strings.EqualFold(scheme, "Bearer"):
+			r.Header.Set("Authorization", "DPoP "+token)
+			r.Header.Set("DPoP", k.Proof(t, r.Method, target, token, ""))
+		}
+		return base.RoundTrip(r)
+	})
 }

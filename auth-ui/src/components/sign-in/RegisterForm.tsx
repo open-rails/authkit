@@ -56,7 +56,6 @@ const PASSWORD_CODES = new Set([
   "password_too_short",
   "password_too_long",
   "password_too_common",
-  "password_requirements_unmet",
   "password_contains_identifier",
   "invalid_password",
 ])

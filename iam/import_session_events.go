@@ -14,7 +14,7 @@ type ImportSessionEvent struct {
 	Kind SessionEventKind
 	// OccurredAt is required and cannot be in the future.
 	OccurredAt time.Time
-	// Issuer defaults to Config.Token.Issuer; a host may name a legacy site
+	// Issuer defaults to Config.Issuer; a host may name a legacy site
 	// instead (at most 2048 bytes).
 	Issuer string
 	// Method or Reason must name the source; each is at most 256 bytes.

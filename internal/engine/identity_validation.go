@@ -14,17 +14,17 @@ import (
 
 // ValidateUsername applies the configured username rule.
 func (s *Engine) ValidateUsername(username string) error {
-	return naming.Validate(s.cfg.Username, username)
+	return naming.Validate(username)
 }
 
 // ValidatePassword applies the configured password policy. identifiers are
 // the account's username and email address when known. Length failures carry
 // min_length/max_length; requirement failures carry the missing classes.
 func (s *Engine) ValidatePassword(value string, identifiers ...string) error {
-	return validatePassword(s.cfg.Password, value, identifiers...)
+	return validatePassword(value, identifiers...)
 }
 
-func validatePassword(p config.PasswordPolicy, value string, identifiers ...string) error {
+func validatePassword(value string, identifiers ...string) error {
 	ids := make([]string, 0, len(identifiers))
 	for _, id := range identifiers {
 		if local := password.EmailLocalPart(id); local != "" {
@@ -32,13 +32,10 @@ func validatePassword(p config.PasswordPolicy, value string, identifiers ...stri
 		}
 		ids = append(ids, id)
 	}
-	err := password.Validate(p, value, ids...)
-	var unmet *password.RequirementsError
+	err := password.Validate(value, ids...)
 	switch {
 	case err == nil:
 		return nil
-	case errors.As(err, &unmet):
-		return errmodel.E(errmodel.CodePasswordRequirementsUnmet, errmodel.WithDetails(errmodel.PasswordRequirements{Missing: unmet.Missing}))
 	case errors.Is(err, password.ErrTooCommon):
 		return errmodel.E(errmodel.CodePasswordTooCommon)
 	case errors.Is(err, password.ErrContainsIdentifier):
@@ -48,7 +45,7 @@ func validatePassword(p config.PasswordPolicy, value string, identifiers ...stri
 	if errors.Is(err, password.ErrTooLong) {
 		code = errmodel.CodePasswordTooLong
 	}
-	return errmodel.E(code, errmodel.WithDetails(errmodel.LengthBounds{MinLength: p.MinLength, MaxLength: p.MaxLength}))
+	return errmodel.E(code, errmodel.WithDetails(errmodel.LengthBounds{MinLength: config.PasswordMinLength, MaxLength: config.PasswordMaxLength}))
 }
 
 // passwordIdentifiers loads the account identifiers a new password may not contain.

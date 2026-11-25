@@ -817,7 +817,6 @@ export const es: AuthUiMessageBundle = {
       "La llave de acceso debe verificar al usuario.",
     password_contains_identifier:
       "La contraseña no puede contener tu nombre de usuario ni tu correo.",
-    password_requirements_unmet: "La contraseña no cumple los requisitos.",
     password_reset_required:
       "Tu cuenta es anterior a nuestro nuevo sistema de inicio de sesión. Restablece tu contraseña para continuar.",
     password_too_common:

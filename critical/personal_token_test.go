@@ -96,7 +96,7 @@ func TestCriticalPersonalTokens(t *testing.T) {
 		if len(page.Items) != 0 {
 			t.Fatal("another owner listed the personal token")
 		}
-		peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Token.Issuer = "https://other-personal-issuer.example" }))
+		peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Issuer = "https://other-personal-issuer.example" }))
 		_, err = peer.ResolvePersonalAccessToken(t.Context(), token.Secret)
 		if !errors.Is(err, iam.ErrPersonalAccessTokenInvalid) {
 			t.Fatalf("another issuer accepted personal token: %v", err)
@@ -116,7 +116,7 @@ func TestCriticalPersonalTokens(t *testing.T) {
 				f.call(t, op.method, op.path, token.Secret, op.body).want(t, http.StatusForbidden, "forbidden")
 			})
 		}
-		claims, err := f.auth.Verify(t.Context(), token.Secret)
+		claims, err := verifyToken(t, f.auth, token.Secret)
 		noError(t, err)
 		if err := f.auth.CheckRecentSignIn(t.Context(), claims); err == nil {
 			t.Fatal("PAT acquired interactive freshness")

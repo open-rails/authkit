@@ -45,13 +45,13 @@ func (s *Engine) sendRegistrationCode(ctx context.Context, rec pendingChange) (s
 	return s.sendVerification(ctx, verificationChallenge{Kind: rec.Kind, Target: rec.Target, PendingID: rec.ID}, func(code, link string) error {
 		if rec.Kind == kindRegisterEmail {
 			if s.email == nil {
-				return s.missingSender(errEmailNotConfigured)
+				return errEmailNotConfigured
 			}
 			return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: rec.Target, Username: rec.Username, Language: language,
 				Code: code, Link: s.emailVerificationURL(link), Purpose: iam.PurposeSignup})
 		}
 		if s.sms == nil {
-			return s.missingSender(errSMSNotConfigured)
+			return errSMSNotConfigured
 		}
 		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: rec.Target, Language: language,
 			Code: code, Link: s.phoneVerificationURL(link), Purpose: iam.PurposeSignup})

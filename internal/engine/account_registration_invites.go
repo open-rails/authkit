@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -53,7 +54,7 @@ func accountRegistrationInviteTokenFromContext(ctx context.Context) string {
 func (s *Engine) accountRegistrationInviteURL(code string) string {
 	q := url.Values{}
 	q.Set("invite_code", code)
-	return s.authkitURL(s.cfg.Frontend.InvitePath, q)
+	return s.authkitURL(config.InvitePath, q)
 }
 
 func (s *Engine) sendAccountRegistrationInviteEmail(ctx context.Context, email, inviteURL string) {
@@ -90,7 +91,7 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 }
 
 func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*db.AccountInviteForUpdateRow, error) {
-	mode := s.cfg.Registration.NativeUserMode
+	mode := s.cfg.Registration
 	if mode == iam.RegistrationModeClosed {
 		return nil, errmodel.ErrRegistrationDisabled
 	}
@@ -101,7 +102,7 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		}
 		return nil, nil
 	}
-	if s.cfg.Invitations.Disabled {
+	if !config.InvitationsOn(s.cfg) {
 		return nil, iam.ErrInvitationsDisabled
 	}
 	if err := s.lockAuthority(ctx, tx); err != nil {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/lang"
 )
@@ -56,8 +57,8 @@ func (s *Engine) messageLanguage(ctx context.Context, preferred string) string {
 	if l := lang.Request(ctx); l != "" {
 		return l
 	}
-	if s.cfg.Languages.Default != "" {
-		return s.cfg.Languages.Default
+	if config.DefaultLanguage(s.cfg) != "" {
+		return config.DefaultLanguage(s.cfg)
 	}
 	return lang.Default
 }
@@ -128,8 +129,8 @@ func (s *Engine) SMSAvailable() bool {
 }
 
 // startSenderHealth runs each sender's CheckHealth now and then every
-// Config.SenderHealthInterval until Close. After the first failed check, or a
-// failed send, the next check comes after Config.SenderHealthRecheck instead.
+// SenderHealthInterval (Tuning) until Close. After the first failed check,
+// or a failed send, the next check comes after SenderHealthRecheck instead.
 func (s *Engine) startSenderHealth() {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
@@ -156,11 +157,11 @@ func (s *Engine) watchSender(ctx context.Context, channel string, check func(con
 			return
 		}
 		closed := h.record(started, err)
-		wait := s.cfg.SenderHealthInterval
+		wait := config.Tuned(s.cfg).SenderHealthInterval
 		if err != nil {
 			s.log.WarnContext(ctx, "authkit: "+channel+" health check failed; a second failed check in a row closes its flows until a check passes", "error", err, "flows_closed", closed)
 			if !closed {
-				wait = s.cfg.SenderHealthRecheck
+				wait = config.Tuned(s.cfg).SenderHealthRecheck
 			}
 		}
 		select {
@@ -171,7 +172,7 @@ func (s *Engine) watchSender(ctx context.Context, channel string, check func(con
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(s.cfg.SenderHealthRecheck):
+			case <-time.After(config.Tuned(s.cfg).SenderHealthRecheck):
 			}
 		}
 	}
@@ -207,7 +208,7 @@ func smsDeliveryError(err error) error {
 // could not confirm. A send that fails while its caller and timeout are still
 // alive only asks for an early check.
 func (s *Engine) deliver(ctx context.Context, h *senderHealth, send func(context.Context) error) error {
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.Registration.VerificationSendTimeout)
+	ctx, cancel := context.WithTimeout(ctx, config.Tuned(s.cfg).VerificationSendTimeout)
 	defer cancel()
 	err := send(ctx)
 	if err != nil && ctx.Err() == nil {

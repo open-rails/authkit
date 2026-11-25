@@ -113,7 +113,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 			reject(errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("dpop_jkt")))
 			return
 		}
-		if login.dpopKey == "" && s.cfg.SignIn.DPoP == config.DPoPRequired {
+		if login.dpopKey == "" {
 			reject(errmodel.E(errmodel.CodeSenderProofRequired))
 			return
 		}
@@ -305,7 +305,7 @@ func (s *Service) emitBrowserResult(w http.ResponseWriter, r *http.Request, sd *
 		http.Redirect(w, r, stepUpReturnURL(sd.StepUpReturnTo, url.Values{"code": {code}}), http.StatusFound)
 		return
 	}
-	if targetOrigin, ok := originFromBaseURL(s.cfg.Frontend.BaseURL); ok && sd.UI == "popup" {
+	if targetOrigin, ok := originFromBaseURL(s.cfg.FrontendURL); ok && sd.UI == "popup" {
 		writePopupDocument(w, buildPopupHTML(oidcPopupMessage{Type: oidcPopupType, Nonce: sd.PopupNonce, Provider: provider, Code: &code}, targetOrigin))
 		return
 	}
@@ -365,7 +365,7 @@ type oidcPopupMessage struct {
 
 // frontendCallbackURL is the app's OIDC return page with fragment.
 func (s *Service) frontendCallbackURL(fragment string) string {
-	return strings.TrimRight(s.cfg.Frontend.BaseURL, "/") + s.cfg.Frontend.OIDCReturnPath + fragment
+	return strings.TrimRight(s.cfg.FrontendURL, "/") + config.OIDCReturnPath + fragment
 }
 
 // stepUpReturnURL is a step-up's return_to (same-origin) with its result in

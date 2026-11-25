@@ -34,7 +34,7 @@ func (m *Mount) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Routes returns a copy of the configured endpoints, including JWKS and enabled
 // document/OIDC routes; GET endpoints also have a HEAD entry. It never
-// advertises disabled or excluded endpoints.
+// advertises disabled endpoints.
 func (m *Mount) Routes() []iam.Route {
 	if m == nil {
 		return nil
@@ -56,7 +56,7 @@ func (m *Mount) APIBase() string {
 type mountLayout struct {
 	api  string // JSON API anchor; "/" at the host root
 	oidc string // browser OIDC anchor; "" when not mounted
-	jwks string // "" when excluded
+	jwks string // JWKS anchor
 }
 
 type mountLayoutCtxKey struct{}
@@ -75,34 +75,14 @@ func layoutFrom(r *http.Request) mountLayout {
 // NewMount builds the full AuthKit surface — JSON API, browser OIDC and JWKS
 // — as ONE net/http handler plus its route catalog, as Config.HTTP declares
 // it. Every route keeps the gate its RouteSpec carries; the mount adds no
-// auth and removes none. Excluding a route does not alter the MFA-enrollment
-// exempt set, so a shadowed enroll route stays reachable through the host's
-// replacement.
+// auth and removes none. Deps.Wrap sees every route, JWKS included.
 func NewMount(svc *Service) (result *Mount, err error) {
 	if svc == nil || svc.svc == nil {
 		return nil, errors.New("authkit: NewMount requires a Service constructed by httpapi.New")
 	}
 	opts := svc.http
-	base := opts.BasePath
-	api := joinRoutePath(joinRoutePath(base, opts.APIPath), config.APIVersion)
-	excluded := make(map[string]bool, len(opts.Exclude))
-	for _, raw := range opts.Exclude {
-		method, path, ok := strings.Cut(strings.TrimSpace(raw), " ")
-		path = strings.TrimSpace(path)
-		if !ok || method == "" || !strings.HasPrefix(path, "/") {
-			return nil, fmt.Errorf("authkit: Exclude entry %q must be \"METHOD /path\"", raw)
-		}
-		excluded[strings.ToUpper(method)+" "+path] = false
-	}
-	skip := func(method, path string) bool {
-		key := method + " " + path
-		if _, ok := excluded[key]; ok {
-			excluded[key] = true
-			return true
-		}
-		return false
-	}
-
+	base := svc.surface.Base
+	api := joinRoutePath(joinRoutePath(base, svc.surface.API), config.APIVersion)
 	// http.ServeMux panics on conflicting patterns; surface that as a boot
 	// error — a mount that cannot serve its declared surface must fail loudly.
 	defer func() {
@@ -123,8 +103,13 @@ func NewMount(svc *Service) (result *Mount, err error) {
 		}
 	}
 	for _, spec := range Catalog() {
-		if path := joinRoutePath(base, spec.Path); spec.Surface == SurfaceBase && !skip(spec.Method, path) {
-			register(spec.Method+" "+path, svc.rateLimitedRoute(spec.Bucket, cacheControl(spec.CacheControl, spec.serve(svc))), iam.Route{Method: spec.Method, Path: path, Group: spec.Group, Auth: spec.Auth, Permission: spec.Perm})
+		if path := joinRoutePath(base, spec.Path); spec.Surface == SurfaceBase {
+			route := iam.Route{Method: spec.Method, Path: path, Group: spec.Group, Auth: spec.Auth, Permission: spec.Perm}
+			var handler http.Handler = svc.rateLimitedRoute(spec.Bucket, cacheControl(spec.CacheControl, spec.serve(svc)))
+			if svc.wrap != nil {
+				handler = svc.wrap(route, handler)
+			}
+			register(spec.Method+" "+path, handler, route)
 			layout.jwks = path
 		}
 	}
@@ -139,7 +124,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 	svc.svc.AddMFAEnrollmentExemptRoutes(exempt)
 
 	var browserOIDC []RouteSpec
-	if opts.Groups == nil || routeGroupSet(opts.Groups)(iam.RouteBrowserOIDC) {
+	if routeGroupSet(opts.Groups)(iam.RouteBrowserOIDC) {
 		browserOIDC = svc.OIDCBrowserRoutes()
 	}
 	if len(browserOIDC) > 0 {
@@ -156,9 +141,6 @@ func NewMount(svc *Service) (result *Mount, err error) {
 				continue
 			}
 			route := iam.Route{Method: spec.Method, Path: joinRoutePath(anchor, spec.Path), Group: spec.Group, Auth: spec.Auth, Permission: spec.Perm}
-			if skip(route.Method, route.Path) {
-				continue
-			}
 			handler := spec.Handler
 			if svc.wrap != nil {
 				handler = svc.wrap(route, handler)
@@ -173,16 +155,9 @@ func NewMount(svc *Service) (result *Mount, err error) {
 	mount(browserOIDC, layout.oidc, false)
 	mount(svc.OAuthRoutes(opts.Groups...), base, false)
 	mount(svc.SCIMRoutes(opts.Groups...), base, false)
-	for pattern, used := range excluded {
-		if !used {
-			return nil, fmt.Errorf("authkit: Exclude entry %q matches no mounted route", pattern)
-		}
-	}
 
 	result.handler = withMountLayout(svc.apiMisses(mux, api), layout)
-	if opts.RefreshCookie {
-		result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
-	}
+	result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
 	result.handler = noStore(result.handler)
 	return result, nil
 }

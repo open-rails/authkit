@@ -62,7 +62,7 @@ func (s *Engine) listenProvisioningOnce(ctx context.Context) (listened bool, err
 			return true, err
 		}
 		var change struct{ Schema, Issuer, Target string }
-		if json.Unmarshal([]byte(n.Payload), &change) != nil || change.Schema != s.dbSchema() || change.Issuer != s.cfg.Token.Issuer {
+		if json.Unmarshal([]byte(n.Payload), &change) != nil || change.Schema != s.dbSchema() || change.Issuer != s.cfg.Issuer {
 			continue
 		}
 		if t := s.provisioningTarget(change.Target); t != nil {

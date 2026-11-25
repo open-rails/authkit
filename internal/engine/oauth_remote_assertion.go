@@ -63,16 +63,13 @@ func (s *Engine) OAuthRemoteAssertion(ctx context.Context, in authflow.OAuthJWTB
 	if signer == nil {
 		return authflow.OAuthTokens{}, iam.ErrSigningNotConfigured
 	}
-	ttl := s.cfg.AuthorizationServer.AccessTokenTTL
-	if ttl <= 0 {
-		ttl = config.DefaultOAuthAccessTokenTTL
-	}
+	ttl := config.AccessTokenTTL
 	id, err := newUUIDV7String()
 	if err != nil {
 		return authflow.OAuthTokens{}, err
 	}
 	at := map[string]any{
-		"iss": s.cfg.Token.Issuer, "aud": s.cfg.Resource.ID, "sub": sub, "client_id": app.Issuer,
+		"iss": s.cfg.Issuer, "aud": s.cfg.Resource.ID, "sub": sub, "client_id": app.Issuer,
 		"iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(ttl).Unix(), "jti": id,
 	}
 	scopes := slices.Clone(in.Scopes)

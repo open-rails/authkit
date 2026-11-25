@@ -68,7 +68,7 @@ func (s *Engine) bindRecoveryGeneration(ctx context.Context, tx pgx.Tx, user *db
 // its account lock.
 func (s *Engine) sweepDeletionsNow(ctx context.Context) {
 	err := pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error {
-		return s.scheduleAccountCleanupTx(ctx, tx, []string{s.cfg.Token.Issuer}, time.Now())
+		return s.scheduleAccountCleanupTx(ctx, tx, []string{s.cfg.Issuer}, time.Now())
 	})
 	if err != nil {
 		s.log.WarnContext(ctx, "authkit: account batch not queued now; it runs at its own time", "error", err)
@@ -86,7 +86,7 @@ func (s *Engine) finishRecoveryProof(ctx context.Context, tx pgx.Tx, proof login
 		expires = purgeAt
 	}
 	token := secret.Token(32)
-	record := accountRecoveryProof{Login: proof, Issuer: s.cfg.Token.Issuer, ExpiresAt: expires}
+	record := accountRecoveryProof{Login: proof, Issuer: s.cfg.Issuer, ExpiresAt: expires}
 	if err := s.ephemSetJSON(ctx, "account-recovery:"+secret.Hash(token), record, expires.Sub(now)); err != nil {
 		return authflow.LoginOutcome{}, err
 	}
@@ -120,7 +120,7 @@ func (s *Engine) ConfirmAccountRecovery(ctx context.Context, token string) (auth
 		return authflow.LoginOutcome{}, err
 	}
 	proof := record.Login
-	if !ok || record.Issuer != s.cfg.Token.Issuer || proof.DeletionID == "" || proof.Input.UserID == "" || proof.Version <= 0 {
+	if !ok || record.Issuer != s.cfg.Issuer || proof.DeletionID == "" || proof.Input.UserID == "" || proof.Version <= 0 {
 		return authflow.LoginOutcome{}, jwt.ErrTokenUnverifiable
 	}
 	tx, err := s.pg.Begin(ctx)

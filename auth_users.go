@@ -60,14 +60,14 @@ func (a *Client) CheckUsername(ctx context.Context, name string) error {
 	return a.ops.CheckUsername(a.operationContext(ctx), name)
 }
 
-// GenerateUsername returns a currently available name from Username.RandomNames
+// GenerateUsername returns a currently available name from Config.Usernames
 // plus exactly three random decimal digits. It does not reserve the name.
 func (a *Client) GenerateUsername(ctx context.Context) (string, error) {
 	return a.ops.GenerateUsername(a.operationContext(ctx))
 }
 
 // DeviceKeys returns the account's device keys in enrollment order, revoked
-// ones included. iam.ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
+// ones included. iam.ErrDeviceKeysDisabled unless HTTP.Groups mounts iam.RouteDeviceKeys.
 func (a *Client) DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {
 	return a.ops.DeviceKeys(a.operationContext(ctx), userID)
 }
@@ -131,7 +131,7 @@ func (a *Client) RestoreUsers(ctx context.Context, who auth.Identity, ids []stri
 
 // PurgeUsers ends the recovery window of accounts now; the rows go once the
 // host deletion callbacks complete, and each username stays reserved as
-// Config.Username.DeletedNames says. Host operation: your code decides.
+// the naming policy says (forever). Host operation: your code decides.
 //
 // <schema>.users(id) is the one AuthKit column a host table may reference: a
 // foreign key ON DELETE CASCADE (or SET NULL) keeps host rows for as long as
@@ -160,9 +160,8 @@ func (a *Client) UserAgreements(ctx context.Context, userID string) ([]iam.Agree
 	return a.ops.UserAgreements(a.operationContext(ctx), userID)
 }
 
-// AgreementsDue returns the documents the user is asked to accept now: one
-// Registration.Agreements names that the account never accepted, and one
-// marked Reaccept whose earlier version it accepted.
+// AgreementsDue returns the sign-up agreements the user is asked to accept
+// now: one the account never accepted, or accepted at an earlier version.
 func (a *Client) AgreementsDue(ctx context.Context, userID string) ([]iam.Agreement, error) {
 	return a.ops.AgreementsDue(a.operationContext(ctx), userID)
 }

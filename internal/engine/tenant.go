@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/tenancy"
 	"github.com/open-rails/authkit/verify"
 )
@@ -169,9 +170,6 @@ func (s *Engine) createTenantIn(ctx context.Context, st *permissionGroupStore, i
 	if row.Slug != slug {
 		return iam.ErrTenantConflict
 	}
-	if err := bindNotificationScope(ctx, st.q, s.cfg.Database, s.cfg.Notifications, id, true); err != nil {
-		return err
-	}
 	g, err := st.groupByID(ctx, id.String())
 	if err == nil {
 		if g.Persona != iam.TenantPersona() || g.TenantID != id {
@@ -186,8 +184,8 @@ func (s *Engine) createTenantIn(ctx context.Context, st *permissionGroupStore, i
 	return err
 }
 
-// RenameTenant gives a tenant a new name. Under Tenants.FormerNames the old
-// name forwards to it and blocks other claims; a name the tenant held before
+// RenameTenant gives a tenant a new name. The old name forwards to it for
+// naming.FormerNameReservation and blocks other claims; a name the tenant held before
 // is taken back.
 func (s *Engine) RenameTenant(ctx context.Context, id iam.TenantID, slug string) (iam.Tenant, error) {
 	if id.IsZero() {
@@ -214,15 +212,12 @@ func (s *Engine) RenameTenant(ctx context.Context, id iam.TenantID, slug string)
 	if err != nil {
 		return iam.Tenant{}, tenantNameError(err)
 	}
-	if policy := s.cfg.Tenants.FormerNames; policy.Mode != config.NameRetentionImmediate {
-		err = q.InsertTenantSlugAlias(ctx, db.InsertTenantSlugAliasParams{
-			Slug: current.Slug, TenantID: id.String(),
-			Forever:          policy.Mode == config.NameRetentionForever,
-			RetentionSeconds: policy.Duration.Seconds(),
-		})
-		if err != nil {
-			return iam.Tenant{}, err
-		}
+	err = q.InsertTenantSlugAlias(ctx, db.InsertTenantSlugAliasParams{
+		Slug: current.Slug, TenantID: id.String(),
+		RetentionSeconds: naming.FormerNames.For.Seconds(),
+	})
+	if err != nil {
+		return iam.Tenant{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return iam.Tenant{}, err
@@ -279,7 +274,7 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 	}
 	if resource, ok := verified.(resourceVerified); ok && resource.access.Application == nil {
 		cl := resource.access.Claims
-		if cl.Kind != verify.TokenUser || cl.Issuer != s.cfg.Token.Issuer {
+		if cl.Kind != verify.TokenUser || cl.Issuer != s.cfg.Issuer {
 			return iam.TenantActor{}, auth.ErrForbidden
 		}
 		if !cl.ValidUntil.IsZero() && time.Now().After(cl.ValidUntil) {
@@ -301,7 +296,7 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 	id := verified.Identity()
 	state, ok := iam.StateOf(id)
 	if !ok || !state.IsUser() || id.SubjectKind != auth.SubjectUser ||
-		(id.Issuer != s.cfg.Token.Issuer && !slices.Contains(s.cfg.Token.AccountIssuers, id.Issuer)) {
+		(id.Issuer != s.cfg.Issuer && !slices.Contains(s.cfg.AccountIssuers, id.Issuer)) {
 		return iam.TenantActor{}, auth.ErrForbidden
 	}
 	if deadline := state.ValidUntil(); !deadline.IsZero() && time.Now().After(deadline) {

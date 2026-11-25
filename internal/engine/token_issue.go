@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -44,7 +45,7 @@ func (s *Engine) MintAccessToken(ctx context.Context, userID string, o iam.Acces
 	}
 	ttl := o.TTL
 	if ttl <= 0 {
-		ttl = s.cfg.Token.AccessTokenDuration
+		ttl = config.AccessTokenTTL
 	}
 	if !o.Group.IsZero() {
 		gid, err := s.mintGroup(ctx, o)
@@ -93,7 +94,7 @@ func (s *Engine) mintGroup(ctx context.Context, o iam.AccessTokenOptions) (strin
 // MintSessionAccessToken re-mints the access token of the caller's own
 // session (step-up and provider-link responses).
 func (s *Engine) MintSessionAccessToken(ctx context.Context, userID, sessionID string) (string, time.Time, error) {
-	return s.mintAccessToken(ctx, userID, map[string]any{"sid": sessionID}, s.cfg.Token.AccessTokenDuration)
+	return s.mintAccessToken(ctx, userID, map[string]any{"sid": sessionID}, config.AccessTokenTTL)
 }
 
 // authkitClaims are the claim names AuthKit's tokens use (docs/stability.md
@@ -166,7 +167,7 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.
 	// Authority is never a token claim: permissions resolve live (Can). The
 	// root role rides along for display only (Claims.RootRole).
 	var ents []string
-	if len(s.cfg.Token.EntitlementAllowlist) > 0 && s.entitlements != nil {
+	if len(s.cfg.EntitlementClaims) > 0 && s.entitlements != nil {
 		m, entErr := s.entitlements(ctx, []string{userID})
 		if entErr != nil {
 			// Deliberate availability-over-consistency: a failing entitlements
@@ -175,14 +176,14 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.
 			// until the next refresh.
 			s.log.ErrorContext(ctx, "authkit: entitlements provider failed; access token issued without entitlement claims", "user_id", userID, "error", entErr)
 		} else {
-			ents = selectedTokenEntitlements(s.cfg.Token.EntitlementAllowlist, m[userID])
+			ents = selectedTokenEntitlements(s.cfg.EntitlementClaims, m[userID])
 		}
 	}
 
 	claims := map[string]any{
-		"iss": s.cfg.Token.Issuer,
+		"iss": s.cfg.Issuer,
 		"sub": userID,
-		"aud": s.cfg.Token.IssuedAudiences,
+		"aud": []string{s.cfg.Issuer},
 		"iat": now.Unix(),
 		"exp": expiresAt.Unix(),
 	}
@@ -287,7 +288,7 @@ func (s *Engine) mintDeviceKeyAccessToken(ctx context.Context, userID, deviceKey
 	if hasAuthMethod(amr, "mfa") {
 		acr = iam.AssuranceLevelMFA
 	}
-	return s.mintAccessTokenForUserWithAssurance(ctx, s.q, u, mfa, nil, s.cfg.Token.AccessTokenDuration, &accessTokenAssurance{
+	return s.mintAccessTokenForUserWithAssurance(ctx, s.q, u, mfa, nil, config.AccessTokenTTL, &accessTokenAssurance{
 		AuthTime:    now.Unix(),
 		AMR:         amr,
 		ACR:         acr,

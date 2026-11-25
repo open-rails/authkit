@@ -135,7 +135,7 @@ export default async function setup() {
       if (processRef.exitCode !== null)
         throw new Error(`critical server exited: ${processRef.exitCode}`)
       try {
-        if ((await fetch(`${origin}/api/v1/capabilities`)).ok) {
+        if ((await fetch(`${origin}/auth/v1/capabilities`)).ok) {
           serving = true
           break
         }

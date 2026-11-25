@@ -40,12 +40,17 @@ func (s *Service) guardJSONAPI(next http.Handler) http.Handler {
 // signInKey verifies the DPoP proof of a request that presents no
 // DPoP-bound token (a sign-in, a refresh), and records its key for the
 // session the request issues or rotates (RFC 9449 §5). A proof for a bound
-// token is the route's to verify. A proof that fails is refused.
+// token is the route's to verify; a session such a request issues (an
+// enrollment finishing a sign-in) is bound to the token's key, useless to
+// anyone without it. A proof that fails is refused.
 func (s *Service) signInKey(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
-	if len(r.Header.Values("DPoP")) == 0 {
+	if token, bound := jose.RequestToken(r); bound {
+		if _, jkt, err := jose.Confirmation(token); err == nil && jkt != "" {
+			return r.WithContext(authflow.WithDPoPKey(r.Context(), jkt)), true
+		}
 		return r, true
 	}
-	if _, bound := jose.RequestToken(r); bound {
+	if len(r.Header.Values("DPoP")) == 0 {
 		return r, true
 	}
 	jkt, err := dpop.Verify(r, dpop.Check{URL: s.requestURL(r), Replay: s.replays.Claim})
@@ -61,14 +66,29 @@ func (s *Service) signInKey(w http.ResponseWriter, r *http.Request) (*http.Reque
 	return r.WithContext(authflow.WithDPoPKey(r.Context(), jkt)), true
 }
 
-// requestURL is where clients reach r: HTTPConfig.PublicURL plus r's path
+// requestURL is where clients reach r: the issuer plus r's path
 // beneath BasePath, the URL a DPoP proof names.
 func (s *Service) requestURL(r *http.Request) string {
 	return s.PublicURL(r.URL.EscapedPath())
 }
 
 // PublicURL is path, served beneath BasePath, as clients reach it
-// (HTTPConfig.PublicURL): what a DPoP proof to it names.
+// (beneath the Issuer): what a DPoP proof to it names.
 func (s *Service) PublicURL(path string) string {
-	return strings.TrimRight(s.http.PublicURL, "/") + strings.TrimPrefix(path, strings.TrimRight(s.http.BasePath, "/"))
+	return strings.TrimRight(s.surface.PublicURL, "/") + strings.TrimPrefix(path, strings.TrimRight(s.surface.Base, "/"))
+}
+
+// requireSignInKey refuses, before any work, a sign-in step that names no
+// DPoP key: every session is bound, so a flow's first step (a password, a
+// sign-up, a code) proves the key its session will be bound to, and no
+// code, challenge or token is spent or minted for a key that never comes.
+func requireSignInKey(s *Service, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authflow.DPoPKey(r.Context()) == "" {
+			w.Header().Set("WWW-Authenticate", `DPoP algs="ES256"`)
+			s.fail(w, errmodel.CodeSenderProofRequired)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

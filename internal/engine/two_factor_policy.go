@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
@@ -17,21 +16,20 @@ import (
 
 // TwoFactorEnabled reports whether any 2FA flow is usable (Mode != Disabled).
 func (s *Engine) TwoFactorEnabled() bool {
-	return s.cfg.TwoFactor.Mode != iam.TwoFactorDisabled
+	return s.cfg.TwoFactor != iam.TwoFactorDisabled
 }
 
 func (s *Engine) twoFactorMethodConfigured(m iam.TwoFactorMethod) bool {
 	if !s.TwoFactorEnabled() {
 		return false
 	}
-	methods := s.cfg.TwoFactor.Methods
-	if len(methods) == 0 {
-		return true // empty Methods means all three are offered.
-	}
-	for _, x := range methods {
-		if x == m {
-			return true
-		}
+	// The methods follow from what is wired: TOTP with a TOTP key, SMS with
+	// a sender; never email (NIST SP 800-63B-4 §3.1.3.1).
+	switch m {
+	case iam.TwoFactorTOTP:
+		return len(s.totpKey) > 0
+	case iam.TwoFactorSMS:
+		return s.sms != nil
 	}
 	return false
 }
@@ -49,15 +47,15 @@ func (s *Engine) twoFactorMethodAvailable(method string) bool {
 	case iam.TwoFactorEmail:
 		return s.EmailAvailable()
 	case iam.TwoFactorTOTP:
-		return len(s.cfg.TwoFactor.TOTPSecretKey) > 0
+		return len(s.totpKey) > 0
 	default:
 		return false
 	}
 }
 
 // TwoFactorMethods are the second factors a user can enroll now, in stable
-// order: enabled by TwoFactor.Mode and Methods, with their dependency present
-// (Deps.Email and Deps.SMS while healthy, the TOTP key). Empty when
+// order: enabled by Config.TwoFactor, with their dependency present (Deps.SMS
+// while healthy, the TOTP key). Empty when
 // 2FA is disabled.
 func (s *Engine) TwoFactorMethods() []iam.TwoFactorMethod {
 	out := []iam.TwoFactorMethod{}
@@ -72,7 +70,7 @@ func (s *Engine) TwoFactorMethods() []iam.TwoFactorMethod {
 // secondFactorProblem is why someone must hold MFA but no second factor can be
 // enrolled now: the MFA gate then refuses them (fail closed) until a method's
 // dependency returns. New reports it as degraded and Probes as
-// authkit_two_factor. An engine that signs no one in (Keys.VerifyOnly) has
+// authkit_two_factor. An engine that signs no one in (a KeySource without a signer) has
 // nothing to enroll.
 func (s *Engine) secondFactorProblem() error {
 	if !s.TwoFactorEnabled() || !s.signs || s.PasskeysEnabled() || len(s.TwoFactorMethods()) > 0 {
@@ -90,8 +88,8 @@ func (s *Engine) secondFactorProblem() error {
 		return nil
 	}
 	var fixes []string
-	if s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.cfg.TwoFactor.TOTPSecretKey) == 0 {
-		fixes = append(fixes, fmt.Sprintf("put a 16, 24 or 32-byte key at %s (or set TwoFactor.TOTPSecretKey)", filepath.Join(s.cfg.Keys.Path, totpKeyFilename)))
+	if s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.totpKey) == 0 {
+		fixes = append(fixes, "put a 16, 24 or 32-byte totp.key beside keys.json (Deps.KeySource as a keys.TOTPSource)")
 	}
 	if s.twoFactorMethodConfigured(iam.TwoFactorEmail) {
 		fixes = append(fixes, "set a healthy Deps.Email")

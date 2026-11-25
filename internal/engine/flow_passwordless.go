@@ -11,6 +11,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -63,7 +64,7 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 			return authflow.PasswordlessStartResult{}, err
 		}
 	}
-	if s == nil || !s.cfg.Registration.PasswordlessLogin {
+	if s == nil || !config.Mounted(s.cfg, iam.RoutePasswordless) {
 		return authflow.PasswordlessStartResult{}, errmodel.ErrPasswordlessDisabled
 	}
 	if s.pg == nil {
@@ -184,7 +185,7 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 }
 
 func (s *Engine) PasswordlessLogin(ctx context.Context, in authflow.PasswordlessLoginInput) (authflow.LoginOutcome, error) {
-	if s == nil || !s.cfg.Registration.PasswordlessLogin {
+	if s == nil || !config.Mounted(s.cfg, iam.RoutePasswordless) {
 		return authflow.LoginOutcome{}, errmodel.ErrPasswordlessDisabled
 	}
 	if !s.useEphemeralStore() {
@@ -425,10 +426,9 @@ func (s *Engine) sendPasswordlessChallenge(ctx context.Context, rec passwordless
 }
 
 func (s *Engine) passwordlessAutoRegistrationAllowed() bool {
-	if s == nil || !s.cfg.Registration.PasswordlessAutoRegistration {
-		return false
-	}
-	return s.cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
+	// A verified contact signing up, when registration admits it (an
+	// invite-only one checks the invitation).
+	return s != nil && s.cfg.Registration != iam.RegistrationModeClosed
 }
 
 func normalizePasswordlessIdentifier(identifier string) (channel, normalized string, err error) {

@@ -20,8 +20,8 @@ storage path, role or authentication credential.
 
 An app serving one business sets nothing: no tenant ID, no `CreateTenant` call (one for its own tenant is a harmless no-op). `Migrate` (and `New`, which runs it) gives a fresh database its one tenant, a new UUIDv7 with its canonical permission group, and adopts the tenant an existing database already holds. Every account operation acts in it, and `Client.TenantID` reports it, for example to hand to ContentKit or OpenRails.
 
-- An existing app upgrades with its `DefaultTenantID` setting or without it, then deletes it. A setting that names another tenant than the database's refuses to start.
-- A fresh database whose tenant ID must match another system's (a ContentKit business UUID) keeps `DefaultTenantID` (or `MigrationOptions.LegacyTenantID` for a separate `Migrate` step) for its first start: the tenant is created under that ID.
+- `DefaultTenantID`, `OAuthClientConfig.TenantID` and `ProvisioningTarget.TenantID` are multi-tenant only: a single-tenant Config that sets one is refused.
+- A fresh database whose tenant ID must match another system's (a ContentKit business UUID) runs `Migrate` first with `MigrationOptions.LegacyTenantID`: the tenant is created under that ID.
 - A database holding more than one tenant refuses to start and to migrate: the data contradicts the mode. Such a deployment is multi-tenant.
 - `CreateTenant` of another ID is refused with `iam.ErrSingleTenant` (HTTP 403 `single_tenant`); of the deployment's own ID it is the idempotent no-op matching provisioning always is. `ForTenant` or `Deps.RequestTenant` selects only the deployment's tenant.
 
@@ -73,8 +73,7 @@ authorize the caller to access it.
 directory. Authorized administration can still admit a root operator from
 another tenant; the shared authenticator verifies their source identity
 independently. Tenant-qualified cookies prevent one mounted directory's
-refresh cookie from overwriting another's, including when they share a
-configured cookie basename. A wrong directory cannot redeem another tenant's
+refresh cookie from overwriting another's. A wrong directory cannot redeem another tenant's
 refresh, recovery or verification proof.
 
 For one HTTP mount serving host-selected directories, set
@@ -105,13 +104,7 @@ application to its tenant so a login in another tab cannot switch the app's
 account. A configured OAuth client or an existing authorization request also
 keeps its own tenant selection rather than following the shared hint.
 
-For AuthKit's authorization server, `OAuthClientConfig.TenantID` selects the
-client's native account directory. An omitted value uses the default tenant: the
-single-tenant deployment's own, or the explicitly configured `DefaultTenantID`. A static SCIM client is not a global directory
-reader merely because several tenants share an issuer. Dynamic group clients
-use their group's recorded ownership. Shared callbacks recover their tenant
-from immutable proof state; an explicitly mounted directory still rejects a
-proof belonging to another tenant.
+For AuthKit's authorization server, `OAuthClientConfig.TenantID` (multi-tenant only) selects the client's native account directory. An omitted value uses `DefaultTenantID`; single-tenant, every client binds to the one tenant. A static SCIM client is not a global directory reader merely because several tenants share an issuer. Dynamic group clients use their group's recorded ownership. Shared callbacks recover their tenant from immutable proof state; an explicitly mounted directory still rejects a proof belonging to another tenant.
 
 ## Tenant names
 
@@ -129,13 +122,7 @@ renamed, err := authority.RenameTenant(ctx, tenantID, "acme-labs")
 tenant, err := authority.ResolveTenant(ctx, "acme") // tenant.ID == tenantID, tenant.Slug == "acme-labs"
 ```
 
-The old name becomes a former name. It keeps resolving to the tenant, and no
-other tenant may claim it, until it expires. `Config.Tenants.FormerNames` sets
-the lifetime: 90 days by default (`NameRetentionFinite`), `NameRetentionForever`,
-or `NameRetentionImmediate` for none. A tenant may take its own former name back.
-A name another tenant holds, live or former, is `iam.ErrTenantNameTaken`, and
-concurrent claims of one name have exactly one winner. Tenants are permanent;
-AuthKit has no tenant deletion, so nothing else releases a name.
+The old name becomes a former name: it keeps resolving to the tenant, and no other tenant may claim it, for `naming.FormerNameReservation` (90 days, `github.com/open-rails/authkit/naming`). A tenant may take its own former name back. A name another tenant holds, live or former, is `iam.ErrTenantNameTaken`, and concurrent claims of one name have exactly one winner. Tenants are permanent; AuthKit has no tenant deletion, so nothing else releases a name.
 
 `root:tenants:read` and `root:tenants:manage` gate the same operations over HTTP: `POST /admin/tenants`, `GET` and `PATCH /admin/tenants/{tenant_id}`, and `GET /admin/tenants/by-slug/{slug}`. The writes (`POST`, `PATCH`) are for a person who signed in within 15 minutes, like the user directory's: a stale session gets `step_up_required`, and API keys and personal access tokens are refused. The reads admit any credential holding `root:tenants:read`.
 

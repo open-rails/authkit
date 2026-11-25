@@ -97,14 +97,14 @@ func tsKey(name string) string {
 	return name
 }
 
-// routesTS is the route catalog on a default mount.
+// routesTS is the route catalog on an issuer at the root.
 func (c *contract) routesTS() []byte {
 	var b bytes.Buffer
 	b.WriteString(tsHeader)
 	b.WriteString(`
 export type AuthKitRoute = {
   method: string
-  // The path on a default mount (API beneath /api/v1, browser OIDC beneath /oidc).
+  // The path on an issuer at the root (API beneath /auth/v1, browser OIDC beneath /oidc).
   path: string
   group: string
   auth: "public" | "optional" | "required" | "session" | "permission"

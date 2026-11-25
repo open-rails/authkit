@@ -125,7 +125,7 @@ func (r *provisioningRun) deliver(ctx context.Context) (caughtUp bool, err error
 // batch sends the oldest due users' latest state and returns how many it
 // read.
 func (r *provisioningRun) batch(ctx context.Context) (int, error) {
-	s, issuer, name := r.engine, r.engine.cfg.Token.Issuer, r.target.name
+	s, issuer, name := r.engine, r.engine.cfg.Issuer, r.target.name
 	asOf := s.nowTime()
 	window, err := s.q.ProvisioningDueWindow(ctx, db.ProvisioningDueWindowParams{Issuer: issuer, Target: name, AsOf: asOf, MaxRows: provisioningWindow})
 	if err != nil || len(window) == 0 {
@@ -350,7 +350,7 @@ func (r *provisioningRun) sendOne(ctx context.Context, op *provisioningOp) (prov
 // user it lost is unlinked, both sent again; a refusal waits out its
 // backoff.
 func (r *provisioningRun) apply(ctx context.Context, asOf time.Time, results []provisioningResult) error {
-	s, issuer, name := r.engine, r.engine.cfg.Token.Issuer, r.target.name
+	s, issuer, name := r.engine, r.engine.cfg.Issuer, r.target.name
 	// Conflicts resolve before the transaction: they ask the target.
 	for i := range results {
 		res := &results[i]

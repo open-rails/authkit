@@ -82,7 +82,7 @@ func (s *Engine) clientAccount(ctx context.Context, client authflow.OAuthClient,
 	if err != nil || sid == "" {
 		return userID, "", err
 	}
-	sessions, err := s.q.SessionsListByUser(ctx, db.SessionsListByUserParams{UserID: userID, Issuer: s.cfg.Token.Issuer})
+	sessions, err := s.q.SessionsListByUser(ctx, db.SessionsListByUserParams{UserID: userID, Issuer: s.cfg.Issuer})
 	if err != nil {
 		return "", "", err
 	}

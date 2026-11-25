@@ -17,6 +17,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/provider"
 	"github.com/redis/go-redis/v9"
 )
@@ -48,7 +49,9 @@ func criticalDependencyBoundaries(t *testing.T) {
 		t.Cleanup(func() { _ = rdb.Close() })
 		noError(t, rdb.Ping(t.Context()).Err())
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits = map[string]authkit.RateLimit{"capabilities_read": {Limit: 1, Window: time.Minute}}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits = map[string]config.RateLimit{"capabilities_read": {Limit: 1, Window: time.Minute}}
+			})
 		}), authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb }))
 		f.call(t, "GET", "/capabilities", "", nil).want(t, 200, "")
 		link.cut()
@@ -76,7 +79,9 @@ func criticalDependencyBoundaries(t *testing.T) {
 		for _, row := range rows {
 			t.Run(row.Bucket, func(t *testing.T) {
 				limited := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) {
-					c.HTTP.RateLimits = map[string]authkit.RateLimit{row.Bucket: {Limit: 1, Window: time.Minute}}
+					config.Tune(c, func(tn *config.Tuning) {
+						tn.RateLimits = map[string]config.RateLimit{row.Bucket: {Limit: 1, Window: time.Minute}}
+					})
 				}))
 				server := httptest.NewServer(limited.Handler())
 				t.Cleanup(server.Close)
@@ -101,9 +106,8 @@ func criticalDependencyBoundaries(t *testing.T) {
 		idp := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "external provider unavailable", 503) }))
 		t.Cleanup(idp.Close)
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.TwoFactor.Mode = iam.TwoFactorOptional
-			c.TwoFactor.Methods = []iam.TwoFactorMethod{iam.TwoFactorTOTP, iam.TwoFactorSMS}
-			c.SenderHealthRecheck = 100 * time.Millisecond
+			c.TwoFactor = iam.TwoFactorOptional
+			config.Tune(c, func(tn *config.Tuning) { tn.SenderHealthRecheck = 100 * time.Millisecond })
 		}), authtest.WithDeps(func(d *authkit.Deps) {
 			d.Providers = []provider.Provider{provider.OIDC("unavailable", idp.URL, "critical-client", "critical-secret", provider.WithHTTPClient(idp.Client()))}
 		}))

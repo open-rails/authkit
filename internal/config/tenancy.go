@@ -2,11 +2,35 @@ package config
 
 import (
 	"fmt"
-	"maps"
-	"slices"
 
 	"github.com/open-rails/authkit/iam"
 )
+
+// singleTenantNamesNone refuses a tenant ID in a single-tenant Config: its
+// one tenant is the database's (Client.TenantID), and every setting acts in
+// it. DefaultTenantID and the per-object TenantIDs are multi-tenant only.
+func singleTenantNamesNone(c Config) error {
+	if c.Tenancy != TenancySingle {
+		return nil
+	}
+	refuse := func(field string) error {
+		return fmt.Errorf("authkit: %s is multi-tenant only: a single-tenant deployment's one tenant is its database's (Client.TenantID); leave it unset or set Tenancy to TenancyMulti", field)
+	}
+	if !c.DefaultTenantID.IsZero() {
+		return refuse("DefaultTenantID")
+	}
+	for i, cl := range c.AuthorizationServer.Clients {
+		if !cl.TenantID.IsZero() {
+			return refuse(fmt.Sprintf("AuthorizationServer.Clients[%d].TenantID", i))
+		}
+	}
+	for i, t := range c.Provisioning {
+		if !t.TenantID.IsZero() {
+			return refuse(fmt.Sprintf("Provisioning[%d].TenantID", i))
+		}
+	}
+	return nil
+}
 
 // tenantPending reports a single-tenant deployment whose tenant New reads
 // from the database: settings that name no tenant get it then.
@@ -16,8 +40,8 @@ func (c *Config) tenantPending() bool {
 
 // BindDefaultTenant makes id the default tenant of a normalized Config, as
 // New does with a single-tenant database's sole tenant: unscoped operations,
-// and the provisioning targets, OAuth clients and notification producers that
-// name no tenant, act in it. Single-tenant, nothing may name another.
+// and the provisioning targets and OAuth clients that name no tenant, act in
+// it. Single-tenant, nothing may name another.
 func BindDefaultTenant(c *Config, id iam.TenantID) error {
 	if id.IsZero() {
 		return iam.ErrTenantRequired
@@ -33,30 +57,11 @@ func BindDefaultTenant(c *Config, id iam.TenantID) error {
 		}
 		named = append(named, *t)
 	}
-	for i := range c.Provisioning.Targets {
-		bind(&c.Provisioning.Targets[i].TenantID)
+	for i := range c.Provisioning {
+		bind(&c.Provisioning[i].TenantID)
 	}
 	for i := range c.AuthorizationServer.Clients {
 		bind(&c.AuthorizationServer.Clients[i].TenantID)
-	}
-	if n := c.Notifications; n != nil {
-		producers := map[string]bool{}
-		for i := range n.Producers {
-			p := &n.Producers[i]
-			bind(&p.TenantID)
-			key := p.TenantID.String() + ":" + p.Name
-			if producers[key] {
-				return fmt.Errorf("authkit notifications: unique producer name per tenant required: %q", p.Name)
-			}
-			producers[key] = true
-		}
-		for _, tenant := range slices.Sorted(maps.Keys(n.Scopes)) {
-			parsed, err := iam.ParseTenantID(tenant)
-			if err != nil {
-				return err
-			}
-			named = append(named, parsed)
-		}
 	}
 	if c.Tenancy == TenancySingle {
 		for _, t := range named {

@@ -4,14 +4,26 @@ package iam
 // and the issuer-relative paths and cookie names clients depend on.
 
 // RouteGroup names one capability of AuthKit's HTTP surface. Hosts mount the
-// default groups or select exactly the ones they expose.
+// default groups (DefaultRouteGroups) or select exactly the ones they
+// expose; the opt-in features are groups of their own.
 type RouteGroup string
 
 const (
 	RouteAuth RouteGroup = "auth"
 	// RouteDeviceKeys is the refreshless native-client login surface: email
-	// enrollment plus Ed25519 challenge authentication.
-	RouteDeviceKeys       RouteGroup = "device_keys"
+	// enrollment plus Ed25519 challenge authentication. Opt-in: enrollment
+	// is an email-code login, and the jwt-bearer grant needs it.
+	RouteDeviceKeys RouteGroup = "device_keys"
+	// RoutePasswordless is passwordless sign-in by a code or link sent to
+	// the account's email or phone. Opt-in.
+	RoutePasswordless RouteGroup = "passwordless"
+	// RoutePersonalAccessTokens is users' own noninteractive tokens: the
+	// /me/personal-access-tokens routes, and the tokens they issue. Opt-in.
+	RoutePersonalAccessTokens RouteGroup = "personal_access_tokens"
+	// RouteInvitations is invite links and emailed invitations into a
+	// group, and redeeming them. Without it only the host's own
+	// Client.CreateInvitation calls issue any.
+	RouteInvitations      RouteGroup = "invitations"
 	RouteRegistration     RouteGroup = "registration"
 	RouteAccount          RouteGroup = "account"
 	RouteAdmin            RouteGroup = "admin"
@@ -55,7 +67,7 @@ type Route struct {
 func (r Route) Pattern() string { return r.Method + " " + r.Path }
 
 // JWKSPath serves the issuer's public signing keys beneath the issuer's path
-// (the mount's BasePath), so verifiers derive it: issuer + JWKSPath.
+// (the issuer's path), so verifiers derive it: issuer + JWKSPath.
 const JWKSPath = "/.well-known/jwks.json"
 
 // The authorization server's endpoints beneath the issuer's path, as its
@@ -81,3 +93,10 @@ const (
 	// accepted for migration after the token's issuer ownership is verified.
 	InsecureRefreshCookieName = "authkit_rt"
 )
+
+// DefaultRouteGroups are the groups a nil HTTPConfig.Groups mounts: every
+// group but the opt-in RouteDeviceKeys, RoutePasswordless and
+// RoutePersonalAccessTokens. Append those to it to mount them too.
+func DefaultRouteGroups() []RouteGroup {
+	return []RouteGroup{RouteAuth, RouteRegistration, RouteAccount, RouteAdmin, RoutePermissionGroups, RouteInvitations, RouteBrowserOIDC, RouteAuthorizationServer, RouteSCIM}
+}

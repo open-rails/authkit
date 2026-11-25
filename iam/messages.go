@@ -27,7 +27,7 @@ const (
 	MessageDeviceKeyEnrolled MessageKind = "device_key_enrolled"
 	// MessageNewDeviceCode is the Code a new device enters to sign in once
 	// the account has had too many new devices today
-	// (Config.SignIn.NewDevicesPerAccount). It tells the owner someone is
+	// (ten new devices a day). It tells the owner someone is
 	// signing in, and to change the password if it was not them.
 	MessageNewDeviceCode MessageKind = "new_device_code"
 	// MessageMFAReset tells an account that the system removed its passkeys,
@@ -83,7 +83,7 @@ type SMSMessage struct {
 	ContactChange *ContactChange
 	// UserID is the account the message is for; empty before one exists.
 	UserID string
-	// Domain is the host a Code is entered on (Frontend.BaseURL's). A body
+	// Domain is the host a Code is entered on (FrontendURL's). A body
 	// whose last line is "@<Domain> #<Code>" lets browsers autofill the code
 	// on that origin only (WICG origin-bound one-time codes); the built-in
 	// templates end with it, and OriginBoundLine renders it.

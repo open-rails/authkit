@@ -170,8 +170,8 @@ func (a *Client) EmailAvailable() bool { return a.engine.EmailAvailable() }
 
 // EmailHealth is the Deps.Email health verdict and when the check behind it
 // started; a zero time means no check has run. Start runs CheckHealth every
-// Config.SenderHealthInterval, and once after Config.SenderHealthRecheck
-// following a first failed check or a failed real send. The verdict fails
+// five minutes, and once 30 seconds after a first failed check or a failed
+// real send, following a first failed check or a failed real send. The verdict fails
 // after two failed checks in a row and clears when a check passes; real sends
 // never change it.
 func (a *Client) EmailHealth() (checkedAt time.Time, err error) { return a.engine.EmailHealth() }
@@ -212,7 +212,7 @@ func (a *Client) Probes() []Probe { return a.engine.Probes() }
 func (a *Client) TwoFactorMethods() []iam.TwoFactorMethod { return a.engine.TwoFactorMethods() }
 
 // Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is zero.
-// Mount it at the host root: its paths already include HTTPConfig.BasePath.
+// Mount it at the host root: its paths already include the issuer's path.
 func (a *Client) Handler() http.Handler {
 	if a.mount == nil {
 		return nil
@@ -231,7 +231,7 @@ func (a *Client) Handler() http.Handler {
 // "/api/v1" by default. It is "" without Config.HTTP.
 func (a *Client) APIBase() string { return a.mount.APIBase() }
 
-// PublicAPIBase is APIBase as clients reach it (HTTPConfig.PublicURL): what
+// PublicAPIBase is APIBase as clients reach it (beneath the Issuer): what
 // DPoP proofs to the API name. "" without HTTP.
 func (a *Client) PublicAPIBase() string {
 	if a.http == nil || a.mount == nil {
