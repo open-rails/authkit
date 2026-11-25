@@ -37,7 +37,7 @@ type devKeyBoot struct {
 func bootKeys(t *testing.T, issuer string, keys authkit.KeysConfig) devKeyBoot {
 	t.Helper()
 	var logs bytes.Buffer
-	cfg := authkit.Config{Token: authkit.TokenConfig{Issuer: issuer, IssuedAudiences: []string{"app"}}, Keys: keys}
+	cfg := authkit.Config{Issuer: issuer, Keys: keys}
 	client, err := authkit.New(context.Background(), cfg, authkit.Deps{Logger: slog.New(slog.NewTextHandler(&logs, nil))})
 	if client != nil {
 		t.Cleanup(func() { _ = client.Close(context.Background()) })

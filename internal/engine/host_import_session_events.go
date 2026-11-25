@@ -37,7 +37,7 @@ func (s *Engine) ImportSessionEvents(ctx context.Context, rows []iam.ImportSessi
 	for i, in := range rows {
 		row := iam.ImportSessionEventRow{Index: i, Status: iam.SessionEventRefused}
 		if in.Issuer == "" {
-			in.Issuer = s.cfg.Token.Issuer
+			in.Issuer = s.cfg.Issuer
 		}
 		userID, validID := canonicalUUID(in.UserID)
 		if !validID || !validImportedSessionEvent(in, now) {

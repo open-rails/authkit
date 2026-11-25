@@ -23,7 +23,7 @@ test("AK-UI-01: AK-J29-C01: start, stop, subscribe and browser restore retain on
       "00000000-0000-4000-8000-000000000099",
       "foreign"
     )
-    return JSON.parse(localStorage.getItem("authkit:session:/api/v1")!) as {
+    return JSON.parse(localStorage.getItem("authkit:session:/auth/v1")!) as {
       userId: string
       username: string
     }
@@ -121,7 +121,7 @@ test("AK-UI-03: AK-J29-C02: concurrent refresh coalesces and a real network outa
   page.on("request", (request) => {
     if (
       request.method() === "POST" &&
-      new URL(request.url()).pathname === "/api/v1/token"
+      new URL(request.url()).pathname === "/auth/v1/token"
     )
       refreshRequests++
   })
@@ -139,7 +139,7 @@ test("AK-UI-03: AK-J29-C02: concurrent refresh coalesces and a real network outa
     const offline = await page.evaluate(async () => {
       let failure: string | undefined
       try {
-        await window.ak.client.authFetch("/api/v1/me", { cache: "no-store" })
+        await window.ak.client.authFetch("/auth/v1/me", { cache: "no-store" })
       } catch (error) {
         failure = window.ak.transportFailure(error)
       }
@@ -189,7 +189,7 @@ test("AK-UI-04: AK-J29-C03: a delayed real profile response cannot cross logout 
     complete = resolve
   })
   let held = false
-  await page.route("**/api/v1/me", async (route) => {
+  await page.route("**/auth/v1/me", async (route) => {
     if (held || route.request().method() !== "GET") {
       await route.continue()
       return
@@ -250,7 +250,7 @@ test("AK-UI-05: AK-J29-C06: real auth errors, rate limits and abort preserve the
       // Capabilities are legitimately cacheable; force real network I/O to
       // exercise the actual service limiter rather than a cached200.
       const response = await window.ak.client.authFetch(
-        "/limited/api/v1/capabilities",
+        "/limited/auth/v1/capabilities",
         { cache: "no-store" }
       )
       if (response.status === 429) {

@@ -37,7 +37,7 @@ func (s *Service) refreshCookieVariant(r *http.Request, secure bool) CookieVaria
 			tenant = id
 		}
 	}
-	v.Name = TenantRefreshCookieName(s.cfg.Token.Issuer, tenant, s.http.RefreshCookieName, secure)
+	v.Name = TenantRefreshCookieName(s.cfg.Issuer, tenant, s.http.RefreshCookieName, secure)
 	return v
 }
 
@@ -48,7 +48,7 @@ func (s *Service) legacyRefreshVariants() []CookieVariant {
 			continue
 		}
 		if strings.Contains(v.Name, "{issuer}") {
-			v.Name = IssuerRefreshCookieName(s.cfg.Token.Issuer, v.Secure)
+			v.Name = IssuerRefreshCookieName(s.cfg.Issuer, v.Secure)
 		}
 		out = append(out, v)
 	}
@@ -259,6 +259,6 @@ func (s *Service) cookieOriginAllowed(r *http.Request) bool {
 	if strings.EqualFold(origin, scheme+"://"+r.Host) {
 		return true
 	}
-	configured, ok := originFromBaseURL(s.cfg.Frontend.BaseURL)
+	configured, ok := originFromBaseURL(s.cfg.FrontendURL)
 	return ok && strings.EqualFold(origin, configured)
 }

@@ -27,10 +27,10 @@ import {
 
 const params = new URLSearchParams(location.search)
 const baseUrl = params.has("limited")
-  ? "/limited/api/v1"
+  ? "/limited/auth/v1"
   : params.has("unproved")
-    ? "/unproved/api/v1"
-    : "/api/v1"
+    ? "/unproved/auth/v1"
+    : "/auth/v1"
 // Transparent public-boundary coverage only: real methods and results are
 // unchanged. No arguments, credentials or response data are recorded.
 function observe<T extends object>(target: T, boundary: string): T {

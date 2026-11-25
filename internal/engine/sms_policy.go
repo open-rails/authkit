@@ -146,7 +146,7 @@ func (s *Engine) admitSMS(ctx context.Context, msg iam.SMSMessage, region string
 
 // codeDomain is the host codes are entered on: Frontend.BaseURL's.
 func (s *Engine) codeDomain() string {
-	u, err := url.Parse(s.cfg.Frontend.BaseURL)
+	u, err := url.Parse(s.cfg.FrontendURL)
 	if err != nil {
 		return ""
 	}

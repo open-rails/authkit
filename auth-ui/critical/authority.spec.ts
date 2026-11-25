@@ -115,7 +115,7 @@ test("AK-UI-08: TS contract: group role mutations and API-key/PAT ceilings use t
   )
   expect(allowed.me.permissions).toContain("project:records:read")
   expect(allowed.admin).toEqual(allowed.me)
-  expect(allowed.scope).toContain("/api/v1")
+  expect(allowed.scope).toContain("/auth/v1")
   const membership = await page.evaluate(() =>
     window.ak.client.request<{
       data: { group: { id: string }; role: string }[]
@@ -227,7 +227,7 @@ test("AK-UI-08: TS contract: group role mutations and API-key/PAT ceilings use t
   expect(keys.data.some((entry) => entry.id === key.api_key.id)).toBe(true)
   expect(JSON.stringify(keys)).not.toContain(key.secret)
   const keyRead = await request.get(
-    `/api/v1/me/permissions?group_id=${group.id}`,
+    `/auth/v1/me/permissions?group_id=${group.id}`,
     { headers: { Authorization: `Bearer ${key.secret}` } }
   )
   expect(keyRead.status()).toBe(200)
@@ -241,7 +241,7 @@ test("AK-UI-08: TS contract: group role mutations and API-key/PAT ceilings use t
   )
   expect(
     (
-      await request.get(`/api/v1/me/permissions?group_id=${group.id}`, {
+      await request.get(`/auth/v1/me/permissions?group_id=${group.id}`, {
         headers: { Authorization: `Bearer ${key.secret}` },
       })
     ).status()
@@ -265,14 +265,14 @@ test("AK-UI-08: TS contract: group role mutations and API-key/PAT ceilings use t
   expect(JSON.stringify(listed)).not.toContain(pat.secret)
   expect(
     (
-      await request.get(`/api/v1/groups/${group.id}/members`, {
+      await request.get(`/auth/v1/groups/${group.id}/members`, {
         headers: { Authorization: `Bearer ${pat.secret}` },
       })
     ).status()
   ).toBe(200)
   expect(
     (
-      await request.get("/api/v1/me", {
+      await request.get("/auth/v1/me", {
         headers: { Authorization: `Bearer ${pat.secret}` },
       })
     ).status()
@@ -283,7 +283,7 @@ test("AK-UI-08: TS contract: group role mutations and API-key/PAT ceilings use t
   )
   expect(
     (
-      await request.get(`/api/v1/groups/${group.id}/members`, {
+      await request.get(`/auth/v1/groups/${group.id}/members`, {
         headers: { Authorization: `Bearer ${pat.secret}` },
       })
     ).status()
@@ -531,7 +531,7 @@ test("AK-UI-19: native group offboarding reminds after access loss, preserves se
     ).data.some((entry) => entry.subject.id === member.id)
   ).toBe(false)
   const permitted = await request.get(
-    `/api/v1/me/permissions?group_id=${group.id}`,
+    `/auth/v1/me/permissions?group_id=${group.id}`,
     {
       headers: { Authorization: `Bearer ${key.secret}` },
     }

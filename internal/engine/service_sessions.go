@@ -50,15 +50,15 @@ func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, user
 	if s.cfg.Token.SessionMaxPerUser > 0 {
 		// Serializes session creation per (user, issuer), so the count, evict and
 		// insert below never exceed SessionMaxPerUser under concurrent logins.
-		if err := q.AdvisoryXactLock(ctx, userID+"|"+s.cfg.Token.Issuer); err != nil {
+		if err := q.AdvisoryXactLock(ctx, userID+"|"+s.cfg.Issuer); err != nil {
 			return "", "", nil, nil, err
 		}
-		evicted, err = s.enforceSessionLimitTx(ctx, q, userID, s.cfg.Token.Issuer)
+		evicted, err = s.enforceSessionLimitTx(ctx, q, userID, s.cfg.Issuer)
 		if err != nil {
 			return "", "", nil, nil, err
 		}
 	}
-	err = q.SessionInsert(ctx, db.SessionInsertParams{ID: sid, UserID: userID, Issuer: s.cfg.Token.Issuer, CurrentTokenHash: s.hashRefresh(rt), ExpiresAt: exp, UserAgent: nullable(userAgent), IpAddr: ipText(ip), AuthMethods: authflow.NormalizeAuthMethods(authMethods), DpopJkt: nullable(jkt)})
+	err = q.SessionInsert(ctx, db.SessionInsertParams{ID: sid, UserID: userID, Issuer: s.cfg.Issuer, CurrentTokenHash: s.hashRefresh(rt), ExpiresAt: exp, UserAgent: nullable(userAgent), IpAddr: ipText(ip), AuthMethods: authflow.NormalizeAuthMethods(authMethods), DpopJkt: nullable(jkt)})
 	return sid, rt, exp, evicted, err
 }
 
@@ -76,14 +76,14 @@ func (s *Engine) OwnsRefreshToken(ctx context.Context, token string) (bool, erro
 		return false, nil
 	}
 	hash := s.hashRefresh(token)
-	_, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{TenantID: s.tenantKey(ctx), CurrentTokenHash: hash, Issuer: s.cfg.Token.Issuer})
+	_, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{TenantID: s.tenantKey(ctx), CurrentTokenHash: hash, Issuer: s.cfg.Issuer})
 	if err == nil {
 		return true, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return false, err
 	}
-	_, err = s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TenantID: s.tenantKey(ctx), TokenHash: hash, Issuer: s.cfg.Token.Issuer})
+	_, err = s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TenantID: s.tenantKey(ctx), TokenHash: hash, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -102,7 +102,7 @@ func (s *Engine) ExchangeRefreshToken(ctx context.Context, refreshToken string, 
 	h := s.hashRefresh(refreshToken)
 
 	// Try current hash
-	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{TenantID: s.tenantKey(ctx), CurrentTokenHash: h, Issuer: s.cfg.Token.Issuer})
+	cur, err := s.q.SessionByCurrentTokenHash(ctx, db.SessionByCurrentTokenHashParams{TenantID: s.tenantKey(ctx), CurrentTokenHash: h, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No longer current: either a concurrent refresh demoted it a moment ago
 		// (grace re-delivery) or it is genuine reuse (session revoke).
@@ -196,7 +196,7 @@ func (s *Engine) refreshProof(ctx context.Context, bound *string) error {
 // the same successor. Older consumed hashes identify the session but cannot open
 // the seal for the current successor, so advancing twice does not hide reuse.
 func (s *Engine) exchangeDemotedRefreshToken(ctx context.Context, refreshToken string, h []byte, ua string, ip net.IP) (string, authflow.IssuedSession, error) {
-	prev, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TenantID: s.tenantKey(ctx), TokenHash: h, Issuer: s.cfg.Token.Issuer})
+	prev, err := s.q.SessionByHistoricalTokenHash(ctx, db.SessionByHistoricalTokenHashParams{TenantID: s.tenantKey(ctx), TokenHash: h, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		reason := "refresh_token_unknown"
 		s.LogSessionFailed(ctx, "", "", &reason, ipText(ip), nullable(ua))
@@ -337,7 +337,7 @@ func (s *Engine) issueLoginSessionTx(ctx context.Context, q *db.Queries, user *d
 	if err != nil {
 		return authflow.IssuedSession{}, nil, nil, err
 	}
-	fresh, err := q.SessionFreshSince(ctx, db.SessionFreshSinceParams{UserID: user.ID, SessionID: sid, Issuer: s.cfg.Token.Issuer})
+	fresh, err := q.SessionFreshSince(ctx, db.SessionFreshSinceParams{UserID: user.ID, SessionID: sid, Issuer: s.cfg.Issuer})
 	if err != nil {
 		return authflow.IssuedSession{}, nil, nil, err
 	}
@@ -399,7 +399,7 @@ func (s *Engine) SessionFreshness(ctx context.Context, userID, sessionID string,
 		now = time.Now()
 	}
 
-	fresh, err := s.q.SessionFreshSince(ctx, db.SessionFreshSinceParams{SessionID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer})
+	fresh, err := s.q.SessionFreshSince(ctx, db.SessionFreshSinceParams{SessionID: sessionID, UserID: userID, Issuer: s.cfg.Issuer})
 	if err != nil {
 		return authflow.SessionFreshness{}, err
 	}
@@ -496,7 +496,7 @@ func (s *Engine) signedInUser(cl verify.Claims) (string, bool) {
 		return "", false
 	case cl.IsUser():
 		return cl.UserID, true
-	case cl.Kind == verify.TokenUser && cl.IsResourceToken() && cl.DeviceKeyID != "" && cl.SessionID == "" && cl.Issuer == s.cfg.Token.Issuer:
+	case cl.Kind == verify.TokenUser && cl.IsResourceToken() && cl.DeviceKeyID != "" && cl.SessionID == "" && cl.Issuer == s.cfg.Issuer:
 		return cl.Subject, isUUID(cl.Subject)
 	}
 	return "", false
@@ -583,7 +583,7 @@ func (s *Engine) MarkSessionAuthenticatedWithMethods(ctx context.Context, userID
 	n, err := s.q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{
 		SessionID:   sessionID,
 		UserID:      userID,
-		Issuer:      s.cfg.Token.Issuer,
+		Issuer:      s.cfg.Issuer,
 		AuthMethods: authflow.NormalizeAuthMethods(authMethods),
 	})
 	if err != nil {
@@ -606,7 +606,7 @@ func (s *Engine) RevokeSessionByIDForUser(ctx context.Context, userID, sessionID
 		v := string(authflow.SessionRevokeReasonUserRevoke)
 		reason = &v
 	}
-	sid, err := s.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer})
+	sid, err := s.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: sessionID, UserID: userID, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -639,7 +639,7 @@ func (s *Engine) RevokeIssuerSessions(ctx context.Context, userID string, keepSe
 	} else if err != nil {
 		return err
 	}
-	revoked, err := revokeSessionsTx(ctx, q, userID, []string{s.cfg.Token.Issuer}, keepSessionID)
+	revoked, err := revokeSessionsTx(ctx, q, userID, []string{s.cfg.Issuer}, keepSessionID)
 	if err != nil {
 		return err
 	}
@@ -653,7 +653,7 @@ func (s *Engine) RevokeIssuerSessions(ctx context.Context, userID string, keepSe
 // accountIssuers is the normalized account-level revocation scope (a copy).
 func (s *Engine) accountIssuers() []string {
 	if len(s.cfg.Token.AccountIssuers) == 0 {
-		return []string{s.cfg.Token.Issuer}
+		return []string{s.cfg.Issuer}
 	}
 	return slices.Clone(s.cfg.Token.AccountIssuers)
 }
@@ -715,7 +715,7 @@ func (s *Engine) enforceSessionLimitTx(ctx context.Context, q *db.Queries, userI
 }
 
 func (s *Engine) revokeReusedSession(ctx context.Context, sessionID, userID string) error {
-	_, err := s.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer})
+	_, err := s.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: sessionID, UserID: userID, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // already revoked
 	}

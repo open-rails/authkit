@@ -43,7 +43,7 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 		session := f.signIn(t, user)
 		scope, err := f.auth.Scope(t.Context(), iam.GroupByID(group.ID))
 		noError(t, err)
-		zeroSkew, err := f.auth.NewVerifier([]string{authtest.Audience}, verify.WithSkew(0), verify.WithPublicURL(proofOrigin))
+		zeroSkew, err := f.auth.NewVerifier([]string{authtest.Issuer}, verify.WithSkew(0), verify.WithPublicURL(proofOrigin))
 		noError(t, err)
 		for _, sample := range []struct {
 			name     string

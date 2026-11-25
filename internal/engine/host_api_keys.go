@@ -95,7 +95,7 @@ func (s *Engine) CreateAPIKey(ctx context.Context, a auth.Identity, ref iam.Grou
 			out.APIKey = iam.APIKey{LookupID: minted.LookupID, GroupID: g.ID, Name: name, Role: role, Permissions: ident.Perms(grants), CreatedBy: nullable(creator), ExpiresAt: expiresAt, ProvisionsFor: provisions}
 			row, err := db.New(st.q).APIKeyInsert(ctx, db.APIKeyInsertParams{
 				GroupID: g.ID, KeyID: minted.LookupID, SecretHash: minted.SecretHash, Name: name,
-				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt, CatalogIssuer: s.cfg.Token.Issuer, ProvisionsFor: provisions,
+				Role: role.String(), CreatedBy: nullable(creator), ExpiresAt: expiresAt, CatalogIssuer: s.cfg.Issuer, ProvisionsFor: provisions,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue // lookup id collision
@@ -193,7 +193,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedA
 	}
 	// A key resolves only at the app it was issued through: another app's
 	// catalog may give its role name other permissions (ak#417).
-	k, err := s.q.APIKeyByLookupID(ctx, db.APIKeyByLookupIDParams{KeyID: lookupID, Issuer: s.cfg.Token.Issuer})
+	k, err := s.q.APIKeyByLookupID(ctx, db.APIKeyByLookupIDParams{KeyID: lookupID, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyInvalid
 	}
@@ -224,7 +224,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedA
 		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyRevoked
 	}
 	p.LookupID = lookupID
-	p.Issuer = s.cfg.Token.Issuer
+	p.Issuer = s.cfg.Issuer
 	return p, nil
 }
 

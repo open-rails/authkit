@@ -17,6 +17,21 @@ import (
 // reaches outside the process (the pool, senders, keys, providers, hooks) is
 // in Deps. authkit.New normalizes it once.
 type Config struct {
+	// Issuer is this deployment's JWT issuer and the one URL AuthKit derives
+	// the rest from (required): an https URL such as "https://myapp.com", http
+	// only on a loopback host (localhost, 127.0.0.1, [::1]). Tokens carry it as
+	// iss and aud; the HTTP surface lives at its path (the JSON API beneath
+	// /auth/v1 at the root, beneath /v1 under a path, JWKS at iam.JWKSPath);
+	// cookies and DPoP proofs are scoped to it.
+	Issuer string `yaml:"issuer"`
+	// FrontendURL is the host SPA's base URL, which may carry a path
+	// ("https://myapp.com/admin"). AuthKit's links and redirects land at fixed
+	// routes beneath it: /verify, /reset, /passwordless, /invite, /authorize
+	// and /login/callback. Its host names passkeys and authenticator-app
+	// entries; its scheme decides whether cookies are Secure. Empty is the
+	// Issuer's origin.
+	FrontendURL string `yaml:"frontend_url"`
+
 	// Tenancy is how many account directories (tenants) the deployment has.
 	// TenancySingle, the zero value, is one, which AuthKit creates or adopts
 	// and owns. TenancyMulti opts into CreateTenant and ForTenant over many.
@@ -45,8 +60,6 @@ type Config struct {
 	SignIn SignInConfig `yaml:"sign_in"`
 	// Keys controls signing-key resolution when Deps.KeySource is nil.
 	Keys KeysConfig `yaml:"keys"`
-	// Frontend describes host-owned frontend routes used for absolute URLs.
-	Frontend FrontendConfig `yaml:"frontend"`
 	// Registration controls verification policy and public self-registration.
 	Registration RegistrationConfig `yaml:"registration"`
 	// Agreements are the documents users accept, such as terms and a privacy
@@ -68,8 +81,6 @@ type Config struct {
 	Tenants TenantsConfig `yaml:"tenants"`
 	// TwoFactor configures MFA.
 	TwoFactor TwoFactorConfig `yaml:"two_factor"`
-	// Passkeys configures WebAuthn/FIDO2 passkey ceremonies.
-	Passkeys PasskeyConfig `yaml:"passkeys"`
 	// DeviceKeys enables the refreshless native-client device-key surface.
 	// Off by default: enrollment is an email-code login, so hosts opt in
 	// explicitly before RouteDeviceKeys is mounted or the engine issues
@@ -145,16 +156,6 @@ type Config struct {
 
 // TokenConfig is the JWT issuing/verification contract plus session limits.
 type TokenConfig struct {
-	// Issuer is this deployment's JWT issuer (required), an https URL such
-	// as "https://myapp.com"; http only on a loopback host (localhost,
-	// 127.0.0.1, [::1]). Its path, if any, is where the HTTP surface lives.
-	Issuer string `yaml:"issuer"`
-	// IssuedAudiences are the audiences every issued token carries (at least
-	// one).
-	IssuedAudiences []string `yaml:"issued_audiences"`
-	// ExpectedAudiences are the audiences verification accepts; empty
-	// defaults to IssuedAudiences.
-	ExpectedAudiences []string `yaml:"expected_audiences"`
 	// AccessTokenDuration is the access-token lifetime; 0 defaults to 15
 	// minutes, the longest a revoked session's token passes stateless checks.
 	AccessTokenDuration time.Duration `yaml:"access_token_duration"`
@@ -269,35 +270,6 @@ type KeysConfig struct {
 	// iam.ErrSigningNotConfigured, verification and permission reads work, and
 	// JWKS serves an empty set. Key resolution is skipped.
 	VerifyOnly bool `yaml:"verify_only"`
-}
-
-// FrontendConfig describes host-owned frontend routes.
-type FrontendConfig struct {
-	// BaseURL builds absolute links (password reset, verification, invites).
-	// Empty defaults to Token.Issuer. Like it, it is an https URL, or http on
-	// a loopback host; its scheme decides whether cookies are Secure.
-	BaseURL string `yaml:"base_url"`
-	// OIDCReturnPath is the SPA route AuthKit redirects to after it finishes a
-	// browser sign-in with an identity provider (not the provider callback,
-	// which AuthKit owns). Empty defaults to "/login/callback".
-	OIDCReturnPath string `yaml:"oidc_return_path"`
-	// VerifyPath receives scanner-safe verification link landings. Empty
-	// defaults to "/verify".
-	VerifyPath string `yaml:"verify_path"`
-	// PasswordResetPath receives scanner-safe password reset link landings.
-	// Empty defaults to "/reset".
-	PasswordResetPath string `yaml:"password_reset_path"`
-	// PasswordlessPath receives passwordless sign-in links. Empty defaults to
-	// "/passwordless".
-	PasswordlessPath string `yaml:"passwordless_path"`
-	// InvitePath receives group invitation links (?code=…); the SPA posts the
-	// code to the redeem route. Empty defaults to "/accept-invite".
-	InvitePath string `yaml:"invite_path"`
-	// AuthorizePath receives an OAuth client's sign-in request
-	// (?authorization=…) when the authorization server is on: the SPA signs
-	// the user in, then approves the request through the API. Empty defaults
-	// to "/authorize".
-	AuthorizePath string `yaml:"authorize_path"`
 }
 
 // RegistrationConfig controls public self-registration and whether password
@@ -445,11 +417,6 @@ const (
 
 // TwoFactorConfig configures MFA.
 type TwoFactorConfig struct {
-	// TOTPIssuer is the service label in authenticator apps. For websites, use
-	// the public sign-in hostname, such as "example.com", so password managers
-	// can match saved credentials. Empty uses the token issuer's hostname.
-	// Unlike Token.Issuer, it must not contain a colon or control characters.
-	TOTPIssuer string `yaml:"totp_issuer"`
 	// Mode is the account-wide policy: iam.TwoFactorDisabled,
 	// iam.TwoFactorOptional (the default) or iam.TwoFactorRequired (every user
 	// enrolls before normal session use). Persona.RequireMFA enforces MFA per
@@ -464,16 +431,6 @@ type TwoFactorConfig struct {
 	// bytes. It overrides <Keys.Path>/totp.key; with neither, TOTP enrollment
 	// is unavailable.
 	TOTPSecretKey []byte `yaml:"totp_secret_key"`
-}
-
-// PasskeyConfig configures the WebAuthn relying party. Empty fields derive
-// from Frontend.BaseURL.
-type PasskeyConfig struct {
-	RPID          string   `yaml:"rp_id"`
-	RPDisplayName string   `yaml:"rp_display_name"`
-	Origins       []string `yaml:"origins"`
-	// Normalized to required: passkey sign-in supplies MFA only with PIN/biometric UV.
-	UserVerification string `yaml:"user_verification"`
 }
 
 // DeviceKeysConfig controls the native-client device-key surface.
@@ -506,9 +463,8 @@ type PersonalAccessTokensConfig struct {
 type RemoteApplicationConfig struct {
 	// Issuer is the iss of the tokens it signs: an absolute http(s) URL.
 	Issuer string `yaml:"issuer"`
-	// JWKSURI is where its keys are fetched; PublicKeys is a static key list
-	// instead. Set exactly one.
-	JWKSURI    string                     `yaml:"jwks_uri"`
+	// PublicKeys are its keys, trusted statically. Empty fetches them from
+	// the issuer's JWKS, at the issuer plus iam.JWKSPath.
 	PublicKeys []iam.RemoteApplicationKey `yaml:"public_keys"`
 	// Disabled keeps it registered and refuses its tokens.
 	Disabled bool `yaml:"disabled"`
@@ -565,11 +521,15 @@ type LanguageConfig struct {
 }
 
 // HTTPConfig configures the HTTP surface: one handler serving the JSON API,
-// browser OIDC and JWKS, every route beneath BasePath:
+// browser OIDC and JWKS, every route beneath the Issuer's path:
 //
-//	{BasePath}{APIPath}/v1/...           JSON API
-//	{BasePath}/oidc/{provider}/...       browser OIDC
-//	{BasePath}/.well-known/jwks.json     JWKS
+//	{path}/auth/v1/...               JSON API, issuer at the root
+//	{path}/v1/...                    JSON API, issuer with a path
+//	{path}/oidc/{provider}/...       browser OIDC
+//	{path}/.well-known/jwks.json     JWKS
+//
+// Serve the paths unchanged: no StripPrefix in front. A proxy in front keeps
+// the issuer's URL: DPoP proofs and assertions name it.
 //
 // What sits in front of AuthKit must be declared, exactly once: the proxies
 // (TrustedProxies, with CloudflareProxies where Cloudflare fronts the
@@ -579,23 +539,6 @@ type HTTPConfig struct {
 	// Groups selects the mounted route groups. Nil mounts the default API
 	// surface plus browser OIDC; non-nil mounts exactly the named groups.
 	Groups []iam.RouteGroup `yaml:"groups"`
-	// BasePath roots the whole surface. Empty derives it from Token.Issuer's
-	// path ("https://example.com/auth" gives "/auth"); when the issuer is a
-	// URL a set value must equal that path, because verifiers find JWKS at
-	// the issuer plus iam.JWKSPath. Serve the paths unchanged: no StripPrefix
-	// in front.
-	BasePath string `yaml:"base_path"`
-	// APIPath is the JSON API's prefix beneath BasePath; AuthKit adds the
-	// version segment, /v1, after it. Empty means "/api"; "/" puts /v1 right
-	// beneath BasePath.
-	APIPath string `yaml:"api_path"`
-	// PublicURL is where clients reach BasePath when a proxy in front changes
-	// the origin or the path, such as "https://shop.example.com/sso". DPoP
-	// proofs sent to the token endpoint, and jwt-bearer assertions' aud, must
-	// name PublicURL plus its path beneath BasePath; proofs to the host's
-	// routes behind Client.Authenticator name its origin. Empty defaults to
-	// Token.Issuer's origin plus BasePath.
-	PublicURL string `yaml:"public_url"`
 	// Exclude drops routes the host serves itself, named as iam.Route.Pattern
 	// names them ("GET /.well-known/jwks.json"). An entry matching no route is
 	// an error.
@@ -614,9 +557,6 @@ type HTTPConfig struct {
 	// unknown buckets are refused. Limits are in memory and per process unless
 	// Deps.Redis shares them.
 	RateLimits map[string]RateLimit `yaml:"rate_limits"`
-	// RedisKeyPrefix namespaces the rate-limit keys in Deps.Redis so
-	// deployments can share one Redis. Empty derives "authkit:<schema>:".
-	RedisKeyPrefix string `yaml:"redis_key_prefix"`
 
 	// TrustedProxies are the CIDRs of reverse proxies whose X-Forwarded-For
 	// is honoured.

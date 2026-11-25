@@ -45,11 +45,8 @@ import (
 	"github.com/open-rails/authkit/keys"
 )
 
-// Issuer and Audience are the token issuer and audience New configures.
-const (
-	Issuer   = "https://example.com"
-	Audience = "authtest"
-)
+// Issuer is the token issuer, and so the audience, New configures.
+const Issuer = "https://example.com"
 
 // Option adjusts what New builds.
 type Option func(*setup)
@@ -75,7 +72,7 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 // the Client with the Outbox wired as its email and SMS senders. The defaults
 // differ from a zero Config only where a test needs them to:
 //
-//   - Token: Issuer and Audience.
+//   - Issuer.
 //   - TwoFactor.TOTPSecretKey: random, so authenticator apps can enroll.
 //   - HTTP: served (DirectPeerIP), with every rate limit lifted (RateLimits).
 //   - SignIn: every limit off, since tests sign many accounts in from one
@@ -97,7 +94,7 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	_, _ = rand.Read(key)
 	cfg := authkit.Config{
 		DefaultTenantID: iam.NewTenantID(),
-		Token:           authkit.TokenConfig{Issuer: Issuer, IssuedAudiences: []string{Audience}},
+		Issuer:          Issuer,
 		TwoFactor:       authkit.TwoFactorConfig{TOTPSecretKey: key},
 		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: unlimited()},
 		SignIn:          authkit.SignInConfig{AccountsPerDevice: -1, AccountsPerAddress: -1, NewDevicesPerAccount: -1},
@@ -135,7 +132,8 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 // Replica builds another Client on auth's database and schema, as another
 // replica of the deployment runs: the Config and Deps auth was built with
 // (its Outbox included, when New built it), then opts. auth may be any
-// Client authkit.New built, a host's own included. A different Token.Issuer
+// Client authkit.New built, a host's own included. A different Issuer
+
 // makes a sibling deployment sharing the account store; different HTTPConfig
 // serves the same accounts another way. HTTP is copied, so opts may set its
 // fields; replace, never mutate, the maps and slices opts

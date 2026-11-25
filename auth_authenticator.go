@@ -72,7 +72,7 @@ func (a *Client) Authenticator() auth.Authenticator { return authenticator{a, a}
 func (v *Verifier) Authenticator() auth.Authenticator { return authenticator{v, v.client} }
 
 // Scope is the group ref names as a library's Can checks it:
-// {Authority: Config.Token.Issuer, ID: the group's id}. Scope(ctx,
+// {Authority: Config.Issuer, ID: the group's id}. Scope(ctx,
 // iam.RootGroup()) is where root roles hold their permissions. A deleted or
 // unknown group is iam.ErrGroupNotFound.
 func (a *Client) Scope(ctx context.Context, ref iam.GroupRef) (auth.Scope, error) {
@@ -83,7 +83,7 @@ func (a *Client) Scope(ctx context.Context, ref iam.GroupRef) (auth.Scope, error
 	case g.DeletedAt != nil:
 		return auth.Scope{}, iam.ErrGroupNotFound
 	}
-	return auth.Scope{Authority: a.engine.Config().Token.Issuer, ID: g.ID}, nil
+	return auth.Scope{Authority: a.engine.Config().Issuer, ID: g.ID}, nil
 }
 
 type authenticator struct {
@@ -105,7 +105,7 @@ func (a authenticator) RootScope(ctx context.Context) (auth.Scope, error) {
 	if err != nil {
 		return auth.Scope{}, errors.Join(auth.ErrUnavailable, err)
 	}
-	return auth.Scope{Authority: a.client.engine.Config().Token.Issuer, ID: id}, nil
+	return auth.Scope{Authority: a.client.engine.Config().Issuer, ID: id}, nil
 }
 
 // AllowedHeaders are the request headers credentials travel in: a token

@@ -86,7 +86,7 @@ func TestCriticalPasskeyFrames(t *testing.T) {
 
 func passkeyFixture(t *testing.T, topOrigin func(context.Context, string) (bool, error)) *fixture {
 	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.Passkeys = authkit.PasskeyConfig{RPID: passkeyRPID, RPDisplayName: "Network", Origins: []string{passkeyOrigin}}
+		c.FrontendURL = passkeyOrigin // the relying party
 	}), authtest.WithDeps(func(d *authkit.Deps) { d.PasskeyTopOrigin = topOrigin }))
 }
 

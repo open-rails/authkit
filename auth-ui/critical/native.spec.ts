@@ -89,7 +89,7 @@ test("AK-UI-07: AK-J29-C05: native signup, contact change, MFA login and confirm
     .toBe(1)
   // This read is deliberately stateless and exposes the caller's tombstone;
   // mutation routes require the current live session.
-  const tombstone = await request.get("/api/v1/me", {
+  const tombstone = await request.get("/auth/v1/me", {
     headers: { Authorization: `Bearer ${token}` },
   })
   expect(tombstone.status()).toBe(200)
@@ -97,7 +97,7 @@ test("AK-UI-07: AK-J29-C05: native signup, contact change, MFA login and confirm
     id: userId,
     deleted_at: expect.any(String),
   })
-  const rejected = await request.patch("/api/v1/me", {
+  const rejected = await request.patch("/auth/v1/me", {
     headers: { Authorization: `Bearer ${token}` },
     data: { preferred_language: "en" },
   })

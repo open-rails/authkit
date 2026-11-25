@@ -103,7 +103,7 @@ export type ContactProofHandler = (
 ) => Promise<boolean>
 
 export type AuthClientOptions = {
-  // AuthKit JSON API mount. Default "/api/v1".
+  // AuthKit JSON API mount. Default "/auth/v1".
   baseUrl?: string
   // Browser OIDC mount (outside the API prefix). Default "/oidc".
   oidcBaseUrl?: string
@@ -233,7 +233,7 @@ const segment = encodeURIComponent
 export type AuthClient = ReturnType<typeof createAuthClient>
 
 export function createAuthClient(options: AuthClientOptions = {}) {
-  const baseUrl = trimSlash(options.baseUrl ?? "/api/v1")
+  const baseUrl = trimSlash(options.baseUrl ?? "/auth/v1")
   const oidcBaseUrl = trimSlash(options.oidcBaseUrl ?? "/oidc")
   const doFetch: typeof fetch = (...args) =>
     (options.fetch ?? globalThis.fetch)(...args)

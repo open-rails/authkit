@@ -50,7 +50,7 @@ func proofFixtureWith(t *testing.T, deps func(*authkit.Deps)) (*fixture, *authte
 }
 func proofServer(t *testing.T, f *fixture, opts []verify.VerifierOption, handler http.Handler) (*authkit.Verifier, *httptest.Server) {
 	t.Helper()
-	v, err := f.auth.NewVerifier([]string{authtest.Audience}, append([]verify.VerifierOption{verify.WithPublicURL(proofOrigin)}, opts...)...)
+	v, err := f.auth.NewVerifier([]string{authtest.Issuer}, append([]verify.VerifierOption{verify.WithPublicURL(proofOrigin)}, opts...)...)
 	noError(t, err)
 	if handler == nil {
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })

@@ -108,9 +108,7 @@ func TestCriticalTransport(t *testing.T) {
 	})
 	t.Run("AK-J31-C03_base_path_HEAD_and_protocol_OPTIONS_are_confined", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Token.Issuer = "https://example.com/identity"
-			c.HTTP.BasePath = "/identity"
-			c.HTTP.APIPath = "/service"
+			c.Issuer = "https://example.com/identity"
 			c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: "browser", RedirectURIs: []string{"https://client.example/callback"}}}
 		}))
 		client := f.server.Client()
@@ -119,10 +117,11 @@ func TestCriticalTransport(t *testing.T) {
 		mounted := httptest.NewServer(mux)
 		t.Cleanup(mounted.Close)
 		wire(t, mounted.Client(), "GET", mounted.URL+f.auth.APIBase()+"/capabilities", "", "", "", nil).want(t, 200, "")
-		if f.auth.APIBase() != "/identity/service/v1" {
-			t.Fatal("custom API base was not applied")
+		if f.auth.APIBase() != "/identity/v1" {
+			t.Fatal("the issuer's path did not root the API")
 		}
-		if f.auth.PublicAPIBase() != "https://example.com/identity/service/v1" {
+		if f.auth.PublicAPIBase() != "https://example.com/identity/v1" {
+
 			t.Fatal("public API address lost the declared issuer/base path")
 		}
 		get := wire(t, client, "GET", f.server.URL+f.auth.APIBase()+"/capabilities", "", "", "", nil)
@@ -153,7 +152,7 @@ func TestCriticalTransport(t *testing.T) {
 				}
 			}
 		}
-		for _, p := range []string{"/api/v1/capabilities", "/service/v1/capabilities", "/.well-known/jwks.json"} {
+		for _, p := range []string{"/auth/v1/capabilities", "/v1/capabilities", "/.well-known/jwks.json"} {
 			wire(t, client, "GET", f.server.URL+p, "", "", "", nil).want(t, 404, "")
 		}
 		for _, p := range []string{"token", "revoke", "userinfo"} {

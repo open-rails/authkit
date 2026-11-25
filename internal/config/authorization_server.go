@@ -309,7 +309,7 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		}
 		resources = append(resources, r)
 	}
-	scim := ResourceServerConfig{ID: SCIMResource(c.Token.Issuer), Scopes: []string{SCIMReadScope}}
+	scim := ResourceServerConfig{ID: SCIMResource(c.Issuer), Scopes: []string{SCIMReadScope}}
 	if i := slices.IndexFunc(resources, func(r ResourceServerConfig) bool { return r.ID == scim.ID }); i >= 0 {
 		// Normalized once already, or declared by hand.
 		if r := resources[i]; !slices.Equal(r.Scopes, scim.Scopes) || len(r.Permissions) > 0 || r.ContactClaims {

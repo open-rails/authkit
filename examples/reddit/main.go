@@ -29,11 +29,10 @@ import (
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	cfg := authkit.Config{
 		Database: authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
-		// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
-		Token: authkit.TokenConfig{
-			Issuer:          "https://myapp.com", // who issued this; that's you!
-			IssuedAudiences: []string{"myapp"},   // who this JWT is intended for (doesn't have to be yourself, but usually is)
-		},
+		// Who issues the JWTs users send back to prove who they are: that's you!
+		// Every other URL derives from it (the API at https://myapp.com/auth/v1).
+		Issuer: "https://myapp.com",
+
 		Keys: authkit.KeysConfig{
 			Path: "/vault/auth", // where your signing keys are stored; a keys.json file
 		},

@@ -139,7 +139,7 @@ func (s *Engine) applyProviders(providers []provider.Provider) {
 		names[p.Name()]++
 		issuers[issuerKey(p.Issuer())]++
 	}
-	httpsDeployment := strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.cfg.Frontend.BaseURL)), "https://")
+	httpsDeployment := strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.cfg.FrontendURL)), "https://")
 	for _, p := range s.configuredProviders {
 		name := p.Name()
 		problem := p.Validate()

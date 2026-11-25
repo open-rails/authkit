@@ -70,5 +70,5 @@ func (s *Service) requestURL(r *http.Request) string {
 // PublicURL is path, served beneath BasePath, as clients reach it
 // (HTTPConfig.PublicURL): what a DPoP proof to it names.
 func (s *Service) PublicURL(path string) string {
-	return strings.TrimRight(s.http.PublicURL, "/") + strings.TrimPrefix(path, strings.TrimRight(s.http.BasePath, "/"))
+	return strings.TrimRight(s.surface.PublicURL, "/") + strings.TrimPrefix(path, strings.TrimRight(s.surface.Base, "/"))
 }

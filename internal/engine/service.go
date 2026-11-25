@@ -104,6 +104,8 @@ type Engine struct {
 	nameAdmission func(context.Context, iam.NameAdmissionRequest) error
 	// cfg is the host configuration, normalized once (config.Normalize).
 	cfg config.Config
+	// passkeys is the WebAuthn relying party, from cfg.FrontendURL.
+	passkeys config.PasskeyRP
 	// rootGroupID caches the root group id (string) once resolved.
 	rootGroupID atomic.Value
 

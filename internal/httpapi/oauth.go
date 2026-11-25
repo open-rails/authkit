@@ -35,7 +35,7 @@ const (
 
 // oauthURL is the absolute URL of an endpoint beneath the issuer's path.
 func (s *Service) oauthURL(path string) string {
-	return strings.TrimRight(s.http.PublicURL, "/") + path
+	return strings.TrimRight(s.surface.PublicURL, "/") + path
 }
 
 func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
@@ -98,7 +98,7 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 	// A public document every browser client reads first.
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	writeJSON(w, http.StatusOK, OAuthServerMetadata{
-		Issuer:                           s.cfg.Token.Issuer,
+		Issuer:                           s.cfg.Issuer,
 		AuthorizationEndpoint:            s.oauthURL(iam.OAuthAuthorizePath),
 		TokenEndpoint:                    s.oauthURL(iam.OAuthTokenPath),
 		UserInfoEndpoint:                 s.oauthURL(iam.OAuthUserInfoPath),
@@ -151,7 +151,7 @@ func (s *Service) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	state := params.Get("state")
 	back := func(code, description string) {
-		target, err := redirectWith(redirectURI, url.Values{"error": {code}, "error_description": {description}, "state": nonEmpty(state), "iss": {s.cfg.Token.Issuer}})
+		target, err := redirectWith(redirectURI, url.Values{"error": {code}, "error_description": {description}, "state": nonEmpty(state), "iss": {s.cfg.Issuer}})
 		if err != nil {
 			s.oauthFail(w, err)
 			return
@@ -168,7 +168,7 @@ func (s *Service) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 		s.serverErr(w, "oauth_authorize", err)
 		return
 	}
-	target, err := redirectWith(s.cfg.Frontend.BaseURL+s.cfg.Frontend.AuthorizePath, url.Values{"authorization": {id}})
+	target, err := redirectWith(s.cfg.FrontendURL+config.AuthorizePath, url.Values{"authorization": {id}})
 	if err != nil {
 		s.serverErr(w, "oauth_authorize", err)
 		return
@@ -598,7 +598,7 @@ func (s *Service) handleOAuthEndSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if target == "" {
-		target = s.cfg.Frontend.BaseURL
+		target = s.cfg.FrontendURL
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }

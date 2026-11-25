@@ -14,7 +14,7 @@ import (
 	"github.com/open-rails/authkit/internal/httpapi"
 )
 
-const defaultAPIPath = config.DefaultAPIPath + config.APIVersion
+const defaultAPIPath = config.RootAPIPath + config.APIVersion
 
 // obj is a JSON object whose keys keep their insertion order, so the
 // generated document is stable and reads top-down.
@@ -208,7 +208,7 @@ func (c *contract) openAPI() ([]byte, error) {
 		"info", newObj(
 			"title", "AuthKit",
 			"version", "v1",
-			"description", "AuthKit's HTTP API on a default mount: the JSON API beneath /api/v1, browser OIDC beneath /oidc, JWKS at the issuer's path. "+
+			"description", "AuthKit's HTTP API on an issuer at the root: the JSON API beneath /auth/v1, browser OIDC beneath /oidc, JWKS at the issuer's path. "+
 				"Generated from the route catalog (internal/httpapi/catalog.go) by go generate ./internal/httpapi; do not edit.",
 		),
 		"paths", paths,

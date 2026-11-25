@@ -279,7 +279,7 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 	}
 	if resource, ok := verified.(resourceVerified); ok && resource.access.Application == nil {
 		cl := resource.access.Claims
-		if cl.Kind != verify.TokenUser || cl.Issuer != s.cfg.Token.Issuer {
+		if cl.Kind != verify.TokenUser || cl.Issuer != s.cfg.Issuer {
 			return iam.TenantActor{}, auth.ErrForbidden
 		}
 		if !cl.ValidUntil.IsZero() && time.Now().After(cl.ValidUntil) {
@@ -301,7 +301,7 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 	id := verified.Identity()
 	state, ok := iam.StateOf(id)
 	if !ok || !state.IsUser() || id.SubjectKind != auth.SubjectUser ||
-		(id.Issuer != s.cfg.Token.Issuer && !slices.Contains(s.cfg.Token.AccountIssuers, id.Issuer)) {
+		(id.Issuer != s.cfg.Issuer && !slices.Contains(s.cfg.Token.AccountIssuers, id.Issuer)) {
 		return iam.TenantActor{}, auth.ErrForbidden
 	}
 	if deadline := state.ValidUntil(); !deadline.IsZero() && time.Now().After(deadline) {

@@ -35,7 +35,7 @@ func TestCriticalPairwiseSubjects(t *testing.T) {
 		t.Cleanup(front.Close)
 		var persona iam.Persona
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Token.Issuer = front.URL
+			c.Issuer = front.URL
 			persona = c.Roles.Persona("merchant", authkit.OAuthClients).Persona
 			c.Resource = authkit.ResourceConfig{ID: resource, Scopes: map[string][]string{"customer:self": {}}}
 			c.AuthorizationServer.Resources = []authkit.ResourceServerConfig{{ID: resource, Scopes: []string{"customer:self"}}}

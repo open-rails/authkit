@@ -3,6 +3,8 @@ package engine
 import (
 	"net/url"
 	"strings"
+
+	"github.com/open-rails/authkit/internal/config"
 )
 
 // URL builders for the links AuthKit emails/texts: verification, password
@@ -10,7 +12,7 @@ import (
 // configured BaseURL and frontend paths.
 
 func (s *Engine) authkitURL(path string, q url.Values) string {
-	base := strings.TrimRight(strings.TrimSpace(s.cfg.Frontend.BaseURL), "/")
+	base := strings.TrimRight(strings.TrimSpace(s.cfg.FrontendURL), "/")
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
@@ -40,19 +42,19 @@ func (s *Engine) verificationURL(frontendPath, channel, token string) string {
 }
 
 func (s *Engine) emailVerificationURL(token string) string {
-	return s.verificationURL(s.cfg.Frontend.VerifyPath, "email", token)
+	return s.verificationURL(config.VerifyPath, "email", token)
 }
 
 func (s *Engine) phoneVerificationURL(token string) string {
-	return s.verificationURL(s.cfg.Frontend.VerifyPath, "phone", token)
+	return s.verificationURL(config.VerifyPath, "phone", token)
 }
 
 func (s *Engine) emailPasswordResetURL(token string) string {
-	return s.verificationURL(s.cfg.Frontend.PasswordResetPath, "email", token)
+	return s.verificationURL(config.PasswordResetPath, "email", token)
 }
 
 func (s *Engine) phonePasswordResetURL(token string) string {
-	return s.verificationURL(s.cfg.Frontend.PasswordResetPath, "phone", token)
+	return s.verificationURL(config.PasswordResetPath, "phone", token)
 }
 
 func (s *Engine) passwordlessURL(channel, token, returnTo string) string {
@@ -65,5 +67,5 @@ func (s *Engine) passwordlessURL(channel, token, returnTo string) string {
 	if safe := sanitizePasswordlessReturnTo(returnTo); safe != "" {
 		q.Set("return_to", safe)
 	}
-	return s.authkitURL(s.cfg.Frontend.PasswordlessPath, q)
+	return s.authkitURL(config.PasswordlessPath, q)
 }

@@ -77,7 +77,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	return s.withAuthorityMutation(ctx, auth.Identity{}, func(st *permissionGroupStore) error {
 		st.reconcile = true
 		q := db.New(st.q)
-		stored, err := q.RoleCatalogFingerprint(ctx, s.cfg.Token.Issuer)
+		stored, err := q.RoleCatalogFingerprint(ctx, s.cfg.Issuer)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -89,7 +89,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 			return err
 		}
 		st.touched = append(st.touched, authorityTouch{groupID: rootID})
-		return q.RoleCatalogSet(ctx, db.RoleCatalogSetParams{Issuer: s.cfg.Token.Issuer, Fingerprint: fingerprint, Roles: s.declaredRoles()})
+		return q.RoleCatalogSet(ctx, db.RoleCatalogSetParams{Issuer: s.cfg.Issuer, Fingerprint: fingerprint, Roles: s.declaredRoles()})
 	})
 }
 

@@ -44,8 +44,8 @@ func (s *Engine) newAuthenticator(audiences []string, own bool, opts ...verify.V
 		verify.WithLogger(s.log),
 	}
 	a := &Authenticator{s: s, v: verify.NewVerifier(append(base, opts...)...), audiences: audiences, own: own}
-	if cfg.Token.Issuer != "" {
-		if err := a.v.AddIssuer(cfg.Token.Issuer, audiences, verify.IssuerOptions{KeySource: s.keys, IsLocal: true}); err != nil {
+	if cfg.Issuer != "" {
+		if err := a.v.AddIssuer(cfg.Issuer, audiences, verify.IssuerOptions{KeySource: s.keys, IsLocal: true}); err != nil {
 			return nil, err
 		}
 	}
@@ -62,14 +62,8 @@ func (s *Engine) NewAuthenticator(audiences []string, opts ...verify.VerifierOpt
 }
 
 // publicOrigin is where browsers reach this deployment, which DPoP proofs
-// name: HTTPConfig.PublicURL's origin (a proxy in front may change it), else
-// the issuer's.
-func (s *Engine) publicOrigin() string {
-	if h := s.cfg.HTTP; h != nil && h.PublicURL != "" {
-		return issuerOrigin(h.PublicURL)
-	}
-	return issuerOrigin(s.cfg.Token.Issuer)
-}
+// name: the issuer's origin.
+func (s *Engine) publicOrigin() string { return issuerOrigin(s.cfg.Issuer) }
 
 // issuerOrigin is scheme://host of the issuer; "" (no DPoP proof can match)
 // when the issuer is not a URL.
@@ -115,7 +109,7 @@ func (a *Authenticator) Verify(ctx context.Context, token string) (verify.Claims
 // local reports whether iss is this deployment's issuer: the only one its
 // tokens carry.
 func (a *Authenticator) local(iss string) bool {
-	return a.s.cfg.Token.Issuer != "" && strings.TrimSpace(iss) == a.s.cfg.Token.Issuer
+	return a.s.cfg.Issuer != "" && strings.TrimSpace(iss) == a.s.cfg.Issuer
 }
 
 func (a *Authenticator) authenticate(ctx context.Context, token string, r *http.Request, dpop bool) (verify.Claims, error) {

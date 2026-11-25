@@ -192,5 +192,6 @@ func (s *Engine) oauthTokenEndpoint() string {
 	if s.cfg.HTTP == nil {
 		return ""
 	}
-	return strings.TrimRight(s.cfg.HTTP.PublicURL, "/") + iam.OAuthTokenPath
+	return config.HTTPSurface(s.cfg.Issuer).PublicURL + iam.OAuthTokenPath
+
 }

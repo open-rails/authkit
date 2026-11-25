@@ -69,7 +69,7 @@ func (s *Engine) regenerateRecoveryCodes(ctx context.Context, userID, sessionID 
 		return nil, errmodel.ErrInvalidTwoFAMethod
 	}
 	if sessionID != "" {
-		fresh, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: sessionID, Issuer: s.cfg.Token.Issuer})
+		fresh, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: sessionID, Issuer: s.cfg.Issuer})
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +149,7 @@ func (s *Engine) CompleteTwoFactorStepUp(ctx context.Context, userID, sessionID,
 	if _, err = q.MFALockUser(ctx, userID); err != nil {
 		return err
 	}
-	if _, err = q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: sessionID, Issuer: s.cfg.Token.Issuer}); err != nil {
+	if _, err = q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: sessionID, Issuer: s.cfg.Issuer}); err != nil {
 		return err
 	}
 	settings, err := s.get2FASettings(ctx, q, userID)
@@ -213,7 +213,7 @@ func (s *Engine) CompleteTwoFactorStepUp(ctx context.Context, userID, sessionID,
 	if err := s.requireSessionMFAStateOn(ctx, tx, userID, methods, status, nil); err != nil {
 		return err
 	}
-	n, err := q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{UserID: userID, SessionID: sessionID, Issuer: s.cfg.Token.Issuer, AuthMethods: methods})
+	n, err := q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{UserID: userID, SessionID: sessionID, Issuer: s.cfg.Issuer, AuthMethods: methods})
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ func (s *Engine) recoveryStepUpRequired(ctx context.Context, q *db.Queries, user
 		methods = append(methods, "2fa")
 	}
 	if s.PasskeysEnabled() {
-		held, err := q.PasskeyExistsForRP(ctx, db.PasskeyExistsForRPParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
+		held, err := q.PasskeyExistsForRP(ctx, db.PasskeyExistsForRPParams{UserID: userID, Rpid: s.passkeys.ID})
 		if err != nil {
 			return err
 		}

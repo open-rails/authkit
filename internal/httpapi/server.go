@@ -40,6 +40,7 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		svc:       client,
 		cfg:       cfg,
 		http:      h,
+		surface:   config.HTTPSurface(cfg.Issuer),
 		clientIP:  DefaultClientIP(), // DirectPeerIP
 		wrap:      deps.Wrap,
 		replays:   dpop.NewReplays(deps.Redis, deps.Replays, deps.Logger),
@@ -73,7 +74,7 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 	}
 	var err error
 	if deps.Redis != nil {
-		rl, err = redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:", s.log)
+		rl, err = redislimiter.New(deps.Redis, limits, config.RedisKeyPrefix(cfg.Issuer)+"ratelimit:", s.log)
 	} else {
 		rl, err = memorylimiter.New(limits)
 		s.log.Warn("authkit: Redis not configured; rate limits are per-process, so each replica counts separately")

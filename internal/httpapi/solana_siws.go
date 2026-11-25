@@ -54,7 +54,7 @@ func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	domain := siwsDomain(s.cfg.Frontend.BaseURL, s.cfg.Token.Issuer)
+	domain := siwsDomain(s.cfg.FrontendURL, s.cfg.Issuer)
 	if domain == "" {
 		s.serverErr(w, "challenge_failed", errors.New("authkit: no SIWS domain: set Frontend.BaseURL or a URL Token.Issuer"))
 		return

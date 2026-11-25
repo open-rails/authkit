@@ -81,7 +81,7 @@ func TestCriticalSessionHistoryImport(t *testing.T) {
 		}
 		next, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{Page: iam.PageRequest{Cursor: page.Next}})
 		noError(t, err)
-		wantFailure := iam.SessionEvent{Kind: failure.Kind, OccurredAt: failure.OccurredAt, Issuer: f.cfg.Token.Issuer,
+		wantFailure := iam.SessionEvent{Kind: failure.Kind, OccurredAt: failure.OccurredAt, Issuer: f.cfg.Issuer,
 			Reason: &failure.Reason, IP: &failure.IP, UserAgent: &failure.UserAgent}
 		if len(next.Items) != 1 || next.Next != "" {
 			t.Fatalf("failure page: %+v", next)

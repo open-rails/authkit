@@ -18,6 +18,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/secret"
@@ -73,11 +74,8 @@ func (s *Engine) startTOTPEnrollment(ctx context.Context, userID string) (secret
 	} else if user.Username != nil && strings.TrimSpace(*user.Username) != "" {
 		label = *user.Username
 	}
-	issuer := s.cfg.TwoFactor.TOTPIssuer
-	if issuer == "" {
-		issuer = s.cfg.Token.Issuer
-	}
-	return secret, buildTOTPURI(issuer, label, secret), nil
+	return secret, buildTOTPURI(config.TOTPIssuer(s.cfg.FrontendURL), label, secret), nil
+
 }
 
 // TOTPEnrollment completes a pending authenticator-app enrollment: Code is the

@@ -44,7 +44,7 @@ func (s *Engine) AuthenticateClientAssertion(ctx context.Context, client authflo
 	cv := s.clientAssertionVerifier()
 	cv.mu.Lock()
 	if at, ok := cv.registered[client.ID]; !ok || !at.Equal(client.Group.UpdatedAt) {
-		audiences := []string{s.cfg.Token.Issuer}
+		audiences := []string{s.cfg.Issuer}
 		if endpoint := s.oauthTokenEndpoint(); endpoint != "" {
 			audiences = append(audiences, endpoint)
 		}

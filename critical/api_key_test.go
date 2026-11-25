@@ -149,7 +149,7 @@ func TestCriticalAPIKeyAuthority(t *testing.T) {
 		if !ok || bound.BoundScope().ID != group.ID || bound.BoundScope().Authority != authtest.Issuer {
 			t.Fatal("key did not expose its immutable issuer/group bound scope")
 		}
-		peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Token.Issuer = "https://other-app.example" }))
+		peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Issuer = "https://other-app.example" }))
 		r, err := http.NewRequestWithContext(t.Context(), "GET", "https://other-app.example/resource", nil)
 		noError(t, err)
 		r.Header.Set("Authorization", "Bearer "+key.Secret)

@@ -96,7 +96,7 @@ func TestCriticalPersonalTokens(t *testing.T) {
 		if len(page.Items) != 0 {
 			t.Fatal("another owner listed the personal token")
 		}
-		peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Token.Issuer = "https://other-personal-issuer.example" }))
+		peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Issuer = "https://other-personal-issuer.example" }))
 		_, err = peer.ResolvePersonalAccessToken(t.Context(), token.Secret)
 		if !errors.Is(err, iam.ErrPersonalAccessTokenInvalid) {
 			t.Fatalf("another issuer accepted personal token: %v", err)

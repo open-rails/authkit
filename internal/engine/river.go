@@ -168,14 +168,14 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if _, ok := cfg.Queues[queue]; !ok {
 		cfg.Queues[queue] = river.QueueConfig{MaxWorkers: 1}
 	}
-	dueQueue := accountDeleteDueQueue(s.dbSchema(), s.cfg.Token.Issuer)
+	dueQueue := accountDeleteDueQueue(s.dbSchema(), s.cfg.Issuer)
 	if existing, ok := cfg.Queues[dueQueue]; ok && existing.MaxWorkers < 1 {
 		return fmt.Errorf("authkit: account cleanup queue %q requires workers", dueQueue)
 	}
 	if _, ok := cfg.Queues[dueQueue]; !ok {
 		cfg.Queues[dueQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
-	sweepQueue := credentialSweepQueue(s.dbSchema(), s.cfg.Token.Issuer)
+	sweepQueue := credentialSweepQueue(s.dbSchema(), s.cfg.Issuer)
 	if existing, ok := cfg.Queues[sweepQueue]; ok && existing.MaxWorkers < 1 {
 		return fmt.Errorf("authkit: credential sweep queue %q requires workers", sweepQueue)
 	}

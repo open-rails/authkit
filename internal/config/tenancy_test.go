@@ -13,7 +13,7 @@ import (
 func tenancyConfig(tenancy Tenancy, producers ...NotificationProducer) Config {
 	return Config{
 		Tenancy:       tenancy,
-		Token:         TokenConfig{Issuer: "https://auth.example.com", IssuedAudiences: []string{"app"}},
+		Issuer:        "https://auth.example.com",
 		Notifications: &NotificationsConfig{Producers: producers},
 	}
 }

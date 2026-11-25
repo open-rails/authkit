@@ -175,7 +175,7 @@ func (s *Engine) markEnrollingSessionTx(ctx context.Context, q *db.Queries, user
 	if strings.TrimSpace(sessionID) == "" {
 		return false, nil
 	}
-	fresh, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: sessionID, Issuer: s.cfg.Token.Issuer})
+	fresh, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: sessionID, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -186,7 +186,7 @@ func (s *Engine) markEnrollingSessionTx(ctx context.Context, q *db.Queries, user
 		return false, nil
 	}
 	n, err := q.SessionMarkAuthenticated(ctx, db.SessionMarkAuthenticatedParams{
-		SessionID: sessionID, UserID: userID, Issuer: s.cfg.Token.Issuer,
+		SessionID: sessionID, UserID: userID, Issuer: s.cfg.Issuer,
 		AuthMethods: authflow.NormalizeAuthMethods([]string{method, "otp", "mfa"}),
 	})
 	return n > 0, err

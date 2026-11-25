@@ -107,7 +107,7 @@ func (s *Engine) logSessionCreated(ctx context.Context, userID string, method st
 	}
 	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
+		Issuer:     s.cfg.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      iam.SessionEventCreated,
@@ -120,7 +120,7 @@ func (s *Engine) logSessionCreated(ctx context.Context, userID string, method st
 func (s *Engine) logSessionRevoked(ctx context.Context, userID string, sessionID string, reason *string) {
 	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
+		Issuer:     s.cfg.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      iam.SessionEventRevoked,
@@ -132,7 +132,7 @@ func (s *Engine) logSessionRevoked(ctx context.Context, userID string, sessionID
 func (s *Engine) logPasswordChanged(ctx context.Context, userID string, sessionID string, ip *string, ua *string) {
 	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
+		Issuer:     s.cfg.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      iam.SessionEventPasswordChange,
@@ -145,7 +145,7 @@ func (s *Engine) logPasswordChanged(ctx context.Context, userID string, sessionI
 func (s *Engine) logPasswordRecovery(ctx context.Context, userID string, method, sessionID string, ip *string, ua *string) {
 	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
+		Issuer:     s.cfg.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      iam.SessionEventPasswordRecovery,
@@ -159,7 +159,7 @@ func (s *Engine) logPasswordRecovery(ctx context.Context, userID string, method,
 func (s *Engine) LogSessionFailed(ctx context.Context, userID string, sessionID string, reason *string, ip *string, ua *string) {
 	s.logSessionEvent(ctx, authflow.AuthSessionEvent{
 		OccurredAt: time.Now().UTC(),
-		Issuer:     s.cfg.Token.Issuer,
+		Issuer:     s.cfg.Issuer,
 		UserID:     userID,
 		SessionID:  sessionID,
 		Event:      iam.SessionEventFailed,

@@ -204,7 +204,7 @@ func TestCriticalTenantAuthority(t *testing.T) {
 			t.Fatalf("identity-preserving adapter changed native source account: %+v", forwarded)
 		}
 		foreign := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Token.Issuer = "https://different-actor-issuer.example"
+			c.Issuer = "https://different-actor-issuer.example"
 		}))
 		foreignUser := foreign.user(t)
 		foreignTokens := foreign.signIn(t, foreignUser)

@@ -299,7 +299,7 @@ func (s *Engine) exchangeSubject(ctx context.Context, token, jkt string) (userID
 	userID, sessionID = jose.String(claims, "sub"), jose.String(claims, "sid")
 	switch {
 	case !ok || !s.nowTime().Before(exp), !isUUID(userID), sessionID == "", pending, jose.String(claims, "group_id") != "",
-		!slices.ContainsFunc(jose.Audiences(claims), func(aud string) bool { return slices.Contains(s.cfg.Token.ExpectedAudiences, aud) }),
+		!slices.ContainsFunc(jose.Audiences(claims), func(aud string) bool { return slices.Contains([]string{s.cfg.Issuer}, aud) }),
 		s.requireMFAEnrollment() && !enrolled:
 		return "", "", invalid
 	}

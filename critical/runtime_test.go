@@ -215,12 +215,12 @@ func TestCriticalRuntime(t *testing.T) {
 			{"https://myapp.example", "http://myapp.example"},
 		} {
 			cfg := f.cfg
-			cfg.Token.Issuer, cfg.Frontend.BaseURL = c.issuer, c.base
+			cfg.Issuer, cfg.FrontendURL = c.issuer, c.base
 			startRefused(t, cfg, f.deps, "must be")
 		}
 		for _, issuer := range []string{"http://localhost:8080", "http://127.0.0.1:4780/auth", "http://[::1]:9000"} {
 			cfg := f.cfg
-			cfg.Token.Issuer, cfg.Frontend.BaseURL = issuer, ""
+			cfg.Issuer, cfg.FrontendURL = issuer, ""
 			client, err := authkit.New(t.Context(), cfg, f.deps)
 			noError(t, err)
 			noError(t, client.Close(context.Background()))
@@ -289,7 +289,7 @@ func TestCriticalRuntime(t *testing.T) {
 		deps := f.deps
 		deps.KeySource = nil
 		local := f.cfg
-		local.Token.Issuer, local.Frontend.BaseURL = "http://localhost:4780", ""
+		local.Issuer, local.FrontendURL = "http://localhost:4780", ""
 		local.TwoFactor.TOTPSecretKey = nil
 
 		// A loopback issuer generates its keys into the configured directory
@@ -317,7 +317,7 @@ func TestCriticalRuntime(t *testing.T) {
 		production := f.cfg
 		production.Keys = authkit.KeysConfig{Path: dir}
 		production.TwoFactor.TOTPSecretKey = nil
-		startRefused(t, production, deps, "development keys cannot sign for "+production.Token.Issuer+": provision real keys")
+		startRefused(t, production, deps, "development keys cannot sign for "+production.Issuer+": provision real keys")
 
 		// A real issuer never generates, and provisioned keys serve any issuer.
 		empty := t.TempDir()

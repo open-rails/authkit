@@ -244,7 +244,7 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 		Mode:              string(mode),
 		PublicKeys:        keysJSON,
 		Enabled:           in.Enabled,
-		CatalogIssuer:     s.cfg.Token.Issuer,
+		CatalogIssuer:     s.cfg.Issuer,
 		RoleMap:           encodeRoleMap(in.RoleMap),
 	})
 	// The atomic upsert guard also covers an issuer claimed after our lookup.
@@ -272,7 +272,7 @@ func (s *Engine) reservedIssuer(issuer string) bool {
 	if key == "" {
 		return false
 	}
-	if issuerKey(s.cfg.Token.Issuer) == key {
+	if issuerKey(s.cfg.Issuer) == key {
 		return true
 	}
 	for _, p := range s.configuredProviders {

@@ -210,18 +210,18 @@ test("AK-UI-15: TS contract: browser-bound access is usable only with its real D
   expect(claims.cnf?.jkt).toBeTruthy()
   expect(
     (
-      await request.get("/api/v1/me", {
+      await request.get("/auth/v1/me", {
         headers: { Authorization: `Bearer ${token}` },
       })
     ).status()
   ).toBe(401)
   const captured = page.waitForRequest(
     (request) =>
-      new URL(request.url()).pathname === "/api/v1/me" &&
+      new URL(request.url()).pathname === "/auth/v1/me" &&
       request.headers()["x-critical-probe"] === "bound-proof"
   )
   const allowed = await page.evaluate(async () => {
-    const response = await window.ak.client.authFetch("/api/v1/me", {
+    const response = await window.ak.client.authFetch("/auth/v1/me", {
       headers: { "X-Critical-Probe": "bound-proof" },
       cache: "no-store",
     })
@@ -236,7 +236,7 @@ test("AK-UI-15: TS contract: browser-bound access is usable only with its real D
   const headers = await actual.allHeaders()
   expect(headers.authorization).toBe(`DPoP ${token}`)
   expect(headers.dpop).toBeTruthy()
-  const replay = await request.get("/api/v1/me", {
+  const replay = await request.get("/auth/v1/me", {
     headers: { Authorization: headers.authorization, DPoP: headers.dpop },
   })
   expect(replay.status()).toBe(401)

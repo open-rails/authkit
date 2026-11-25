@@ -24,7 +24,7 @@ func (s *Service) activeTenantRefresh(r *http.Request, body string) (*http.Reque
 	secure := s.cookieSecure(r)
 	variants := []CookieVariant{CurrentCookie(CookieActiveTenant, secure), CurrentCookie(CookieActiveTenant, !secure)}
 	for i := range variants {
-		variants[i].Name = ActiveTenantCookieName(s.cfg.Token.Issuer, variants[i].Secure)
+		variants[i].Name = ActiveTenantCookieName(s.cfg.Issuer, variants[i].Secure)
 	}
 	value, ok := refreshCookieCandidate(r, variants...)
 	if !ok {
@@ -48,8 +48,8 @@ func (s *Service) setActiveTenantCookie(w http.ResponseWriter, r *http.Request) 
 	}
 	secure := s.cookieSecure(r)
 	current := CurrentCookie(CookieActiveTenant, secure)
-	expireCookieVariants(w, r, CookieActiveTenant, &current, secure, func(v CookieVariant) string { return ActiveTenantCookieName(s.cfg.Token.Issuer, v.Secure) }, true)
-	cookie := &http.Cookie{Name: ActiveTenantCookieName(s.cfg.Token.Issuer, secure), Value: tenant.String(), Path: current.Path, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode}
+	expireCookieVariants(w, r, CookieActiveTenant, &current, secure, func(v CookieVariant) string { return ActiveTenantCookieName(s.cfg.Issuer, v.Secure) }, true)
+	cookie := &http.Cookie{Name: ActiveTenantCookieName(s.cfg.Issuer, secure), Value: tenant.String(), Path: current.Path, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode}
 	if duration := s.cfg.Token.RefreshTokenDuration; duration > 0 {
 		cookie.MaxAge = int(duration.Seconds())
 	}

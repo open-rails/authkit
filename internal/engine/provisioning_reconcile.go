@@ -27,7 +27,7 @@ const (
 // rest to the next. A resource whose externalId names no account and no
 // resource AuthKit made is not AuthKit's, and is left alone.
 func (r *provisioningRun) reconcile(ctx context.Context, row db.ProvisioningTarget) error {
-	s, issuer, name := r.engine, r.engine.cfg.Token.Issuer, r.target.name
+	s, issuer, name := r.engine, r.engine.cfg.Issuer, r.target.name
 	asOf, next := row.ReconcileStartedAt, 1
 	if asOf == nil {
 		started := s.nowTime()
@@ -73,7 +73,7 @@ func (r *provisioningRun) reconcile(ctx context.Context, row db.ProvisioningTarg
 // listTarget lists the target's users from startIndex next, comparing each
 // page and saving the next index with it; done once the listing is through.
 func (r *provisioningRun) listTarget(ctx context.Context, next int) (done bool, err error) {
-	s, issuer, name := r.engine, r.engine.cfg.Token.Issuer, r.target.name
+	s, issuer, name := r.engine, r.engine.cfg.Issuer, r.target.name
 	spc, err := r.config(ctx)
 	if err != nil {
 		return false, err
@@ -112,7 +112,7 @@ func (r *provisioningRun) listTarget(ctx context.Context, next int) (done bool, 
 // checkUnseen asks the target for a resource its listing did not show: one
 // it no longer holds is created again; one it holds is compared.
 func (r *provisioningRun) checkUnseen(ctx context.Context, res db.ProvisioningUnseenRow) error {
-	s, issuer, name := r.engine, r.engine.cfg.Token.Issuer, r.target.name
+	s, issuer, name := r.engine, r.engine.cfg.Issuer, r.target.name
 	theirs, err := r.target.client.Get(ctx, res.RemoteID)
 	if scim.IsStatus(err, http.StatusNotFound) {
 		return pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error {
@@ -133,7 +133,7 @@ func (r *provisioningRun) checkUnseen(ctx context.Context, res db.ProvisioningUn
 // compare records the target's users as seen and queues the accounts whose
 // resource drifted.
 func (r *provisioningRun) compare(ctx context.Context, q *db.Queries, remote []scim.User) error {
-	s, issuer, name := r.engine, r.engine.cfg.Token.Issuer, r.target.name
+	s, issuer, name := r.engine, r.engine.cfg.Issuer, r.target.name
 	byUser := map[string]scim.User{}
 	for _, u := range remote {
 		if id, ok := canonicalUUID(u.ExternalID); ok && u.ID != "" {

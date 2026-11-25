@@ -278,7 +278,7 @@ func (s *Engine) challengeNewDevice(ctx context.Context, user *db.User, proof lo
 		return authflow.LoginOutcome{}, refused
 	}
 	nonce := secret.Token(32)
-	proof.NonceHash, proof.Issuer, proof.Enrollment, proof.DeviceCode = secret.Hash(nonce), s.cfg.Token.Issuer, false, true
+	proof.NonceHash, proof.Issuer, proof.Enrollment, proof.DeviceCode = secret.Hash(nonce), s.cfg.Issuer, false, true
 	if proof.AuthenticatedAt.IsZero() {
 		proof.AuthenticatedAt = time.Now().UTC()
 	}

@@ -50,9 +50,13 @@ type ProvisioningTarget struct {
 	Handler http.Handler `yaml:"-"`
 	// BearerToken is a static credential sent as Authorization: Bearer.
 	BearerToken string `yaml:"bearer_token"`
-	// ClientCredentials gets the access token from an OAuth 2.0 token
-	// endpoint instead.
-	ClientCredentials *ProvisioningClientCredentials `yaml:"client_credentials"`
+	// ClientID and ClientSecret get the access token with the OAuth 2.0
+	// client-credentials grant (RFC 6749 §4.4) instead, for URL as the
+	// resource (RFC 8707): the token endpoint and scopes come from URL's
+	// protected-resource metadata (RFC 9728) and its authorization server's
+	// metadata (RFC 8414).
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
 
 	// invalid disables a misconfigured target: it stays registered, so its
 	// pending changes wait for a fixed configuration.
@@ -61,18 +65,6 @@ type ProvisioningTarget struct {
 
 // TargetInvalid is why Normalize disabled t; nil when t is usable.
 func TargetInvalid(t ProvisioningTarget) error { return t.invalid }
-
-// ProvisioningClientCredentials is an OAuth 2.0 client-credentials client
-// (RFC 6749 §4.4) whose access tokens authenticate to a target.
-type ProvisioningClientCredentials struct {
-	TokenURL     string `yaml:"token_url"`
-	ClientID     string `yaml:"client_id"`
-	ClientSecret string `yaml:"client_secret"`
-	// Scopes and Resource (RFC 8707) are sent with the token request when
-	// set.
-	Scopes   []string `yaml:"scopes"`
-	Resource string   `yaml:"resource"`
-}
 
 // DefaultProvisioningReconcileInterval is ProvisioningConfig's default.
 const DefaultProvisioningReconcileInterval = 24 * time.Hour
@@ -132,19 +124,17 @@ func validProvisioningTarget(t *ProvisioningTarget) error {
 	case t.URL != "" && !httpURL(t.URL):
 		return fmt.Errorf("URL %q must be an absolute http or https URL", t.URL)
 	}
-	if t.BearerToken != "" && t.ClientCredentials != nil {
-		return errors.New("set at most one of BearerToken and ClientCredentials")
-	}
-	if cc := t.ClientCredentials; cc != nil {
-		c := *cc
-		c.TokenURL, c.ClientID, c.Resource = strings.TrimSpace(c.TokenURL), strings.TrimSpace(c.ClientID), strings.TrimSpace(c.Resource)
-		if !httpURL(c.TokenURL) || c.ClientID == "" || c.ClientSecret == "" {
-			return errors.New("ClientCredentials needs a TokenURL, ClientID and ClientSecret")
-		}
-		c.Scopes = slices.Clone(c.Scopes)
-		t.ClientCredentials = &c
+	t.ClientID = strings.TrimSpace(t.ClientID)
+	switch {
+	case (t.ClientID == "") != (t.ClientSecret == ""):
+		return errors.New("set both ClientID and ClientSecret, or neither")
+	case t.BearerToken != "" && t.ClientID != "":
+		return errors.New("set at most one of BearerToken and ClientID")
+	case t.ClientID != "" && t.URL == "":
+		return errors.New("ClientID needs URL: its metadata names the token endpoint")
 	}
 	return nil
+
 }
 
 func httpURL(raw string) bool {

@@ -25,7 +25,6 @@ func fullSurfaceFixture(t *testing.T) *fixture {
 	t.Helper()
 	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.TwoFactor.Mode = iam.TwoFactorOptional
-		c.Passkeys = authkit.PasskeyConfig{RPID: "example.com", Origins: []string{"https://example.com"}}
 		c.DeviceKeys.Enabled = true
 		c.SolanaNetwork = iam.SolanaMainnet
 		c.Roles.Persona("oauthshop", authkit.OAuthClients)
@@ -106,7 +105,7 @@ func TestCriticalHTTPAdmission(t *testing.T) {
 						wire(t, f.server.Client(), row.Method, f.server.URL+path, revoked.AccessToken, mediaType, body, nil).want(t, 401, "session_revoked")
 					})
 				}
-				if strings.HasPrefix(path, "/api/v1/groups/") || strings.HasPrefix(path, "/api/v1/admin/") || path == "/api/v1/events" {
+				if strings.HasPrefix(path, "/auth/v1/groups/") || strings.HasPrefix(path, "/auth/v1/admin/") || path == "/auth/v1/events" {
 					t.Run("unprivileged_live_session", func(t *testing.T) {
 						if row.Method == "PATCH" && strings.Contains(path, "/admin/users/") {
 							body = `{"preferred_language":"en"}`

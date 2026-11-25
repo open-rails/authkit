@@ -180,9 +180,9 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.
 	}
 
 	claims := map[string]any{
-		"iss": s.cfg.Token.Issuer,
+		"iss": s.cfg.Issuer,
 		"sub": userID,
-		"aud": s.cfg.Token.IssuedAudiences,
+		"aud": []string{s.cfg.Issuer},
 		"iat": now.Unix(),
 		"exp": expiresAt.Unix(),
 	}

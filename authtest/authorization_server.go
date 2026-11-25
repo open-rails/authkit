@@ -38,7 +38,7 @@ type AuthorizationServer struct {
 }
 
 // NewAuthorizationServer serves New's Client over HTTPS (an httptest TLS
-// server) with Token.Issuer set to the server's URL, so verifiers fetch its
+// server) with Issuer set to the server's URL, so verifiers fetch its
 // metadata and keys as they would from a deployment. Declare its clients and
 // resource servers with WithConfig (Config.AuthorizationServer); opts apply
 // after the issuer is set. It needs AUTHKIT_TEST_DATABASE_URL like New, and
@@ -56,7 +56,7 @@ func NewAuthorizationServer(t testing.TB, opts ...Option) *AuthorizationServer {
 	t.Cleanup(server.Close)
 	issuer := server.URL
 	opts = append([]Option{WithConfig(func(c *authkit.Config) {
-		c.Token.Issuer = issuer
+		c.Issuer = issuer
 		c.Token.AllowPrivateNetworkJWKS = true
 	})}, opts...)
 	auth, outbox := New(t, opts...)
@@ -67,13 +67,13 @@ func NewAuthorizationServer(t testing.TB, opts ...Option) *AuthorizationServer {
 
 // Attach is an AuthorizationServer for client, which server already serves
 // (a host mounting AuthKit's routes in its own handler): client's
-// Token.Issuer must be server's URL. Outbox is authtest's when client sends
+// Issuer must be server's URL. Outbox is authtest's when client sends
 // through it (New's, Replica's), else nil.
 func Attach(t testing.TB, client *authkit.Client, server *httptest.Server) *AuthorizationServer {
 	t.Helper()
 	cfg, deps := builtWith(t, client)
-	if cfg.Token.Issuer != server.URL {
-		t.Fatalf("authtest: attach: the client's issuer is %q, not the server's URL %q", cfg.Token.Issuer, server.URL)
+	if cfg.Issuer != server.URL {
+		t.Fatalf("authtest: attach: the client's issuer is %q, not the server's URL %q", cfg.Issuer, server.URL)
 	}
 	outbox := testoutbox.Of(deps.Email)
 	if outbox == nil {

@@ -21,7 +21,6 @@ type (
 	DPoPMode                   = config.DPoPMode
 	Tenancy                    = config.Tenancy
 	KeysConfig                 = config.KeysConfig
-	FrontendConfig             = config.FrontendConfig
 	RegistrationConfig         = config.RegistrationConfig
 	AgreementConfig            = config.AgreementConfig
 	SMSConfig                  = config.SMSConfig
@@ -31,7 +30,6 @@ type (
 	NameRetention              = config.NameRetention
 	NameRetentionMode          = config.NameRetentionMode
 	TwoFactorConfig            = config.TwoFactorConfig
-	PasskeyConfig              = config.PasskeyConfig
 	DeviceKeysConfig           = config.DeviceKeysConfig
 	APIKeysConfig              = config.APIKeysConfig
 	PersonalAccessTokensConfig = config.PersonalAccessTokensConfig
@@ -53,11 +51,10 @@ type (
 	LanguageConfig          = config.LanguageConfig
 	// ProvisioningConfig pushes the accounts to SCIM 2.0 service providers
 	// (Config.Provisioning).
-	ProvisioningConfig            = config.ProvisioningConfig
-	ProvisioningTarget            = config.ProvisioningTarget
-	ProvisioningClientCredentials = config.ProvisioningClientCredentials
-	HTTPConfig                    = config.HTTPConfig
-	RateLimit                     = config.RateLimit
+	ProvisioningConfig = config.ProvisioningConfig
+	ProvisioningTarget = config.ProvisioningTarget
+	HTTPConfig         = config.HTTPConfig
+	RateLimit          = config.RateLimit
 )
 
 // OAuth grant types a client may use (OAuthClientConfig.GrantTypes).

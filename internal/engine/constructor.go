@@ -34,7 +34,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if err != nil {
 		return nil, err
 	}
-	dev, err := newDevelopmentKeys(norm.Keys, norm.Token.Issuer)
+	dev, err := newDevelopmentKeys(norm.Keys, norm.Issuer)
 	if err != nil {
 		return nil, err
 	}
@@ -54,6 +54,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	s := &Engine{
 		log:               log,
 		cfg:               norm,
+		passkeys:          config.Passkeys(norm.FrontendURL),
 		keys:              src,
 		ownedKeySource:    owned,
 		signs:             signs,
@@ -151,7 +152,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if err := s.reconcileRemoteApplications(ctx); err != nil {
 		return nil, err
 	}
-	if s.auth, err = s.newAuthenticator(s.cfg.Token.ExpectedAudiences, true); err != nil {
+	if s.auth, err = s.newAuthenticator([]string{s.cfg.Issuer}, true); err != nil {
 		return nil, err
 	}
 	if s.cfg.Resource.Enabled() {

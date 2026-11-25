@@ -89,7 +89,7 @@ func (s *Engine) createInviteLink(ctx context.Context, a auth.Identity, host pgx
 		}
 		row, err := db.New(st.q).InviteLinkInsert(ctx, db.InviteLinkInsertParams{TenantID: s.tenantKey(ctx),
 			GroupID: g.ID, Role: n.Role.String(), InvitedBy: nullable(creator), CodeHash: secret.Hash(out.Code), ExpiresAt: expiresAt,
-			CatalogIssuer: s.cfg.Token.Issuer,
+			CatalogIssuer: s.cfg.Issuer,
 		})
 		out.Invitation = iam.Invitation{TenantID: tenant, ID: row.ID, GroupID: g.ID, Role: n.Role, CreatedBy: nullable(creator), CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
 		return err
@@ -146,7 +146,7 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a auth.Identity, ref
 		}
 		row, err := db.New(st.q).AccountInviteInsert(ctx, db.AccountInviteInsertParams{TenantID: s.tenantKey(ctx),
 			Email: email, InvitedBy: nullable(creator), CodeHash: secret.Hash(out.Code), ExpiresAt: expiresAt, GroupID: groupID, Role: roleText,
-			CatalogIssuer: s.cfg.Token.Issuer,
+			CatalogIssuer: s.cfg.Issuer,
 		})
 		out.Invitation = iam.Invitation{TenantID: tenant, ID: row.ID, GroupID: g.ID, Role: role, Email: nullable(email), CreatedBy: nullable(creator), CreatedAt: row.CreatedAt, ExpiresAt: &expiresAt}
 		return err

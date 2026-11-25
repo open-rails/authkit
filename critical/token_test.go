@@ -49,9 +49,13 @@ func signJWT(t *testing.T, signer keys.Signer, header, claims map[string]any) st
 	noError(t, err)
 	return input + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
+
+// idTokenClient is the OAuth client ID tokens are minted for.
+const idTokenClient = "authtest-client"
+
 func jwtFixture(t *testing.T) *fixture {
 	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: authtest.Audience, RedirectURIs: []string{"https://client.example/callback"}}}
+		c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: idTokenClient, RedirectURIs: []string{"https://client.example/callback"}}}
 	}))
 }
 func expectTokenError(t *testing.T, err error, code string) {
@@ -65,8 +69,8 @@ func fixtureIDToken(t *testing.T, f *fixture, raw string) string {
 	t.Helper()
 	h, c := jwtParts(t, raw)
 	h["typ"] = "JWT"
-	c["azp"] = authtest.Audience
-	c["aud"] = []string{authtest.Audience}
+	c["azp"] = idTokenClient
+	c["aud"] = []string{idTokenClient}
 	c["nonce"] = "critical-expected-nonce"
 	return signJWT(t, f.deps.KeySource.ActiveSigner(), h, c)
 }
@@ -96,7 +100,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		}
 		id, err := f.auth.VerifyIDToken(t.Context(), fixtureIDToken(t, f, session.AccessToken))
 		noError(t, err)
-		if id.Subject != u.ID || id.ClientID != authtest.Audience || id.SessionID != native.SessionID || id.Nonce != "critical-expected-nonce" {
+		if id.Subject != u.ID || id.ClientID != idTokenClient || id.SessionID != native.SessionID || id.Nonce != "critical-expected-nonce" {
 			t.Fatal("ID-token profile lost its client/session/nonce")
 		}
 		h, c := jwtParts(t, session.AccessToken)
@@ -193,7 +197,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		v := verify.NewVerifier(verify.WithHTTPClient(peer.Client()))
 		defer v.Close()
 		options := verify.IssuerOptions{JWKSURI: peer.URL, IsLocal: true}
-		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Audience}, options))
+		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Issuer}, options))
 		u := f.user(t)
 		original := f.signIn(t, u).AccessToken
 		_, err = v.Verify(t.Context(), original)
@@ -215,7 +219,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		if err == nil {
 			t.Fatal("removed issuer remained trusted")
 		}
-		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Audience}, options))
+		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Issuer}, options))
 		_, err = v.Verify(t.Context(), rotated)
 		noError(t, err)
 		mu.Lock()
@@ -269,7 +273,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		noError(t, err)
 		v := verify.NewVerifier()
 		defer v.Close()
-		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Audience}, verify.IssuerOptions{KeySource: f.deps.KeySource}))
+		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Issuer}, verify.IssuerOptions{KeySource: f.deps.KeySource}))
 		data, err := v.VerifyClaims(t.Context(), mint.Value)
 		noError(t, err)
 		if data["critical_trace"] != "known-host-value" || data["sub"] != u.ID {

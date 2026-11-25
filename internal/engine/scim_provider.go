@@ -37,7 +37,7 @@ func (s *Engine) AuthorizeSCIM(ctx context.Context, accessToken, jkt string) err
 	if exp, ok := jose.Time(claims, "exp"); !ok || !s.nowTime().Before(exp) {
 		return invalid("the access token has expired")
 	}
-	resource := config.SCIMResource(s.cfg.Token.Issuer)
+	resource := config.SCIMResource(s.cfg.Issuer)
 	if !slices.Contains(jose.Audiences(claims), resource) {
 		return invalid("the access token is not for this SCIM service provider")
 	}

@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/open-rails/authkit/iam"
@@ -22,25 +21,18 @@ import (
 
 // Defaults Normalize applies.
 const (
-	DefaultAPIPath = "/api"
-	// APIVersion is the version segment AuthKit owns beneath APIPath: the
-	// JSON API is {BasePath}{APIPath}/v1. A breaking change mounts /v2 beside
-	// it.
-	APIVersion                     = "/v1"
-	DefaultPasswordMinLength       = 8
-	DefaultPasswordMaxLength       = 128
-	PasswordMaxLengthCeiling       = 1024
-	DefaultUsernameMinLength       = 4
-	DefaultUsernameMaxLength       = 30
-	UsernameMaxLengthCeiling       = 64
-	DefaultRenameInterval          = 72 * time.Hour
-	DefaultNameRetention           = 90 * 24 * time.Hour
-	defaultOIDCReturnPath          = "/login/callback"
-	defaultVerifyPath              = "/verify"
-	defaultPasswordResetPath       = "/reset"
-	defaultPasswordlessPath        = "/passwordless"
-	defaultInvitePath              = "/accept-invite"
-	defaultAuthorizePath           = "/authorize"
+	// APIVersion is the version segment AuthKit owns beneath Surface.API: the
+	// JSON API is {Base}{API}/v1. A breaking change mounts /v2 beside it.
+	APIVersion               = "/v1"
+	DefaultPasswordMinLength = 8
+	DefaultPasswordMaxLength = 128
+	PasswordMaxLengthCeiling = 1024
+	DefaultUsernameMinLength = 4
+	DefaultUsernameMaxLength = 30
+	UsernameMaxLengthCeiling = 64
+	DefaultRenameInterval    = 72 * time.Hour
+	DefaultNameRetention     = 90 * 24 * time.Hour
+
 	maxTokenEntitlements           = 32
 	maxTokenEntitlementNameBytes   = 128
 	maxTokenEntitlementBytes       = 2048
@@ -67,7 +59,10 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if err := normalizeNotifications(&c); err != nil {
 		return Config{}, nil, err
 	}
-	if err := normalizeToken(&c.Token); err != nil {
+	if err := normalizeIssuer(&c); err != nil {
+		return Config{}, nil, err
+	}
+	if err := normalizeToken(&c.Token, c.Issuer); err != nil {
 		return Config{}, nil, err
 	}
 	c.SignIn = NormalizeSignIn(c.SignIn)
@@ -84,9 +79,7 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 		degrade(fmt.Errorf("authkit: invalid SolanaNetwork %q (want mainnet, testnet or devnet); Sign In With Solana is off", c.SolanaNetwork))
 		c.SolanaNetwork = ""
 	}
-	if err := normalizeFrontend(&c.Frontend, c.Token.Issuer, degrade); err != nil {
-		return Config{}, nil, err
-	}
+
 	if err := normalizeRegistration(&c.Registration); err != nil {
 		return Config{}, nil, err
 	}
@@ -116,10 +109,6 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 		return Config{}, nil, fmt.Errorf("authkit: invalid TwoFactor.Mode %q (want disabled, optional, or required)", c.TwoFactor.Mode)
 	}
 	c.TwoFactor.Methods = slices.Clone(c.TwoFactor.Methods)
-	c.TwoFactor.TOTPIssuer = strings.TrimSpace(c.TwoFactor.TOTPIssuer)
-	if strings.Contains(c.TwoFactor.TOTPIssuer, ":") || strings.IndexFunc(c.TwoFactor.TOTPIssuer, unicode.IsControl) >= 0 {
-		return Config{}, nil, errors.New("authkit: TwoFactor.TOTPIssuer must be a display name without colons or control characters")
-	}
 	for _, m := range c.TwoFactor.Methods {
 		switch m {
 		case iam.TwoFactorEmail, iam.TwoFactorSMS, iam.TwoFactorTOTP:
@@ -130,9 +119,7 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if n := len(c.TwoFactor.TOTPSecretKey); n > 0 && n != 16 && n != 24 && n != 32 {
 		return Config{}, nil, fmt.Errorf("authkit: TwoFactor.TOTPSecretKey must be 16, 24, or 32 bytes, got %d", n)
 	}
-	if err := normalizePasskeys(&c.Passkeys, c.Frontend.BaseURL, c.Token.Issuer); err != nil {
-		return Config{}, nil, err
-	}
+
 	c.APIKeys.Prefix = strings.TrimSpace(c.APIKeys.Prefix)
 	if !validAPIKeyPrefix(c.APIKeys.Prefix) {
 		return Config{}, nil, fmt.Errorf("authkit: invalid APIKeyPrefix %q (want lowercase alphanumeric, 1-16 chars, or empty)", c.APIKeys.Prefix)
@@ -219,7 +206,7 @@ func normalizeRemoteApplications(apps []RemoteApplicationConfig, degrade func(er
 	}
 	out := make([]RemoteApplicationConfig, 0, len(apps))
 	for _, app := range apps {
-		app.Issuer, app.JWKSURI = strings.TrimSpace(app.Issuer), strings.TrimSpace(app.JWKSURI)
+		app.Issuer = strings.TrimSpace(app.Issuer)
 		switch {
 		case app.Issuer == "":
 			degrade(errors.New("authkit: Config.RemoteApplications contains an application with no Issuer; it is ignored"))
@@ -254,22 +241,38 @@ func NormalizeSignIn(c SignInConfig) SignInConfig {
 	return c
 }
 
-func normalizeToken(t *TokenConfig) error {
-	t.Issuer = strings.TrimSpace(t.Issuer)
-	if t.Issuer == "" {
+// normalizeIssuer checks the issuer, the one URL the HTTP surface, links and
+// relying-party names derive from, and defaults FrontendURL to its origin.
+func normalizeIssuer(c *Config) error {
+	c.Issuer = strings.TrimSpace(c.Issuer)
+	if c.Issuer == "" {
 		return errors.New("authkit: Issuer is required (e.g., \"https://myapp.com\")")
 	}
-	if err := secureURL("Token.Issuer", t.Issuer); err != nil {
+	if err := secureURL("Issuer", c.Issuer); err != nil {
 		return err
 	}
-	if len(t.IssuedAudiences) == 0 {
-		return errors.New("authkit: IssuedAudiences is required (e.g., []string{\"myapp\", \"billing-app\"})")
+	u, _ := url.Parse(c.Issuer)
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.Contains(c.Issuer, "#") {
+		return fmt.Errorf("authkit: Issuer %q must not carry user info, a query or a fragment", c.Issuer)
 	}
-	t.IssuedAudiences = slices.Clone(t.IssuedAudiences)
-	if len(t.ExpectedAudiences) == 0 {
-		t.ExpectedAudiences = slices.Clone(t.IssuedAudiences)
+	if _, err := MountPath("Issuer path", u.EscapedPath()); err != nil {
+		return err
 	}
-	accountIssuers := []string{t.Issuer}
+	c.FrontendURL = strings.TrimRight(strings.TrimSpace(c.FrontendURL), "/")
+	if c.FrontendURL == "" {
+		c.FrontendURL = u.Scheme + "://" + u.Host
+	}
+	if err := secureURL("FrontendURL", c.FrontendURL); err != nil {
+		return err
+	}
+	if f, _ := url.Parse(c.FrontendURL); f.User != nil || f.RawQuery != "" || f.Fragment != "" || strings.Contains(c.FrontendURL, "#") {
+		return fmt.Errorf("authkit: FrontendURL %q must not carry user info, a query or a fragment", c.FrontendURL)
+	}
+	return nil
+}
+
+func normalizeToken(t *TokenConfig, issuer string) error {
+	accountIssuers := []string{issuer}
 	for _, raw := range t.AccountIssuers {
 		issuer := strings.TrimSpace(raw)
 		if issuer == "" {
@@ -323,58 +326,6 @@ func normalizeEntitlementAllowlist(names []string) ([]string, error) {
 		return nil, fmt.Errorf("authkit: Token.EntitlementAllowlist exceeds %d encoded bytes", maxTokenEntitlementBytes)
 	}
 	return out, nil
-}
-
-func normalizeFrontend(f *FrontendConfig, issuer string, degrade func(error)) error {
-	f.BaseURL = strings.TrimSpace(f.BaseURL)
-	if f.BaseURL == "" {
-		f.BaseURL = issuer
-	}
-	// Its scheme decides whether cookies are Secure (and __Host-).
-	if err := secureURL("Frontend.BaseURL", f.BaseURL); err != nil {
-		return err
-	}
-	for _, p := range []struct {
-		field string
-		value *string
-		def   string
-	}{
-		{"OIDCReturnPath", &f.OIDCReturnPath, defaultOIDCReturnPath},
-		{"FrontendVerifyPath", &f.VerifyPath, defaultVerifyPath},
-		{"FrontendPasswordResetPath", &f.PasswordResetPath, defaultPasswordResetPath},
-		{"FrontendPasswordlessPath", &f.PasswordlessPath, defaultPasswordlessPath},
-		{"FrontendInvitePath", &f.InvitePath, defaultInvitePath},
-		{"FrontendAuthorizePath", &f.AuthorizePath, defaultAuthorizePath},
-	} {
-		v, err := frontendPath(p.field, *p.value, p.def)
-		if err != nil {
-			degrade(fmt.Errorf("%w; using %s", err, p.def))
-			v = p.def
-		}
-		*p.value = v
-	}
-	return nil
-}
-
-func frontendPath(name, raw, defaultPath string) (string, error) {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return defaultPath, nil
-	}
-	if strings.Contains(value, "#") {
-		return "", fmt.Errorf("authkit: %s must not contain a fragment", name)
-	}
-	u, err := url.Parse(value)
-	if err != nil {
-		return "", fmt.Errorf("authkit: invalid %s %q: %w", name, raw, err)
-	}
-	if u.IsAbs() || u.Host != "" || strings.HasPrefix(value, "//") {
-		return "", fmt.Errorf("authkit: %s must be a relative absolute-path, got %q", name, raw)
-	}
-	if u.Path == "" || !strings.HasPrefix(u.Path, "/") {
-		return "", fmt.Errorf("authkit: %s must start with '/', got %q", name, raw)
-	}
-	return u.RequestURI(), nil
 }
 
 func normalizeRegistration(r *RegistrationConfig) error {
@@ -541,48 +492,6 @@ func normalizeNameRetention(field string, r NameRetention, fallback NameRetentio
 	return r, nil
 }
 
-// Passkey relying-party identity derives from the BaseURL origin; without a
-// usable BaseURL passkeys stay unconfigured unless RPID is set.
-func normalizePasskeys(p *PasskeyConfig, baseURL, issuer string) error {
-	// Every accepted credential/assertion already requires UV; advertise that
-	// requirement to the authenticator instead of requesting presence-only.
-	p.UserVerification = "required"
-	if baseURL == "" {
-		return nil
-	}
-	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return errors.New("authkit: Passkeys require a valid BaseURL origin")
-	}
-	u.Path, u.RawQuery, u.Fragment = "", "", ""
-	p.RPID = strings.ToLower(strings.TrimSpace(p.RPID))
-	if p.RPID == "" {
-		p.RPID = strings.ToLower(u.Hostname())
-	}
-	p.RPDisplayName = strings.TrimSpace(p.RPDisplayName)
-	if p.RPDisplayName == "" {
-		p.RPDisplayName = issuer
-	}
-	origins := slices.Clone(p.Origins)
-	if len(origins) == 0 {
-		origins = []string{u.String()}
-	}
-	for i, raw := range origins {
-		o, err := url.Parse(strings.TrimRight(strings.TrimSpace(raw), "/"))
-		if err != nil || o.Scheme == "" || o.Host == "" {
-			return errors.New("authkit: invalid Passkey origin")
-		}
-		host := strings.ToLower(o.Hostname())
-		if host != p.RPID && !strings.HasSuffix(host, "."+p.RPID) {
-			return errors.New("authkit: Passkey origin host must match RPID or a subdomain")
-		}
-		o.Path, o.RawQuery, o.Fragment = "", "", ""
-		origins[i] = o.String()
-	}
-	p.Origins = origins
-	return nil
-}
-
 // validAPIKeyPrefix: empty, or 1-16 lowercase alphanumeric characters.
 func validAPIKeyPrefix(p string) bool {
 	if len(p) > 16 {
@@ -665,23 +574,6 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 	if d.Postgres == nil {
 		return errors.New("authkit: HTTP requires Deps.Postgres")
 	}
-	var err error
-	if h.BasePath, err = basePath(h.BasePath, c.Token.Issuer); err != nil {
-		return err
-	}
-	h.APIPath = strings.TrimSpace(h.APIPath)
-	if h.APIPath == "" {
-		h.APIPath = DefaultAPIPath
-	}
-	if h.APIPath, err = MountPath("APIPath", h.APIPath); err != nil {
-		return err
-	}
-	if h.APIPath == "" {
-		h.APIPath = "/" // the version segment sits right beneath BasePath
-	}
-	if h.PublicURL, err = publicURL(h.PublicURL, c.Token.Issuer, h.BasePath); err != nil {
-		return err
-	}
 	h.Groups = slices.Clone(h.Groups)
 	h.Exclude = slices.Clone(h.Exclude)
 	if _, err := ParseCIDRs("trusted proxy", h.TrustedProxies); err != nil {
@@ -705,10 +597,7 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 	if err := ratelimit.ValidateLimits(h.RateLimits); err != nil {
 		return err
 	}
-	if h.RedisKeyPrefix, err = redisKeyPrefix(h.RedisKeyPrefix, c.Database.Schema); err != nil {
-		degrade(err)
-		h.RedisKeyPrefix, _ = redisKeyPrefix("", c.Database.Schema)
-	}
+
 	if d.Email == nil && d.SMS == nil {
 		if c.Registration.Verification == iam.RegistrationVerificationRequired && !c.Registration.AllowMissingSenders {
 			degrade(fmt.Errorf("authkit: registration verification policy is %q but no email or SMS sender is configured; registration answers email_unavailable until one is", iam.RegistrationVerificationRequired))
@@ -722,45 +611,6 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 		}
 	}
 	return nil
-}
-
-// basePath derives the base from the issuer's path, or checks a set one
-// against it: JWKS is only found where the issuer says.
-func basePath(configured, issuer string) (string, error) {
-	u, err := url.Parse(issuer)
-	if err != nil {
-		return "", err
-	}
-	derived, err := MountPath("Token.Issuer path", u.EscapedPath())
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(configured) == "" {
-		return derived, nil
-	}
-	base, err := MountPath("BasePath", configured)
-	if err != nil {
-		return "", err
-	}
-	if base != derived {
-		return "", fmt.Errorf("authkit: BasePath %q must equal the path of Token.Issuer %q, where verifiers look for JWKS", configured, issuer)
-	}
-	return base, nil
-}
-
-// publicURL defaults to the issuer's origin plus base; a set value is an
-// http(s) URL without query or fragment, kept without a trailing slash.
-func publicURL(raw, issuer, base string) (string, error) {
-	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
-	if raw == "" {
-		u, _ := url.Parse(issuer)
-		return u.Scheme + "://" + u.Host + base, nil
-	}
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("authkit: HTTPConfig.PublicURL %q must be an http(s) URL without credentials, query or fragment", raw)
-	}
-	return raw, nil
 }
 
 // Plain segments only: framework routers read them literally, and escaped
@@ -788,22 +638,6 @@ func ParseCIDRs(kind string, cidrs []string) ([]netip.Prefix, error) {
 		prefixes = append(prefixes, p)
 	}
 	return prefixes, nil
-}
-
-var redisKeyPrefixRE = regexp.MustCompile(`^[a-z0-9_.:-]{1,64}$`)
-
-func redisKeyPrefix(prefix, schema string) (string, error) {
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" {
-		prefix = "authkit:" + schema + ":"
-	}
-	if !strings.HasSuffix(prefix, ":") {
-		prefix += ":"
-	}
-	if !redisKeyPrefixRE.MatchString(prefix) {
-		return "", fmt.Errorf("authkit: invalid HTTPConfig.RedisKeyPrefix %q (want ^[a-z0-9_.:-]{1,64}$)", prefix)
-	}
-	return prefix, nil
 }
 
 // secureURL refuses raw unless it is an https URL, or http on a loopback

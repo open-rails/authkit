@@ -196,7 +196,7 @@ func (s *Engine) WithdrawConsent(ctx context.Context, who auth.Identity, userID,
 				return err
 			}
 		}
-		args := backchannelLogoutArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer, ClientID: clientID, UserID: userID, Subject: subject, URI: uri}
+		args := backchannelLogoutArgs{Schema: s.dbSchema(), Issuer: s.cfg.Issuer, ClientID: clientID, UserID: userID, Subject: subject, URI: uri}
 		if _, err := producer.InsertTx(ctx, tx, args, &river.InsertOpts{Queue: maintenanceQueue(s.dbSchema()), MaxAttempts: 8}); err != nil {
 			return err
 		}
@@ -255,7 +255,7 @@ func (w *backchannelLogoutWorker) Timeout(*river.Job[backchannelLogoutArgs]) tim
 
 func (w *backchannelLogoutWorker) Work(ctx context.Context, job *river.Job[backchannelLogoutArgs]) error {
 	s := w.engine
-	if job.Args.Schema != s.dbSchema() || job.Args.Issuer != s.cfg.Token.Issuer {
+	if job.Args.Schema != s.dbSchema() || job.Args.Issuer != s.cfg.Issuer {
 		return river.JobCancel(errors.New("authkit: back-channel logout routed to another deployment"))
 	}
 	return s.sendBackchannelLogout(ctx, job.Args)
@@ -278,7 +278,7 @@ func (s *Engine) sendBackchannelLogout(ctx context.Context, a backchannelLogoutA
 		sub = a.UserID
 	}
 	token, err := jose.Sign(ctx, signer, "logout+jwt", map[string]any{
-		"iss": s.cfg.Token.Issuer, "aud": a.ClientID, "sub": sub, "iat": now.Unix(), "exp": now.Add(2 * time.Minute).Unix(), "jti": jti,
+		"iss": s.cfg.Issuer, "aud": a.ClientID, "sub": sub, "iat": now.Unix(), "exp": now.Add(2 * time.Minute).Unix(), "jti": jti,
 		"events": map[string]any{"http://schemas.openid.net/event/backchannel-logout": map[string]any{}},
 	})
 	if err != nil {

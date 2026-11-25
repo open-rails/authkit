@@ -83,8 +83,8 @@ func NewMount(svc *Service) (result *Mount, err error) {
 		return nil, errors.New("authkit: NewMount requires a Service constructed by httpapi.New")
 	}
 	opts := svc.http
-	base := opts.BasePath
-	api := joinRoutePath(joinRoutePath(base, opts.APIPath), config.APIVersion)
+	base := svc.surface.Base
+	api := joinRoutePath(joinRoutePath(base, svc.surface.API), config.APIVersion)
 	excluded := make(map[string]bool, len(opts.Exclude))
 	for _, raw := range opts.Exclude {
 		method, path, ok := strings.Cut(strings.TrimSpace(raw), " ")

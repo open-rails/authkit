@@ -49,7 +49,7 @@ func (s *Engine) loadLoginProof(ctx context.Context, userID, nonce string) (logi
 	if err != nil {
 		return proof, err
 	}
-	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Token.Issuer || !secret.Equal(proof.NonceHash, secret.Hash(nonce)) || proof.AuthenticatedAt.IsZero() || proof.AuthenticatedAt.After(time.Now().Add(time.Minute)) || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
+	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Issuer || !secret.Equal(proof.NonceHash, secret.Hash(nonce)) || proof.AuthenticatedAt.IsZero() || proof.AuthenticatedAt.After(time.Now().Add(time.Minute)) || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
 		return proof, jwt.ErrTokenUnverifiable
 	}
 	proof.expected = raw
@@ -181,7 +181,7 @@ func (s *Engine) finishFirstFactorTx(ctx context.Context, tx pgx.Tx, proof login
 		}
 		nonce := secret.Token(32)
 		proof.NonceHash = secret.Hash(nonce)
-		proof.Issuer = s.cfg.Token.Issuer
+		proof.Issuer = s.cfg.Issuer
 		proof.Enrollment = !needsChallenge
 		if proof.AuthenticatedAt.IsZero() {
 			proof.AuthenticatedAt = time.Now().UTC()
@@ -251,7 +251,7 @@ func (s *Engine) holdsPasskey(ctx context.Context, q db.DBTX, userID string) (bo
 	if !s.PasskeysEnabled() {
 		return false, nil
 	}
-	return db.New(q).PasskeyExistsForRP(ctx, db.PasskeyExistsForRPParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
+	return db.New(q).PasskeyExistsForRP(ctx, db.PasskeyExistsForRPParams{UserID: userID, Rpid: s.passkeys.ID})
 }
 
 func (s *Engine) sendLoginFactor(ctx context.Context, user *db.User, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {
@@ -505,7 +505,7 @@ func (s *Engine) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 		}
 	}
 	if proof.SessionID != "" {
-		_, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: proof.Input.UserID, SessionID: proof.SessionID, Issuer: s.cfg.Token.Issuer})
+		_, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: proof.Input.UserID, SessionID: proof.SessionID, Issuer: s.cfg.Issuer})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return jwt.ErrTokenUnverifiable
 		}

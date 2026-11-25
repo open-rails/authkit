@@ -3,7 +3,7 @@
   "info": {
     "title": "AuthKit",
     "version": "v1",
-    "description": "AuthKit's HTTP API on a default mount: the JSON API beneath /api/v1, browser OIDC beneath /oidc, JWKS at the issuer's path. Generated from the route catalog (internal/httpapi/catalog.go) by go generate ./internal/httpapi; do not edit."
+    "description": "AuthKit's HTTP API on an issuer at the root: the JSON API beneath /auth/v1, browser OIDC beneath /oidc, JWKS at the issuer's path. Generated from the route catalog (internal/httpapi/catalog.go) by go generate ./internal/httpapi; do not edit."
   },
   "paths": {
     "/.well-known/jwks.json": {
@@ -38,7 +38,7 @@
         "x-authkit-rate-limit": "jwks_read"
       }
     },
-    "/api/v1/capabilities": {
+    "/auth/v1/capabilities": {
       "get": {
         "tags": [
           "auth"
@@ -70,7 +70,7 @@
         "x-authkit-rate-limit": "capabilities_read"
       }
     },
-    "/api/v1/token": {
+    "/auth/v1/token": {
       "post": {
         "tags": [
           "auth"
@@ -112,7 +112,7 @@
         "x-authkit-rate-limit": "token_refresh"
       }
     },
-    "/api/v1/logout": {
+    "/auth/v1/logout": {
       "delete": {
         "tags": [
           "auth"
@@ -141,7 +141,7 @@
         "x-authkit-rate-limit": "session_logout"
       }
     },
-    "/api/v1/password/login": {
+    "/auth/v1/password/login": {
       "post": {
         "tags": [
           "auth"
@@ -183,7 +183,7 @@
         "x-authkit-rate-limit": "password_login"
       }
     },
-    "/api/v1/2fa/challenge": {
+    "/auth/v1/2fa/challenge": {
       "post": {
         "tags": [
           "auth"
@@ -227,7 +227,7 @@
         "x-authkit-mfa-enrollment-exempt": true
       }
     },
-    "/api/v1/2fa/verify": {
+    "/auth/v1/2fa/verify": {
       "post": {
         "tags": [
           "auth"
@@ -271,7 +271,7 @@
         "x-authkit-mfa-enrollment-exempt": true
       }
     },
-    "/api/v1/device-verification/send": {
+    "/auth/v1/device-verification/send": {
       "post": {
         "tags": [
           "auth"
@@ -314,7 +314,7 @@
         "x-authkit-mounted-when": "new_devices"
       }
     },
-    "/api/v1/device-verification/confirm": {
+    "/auth/v1/device-verification/confirm": {
       "post": {
         "tags": [
           "auth"
@@ -357,7 +357,7 @@
         "x-authkit-mounted-when": "new_devices"
       }
     },
-    "/api/v1/account/recovery/confirm": {
+    "/auth/v1/account/recovery/confirm": {
       "post": {
         "tags": [
           "auth"
@@ -402,7 +402,7 @@
         "x-authkit-rate-limit": "password_login"
       }
     },
-    "/api/v1/passwordless/start": {
+    "/auth/v1/passwordless/start": {
       "post": {
         "tags": [
           "auth"
@@ -445,7 +445,7 @@
         "x-authkit-mounted-when": "passwordless"
       }
     },
-    "/api/v1/passwordless/confirm": {
+    "/auth/v1/passwordless/confirm": {
       "post": {
         "tags": [
           "auth"
@@ -488,7 +488,7 @@
         "x-authkit-mounted-when": "passwordless"
       }
     },
-    "/api/v1/passkeys/login/begin": {
+    "/auth/v1/passkeys/login/begin": {
       "post": {
         "tags": [
           "auth"
@@ -522,7 +522,7 @@
         "x-authkit-mounted-when": "passkeys"
       }
     },
-    "/api/v1/passkeys/login/finish": {
+    "/auth/v1/passkeys/login/finish": {
       "post": {
         "tags": [
           "auth"
@@ -563,7 +563,7 @@
         "x-authkit-mounted-when": "passkeys"
       }
     },
-    "/api/v1/passkeys/window": {
+    "/auth/v1/passkeys/window": {
       "get": {
         "tags": [
           "auth"
@@ -589,7 +589,7 @@
         "x-authkit-mounted-when": "passkeys"
       }
     },
-    "/api/v1/password/reset/request": {
+    "/auth/v1/password/reset/request": {
       "post": {
         "tags": [
           "auth"
@@ -624,7 +624,7 @@
         "x-authkit-rate-limit": "password_reset_request"
       }
     },
-    "/api/v1/password/reset/confirm": {
+    "/auth/v1/password/reset/confirm": {
       "post": {
         "tags": [
           "auth"
@@ -659,7 +659,7 @@
         "x-authkit-rate-limit": "password_reset_confirm"
       }
     },
-    "/api/v1/solana/challenge": {
+    "/auth/v1/solana/challenge": {
       "post": {
         "tags": [
           "auth"
@@ -702,7 +702,7 @@
         "x-authkit-mounted-when": "solana"
       }
     },
-    "/api/v1/solana/login": {
+    "/auth/v1/solana/login": {
       "post": {
         "tags": [
           "auth"
@@ -745,7 +745,7 @@
         "x-authkit-mounted-when": "solana"
       }
     },
-    "/api/v1/oidc/{provider}/login/start": {
+    "/auth/v1/oidc/{provider}/login/start": {
       "post": {
         "tags": [
           "browser_oidc"
@@ -798,7 +798,7 @@
         "x-authkit-mounted-when": "oidc"
       }
     },
-    "/api/v1/oidc/exchange": {
+    "/auth/v1/oidc/exchange": {
       "post": {
         "tags": [
           "browser_oidc"
@@ -841,7 +841,7 @@
         "x-authkit-mounted-when": "oidc"
       }
     },
-    "/api/v1/device-keys/enroll/begin": {
+    "/auth/v1/device-keys/enroll/begin": {
       "post": {
         "tags": [
           "device_keys"
@@ -884,7 +884,7 @@
         "x-authkit-mounted-when": "device_keys"
       }
     },
-    "/api/v1/device-keys/enroll/finish": {
+    "/auth/v1/device-keys/enroll/finish": {
       "post": {
         "tags": [
           "device_keys"
@@ -927,7 +927,7 @@
         "x-authkit-mounted-when": "device_keys"
       }
     },
-    "/api/v1/device-keys/login/begin": {
+    "/auth/v1/device-keys/login/begin": {
       "post": {
         "tags": [
           "device_keys"
@@ -970,7 +970,7 @@
         "x-authkit-mounted-when": "device_keys"
       }
     },
-    "/api/v1/device-keys/login/finish": {
+    "/auth/v1/device-keys/login/finish": {
       "post": {
         "tags": [
           "device_keys"
@@ -1013,7 +1013,7 @@
         "x-authkit-mounted-when": "device_keys"
       }
     },
-    "/api/v1/device-keys": {
+    "/auth/v1/device-keys": {
       "delete": {
         "tags": [
           "device_keys"
@@ -1043,7 +1043,7 @@
         "x-authkit-mounted-when": "device_keys"
       }
     },
-    "/api/v1/register": {
+    "/auth/v1/register": {
       "post": {
         "tags": [
           "registration"
@@ -1096,7 +1096,7 @@
         "x-authkit-mounted-when": "registration"
       }
     },
-    "/api/v1/register/availability": {
+    "/auth/v1/register/availability": {
       "get": {
         "tags": [
           "registration"
@@ -1151,7 +1151,7 @@
         "x-authkit-rate-limit": "register_availability"
       }
     },
-    "/api/v1/usernames/generate": {
+    "/auth/v1/usernames/generate": {
       "get": {
         "tags": [
           "registration"
@@ -1183,7 +1183,7 @@
         "x-authkit-rate-limit": "register_availability"
       }
     },
-    "/api/v1/usernames/availability": {
+    "/auth/v1/usernames/availability": {
       "get": {
         "tags": [
           "registration"
@@ -1224,7 +1224,7 @@
         "x-authkit-rate-limit": "register_availability"
       }
     },
-    "/api/v1/register/abandon": {
+    "/auth/v1/register/abandon": {
       "post": {
         "tags": [
           "registration"
@@ -1260,7 +1260,7 @@
         "x-authkit-mounted-when": "registration"
       }
     },
-    "/api/v1/verify/request": {
+    "/auth/v1/verify/request": {
       "post": {
         "tags": [
           "account"
@@ -1302,7 +1302,7 @@
         "x-authkit-rate-limit": "verify_request"
       }
     },
-    "/api/v1/verify/confirm": {
+    "/auth/v1/verify/confirm": {
       "post": {
         "tags": [
           "account"
@@ -1351,7 +1351,7 @@
         "x-authkit-rate-limit": "verify_confirm"
       }
     },
-    "/api/v1/me": {
+    "/auth/v1/me": {
       "get": {
         "tags": [
           "account"
@@ -1459,7 +1459,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/oauth-consents": {
+    "/auth/v1/me/oauth-consents": {
       "get": {
         "tags": [
           "account"
@@ -1496,7 +1496,7 @@
         "x-authkit-mounted-when": "oauth_clients"
       }
     },
-    "/api/v1/me/oauth-consents/{client_id}": {
+    "/auth/v1/me/oauth-consents/{client_id}": {
       "delete": {
         "tags": [
           "account"
@@ -1536,7 +1536,7 @@
         "x-authkit-mounted-when": "oauth_clients"
       }
     },
-    "/api/v1/me/agreements": {
+    "/auth/v1/me/agreements": {
       "get": {
         "tags": [
           "account"
@@ -1616,7 +1616,7 @@
         "x-authkit-rate-limit": "me_update"
       }
     },
-    "/api/v1/me/security": {
+    "/auth/v1/me/security": {
       "get": {
         "tags": [
           "account"
@@ -1652,7 +1652,7 @@
         "x-authkit-rate-limit": "me_read"
       }
     },
-    "/api/v1/me/personal-access-tokens": {
+    "/auth/v1/me/personal-access-tokens": {
       "get": {
         "tags": [
           "account"
@@ -1751,7 +1751,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/personal-access-tokens/{id}": {
+    "/auth/v1/me/personal-access-tokens/{id}": {
       "delete": {
         "tags": [
           "account"
@@ -1792,7 +1792,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/password": {
+    "/auth/v1/me/password": {
       "put": {
         "tags": [
           "account"
@@ -1832,7 +1832,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/email": {
+    "/auth/v1/me/email": {
       "put": {
         "tags": [
           "account"
@@ -1879,7 +1879,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/phone": {
+    "/auth/v1/me/phone": {
       "put": {
         "tags": [
           "account"
@@ -1954,7 +1954,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/sessions": {
+    "/auth/v1/me/sessions": {
       "get": {
         "tags": [
           "account"
@@ -2017,7 +2017,7 @@
         "x-authkit-rate-limit": "session_revoke_all"
       }
     },
-    "/api/v1/me/sessions/{id}": {
+    "/auth/v1/me/sessions/{id}": {
       "delete": {
         "tags": [
           "account"
@@ -2056,7 +2056,7 @@
         "x-authkit-rate-limit": "session_revoke"
       }
     },
-    "/api/v1/me/session-events": {
+    "/auth/v1/me/session-events": {
       "get": {
         "tags": [
           "account"
@@ -2119,7 +2119,7 @@
         "x-authkit-rate-limit": "session_list"
       }
     },
-    "/api/v1/me/providers/{provider}": {
+    "/auth/v1/me/providers/{provider}": {
       "delete": {
         "tags": [
           "account"
@@ -2159,7 +2159,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/sign-in-keys": {
+    "/auth/v1/me/sign-in-keys": {
       "get": {
         "tags": [
           "account"
@@ -2195,7 +2195,7 @@
         "x-authkit-rate-limit": "session_list"
       }
     },
-    "/api/v1/me/sign-in-keys/{id}": {
+    "/auth/v1/me/sign-in-keys/{id}": {
       "patch": {
         "tags": [
           "account"
@@ -2290,7 +2290,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/passkeys/register/begin": {
+    "/auth/v1/me/passkeys/register/begin": {
       "post": {
         "tags": [
           "account"
@@ -2329,7 +2329,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/passkeys/register/finish": {
+    "/auth/v1/me/passkeys/register/finish": {
       "post": {
         "tags": [
           "account"
@@ -2375,7 +2375,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/step-up/password": {
+    "/auth/v1/me/step-up/password": {
       "post": {
         "tags": [
           "account"
@@ -2421,7 +2421,7 @@
         "x-authkit-rate-limit": "step_up_password"
       }
     },
-    "/api/v1/me/step-up/2fa/send": {
+    "/auth/v1/me/step-up/2fa/send": {
       "post": {
         "tags": [
           "account"
@@ -2461,7 +2461,7 @@
         "x-authkit-mounted-when": "two_factor"
       }
     },
-    "/api/v1/me/step-up/2fa": {
+    "/auth/v1/me/step-up/2fa": {
       "post": {
         "tags": [
           "account"
@@ -2508,7 +2508,7 @@
         "x-authkit-mounted-when": "two_factor"
       }
     },
-    "/api/v1/me/step-up/code/send": {
+    "/auth/v1/me/step-up/code/send": {
       "post": {
         "tags": [
           "account"
@@ -2547,7 +2547,7 @@
         "x-authkit-rate-limit": "step_up_code_send"
       }
     },
-    "/api/v1/me/step-up/code": {
+    "/auth/v1/me/step-up/code": {
       "post": {
         "tags": [
           "account"
@@ -2593,7 +2593,7 @@
         "x-authkit-rate-limit": "step_up_code"
       }
     },
-    "/api/v1/me/step-up/solana/challenge": {
+    "/auth/v1/me/step-up/solana/challenge": {
       "post": {
         "tags": [
           "account"
@@ -2630,7 +2630,7 @@
         "x-authkit-mounted-when": "solana"
       }
     },
-    "/api/v1/me/step-up/solana": {
+    "/auth/v1/me/step-up/solana": {
       "post": {
         "tags": [
           "account"
@@ -2677,7 +2677,7 @@
         "x-authkit-mounted-when": "solana"
       }
     },
-    "/api/v1/me/step-up/passkey/begin": {
+    "/auth/v1/me/step-up/passkey/begin": {
       "post": {
         "tags": [
           "account"
@@ -2715,7 +2715,7 @@
         "x-authkit-mounted-when": "passkeys"
       }
     },
-    "/api/v1/me/step-up/passkey": {
+    "/auth/v1/me/step-up/passkey": {
       "post": {
         "tags": [
           "account"
@@ -2760,7 +2760,7 @@
         "x-authkit-mounted-when": "passkeys"
       }
     },
-    "/api/v1/oidc/{provider}/link/start": {
+    "/auth/v1/oidc/{provider}/link/start": {
       "post": {
         "tags": [
           "account"
@@ -2808,7 +2808,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/oidc/{provider}/step-up/start": {
+    "/auth/v1/oidc/{provider}/step-up/start": {
       "post": {
         "tags": [
           "account"
@@ -2865,7 +2865,7 @@
         "x-authkit-mounted-when": "oidc"
       }
     },
-    "/api/v1/me/passkeys/enroll/begin": {
+    "/auth/v1/me/passkeys/enroll/begin": {
       "post": {
         "tags": [
           "account"
@@ -2904,7 +2904,7 @@
         "x-authkit-mfa-enrollment-exempt": true
       }
     },
-    "/api/v1/me/passkeys/enroll/finish": {
+    "/auth/v1/me/passkeys/enroll/finish": {
       "post": {
         "tags": [
           "account"
@@ -2950,7 +2950,7 @@
         "x-authkit-mfa-enrollment-exempt": true
       }
     },
-    "/api/v1/me/2fa/setup": {
+    "/auth/v1/me/2fa/setup": {
       "post": {
         "tags": [
           "account"
@@ -2998,7 +2998,7 @@
         "x-authkit-mfa-enrollment-exempt": true
       }
     },
-    "/api/v1/me/2fa/factors": {
+    "/auth/v1/me/2fa/factors": {
       "post": {
         "tags": [
           "account"
@@ -3046,7 +3046,7 @@
         "x-authkit-mfa-enrollment-exempt": true
       }
     },
-    "/api/v1/me/2fa/factors/{id}": {
+    "/auth/v1/me/2fa/factors/{id}": {
       "patch": {
         "tags": [
           "account"
@@ -3143,7 +3143,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/2fa": {
+    "/auth/v1/me/2fa": {
       "delete": {
         "tags": [
           "account"
@@ -3174,7 +3174,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/2fa/backup-codes": {
+    "/auth/v1/me/2fa/backup-codes": {
       "post": {
         "tags": [
           "account"
@@ -3212,7 +3212,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/solana-wallet": {
+    "/auth/v1/me/solana-wallet": {
       "put": {
         "tags": [
           "account"
@@ -3260,7 +3260,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/me/groups": {
+    "/auth/v1/me/groups": {
       "get": {
         "tags": [
           "account"
@@ -3312,7 +3312,7 @@
         "x-authkit-rate-limit": "me_groups_read"
       }
     },
-    "/api/v1/me/permissions": {
+    "/auth/v1/me/permissions": {
       "get": {
         "tags": [
           "account"
@@ -3364,7 +3364,7 @@
         "x-authkit-rate-limit": "me_permissions_read"
       }
     },
-    "/api/v1/me/notifications": {
+    "/auth/v1/me/notifications": {
       "get": {
         "tags": [
           "account"
@@ -3431,7 +3431,7 @@
         "x-authkit-mounted-when": "notifications"
       }
     },
-    "/api/v1/me/notifications/{notification_id}": {
+    "/auth/v1/me/notifications/{notification_id}": {
       "get": {
         "tags": [
           "account"
@@ -3478,7 +3478,7 @@
         "x-authkit-mounted-when": "notifications"
       }
     },
-    "/api/v1/me/notifications/{notification_id}/read": {
+    "/auth/v1/me/notifications/{notification_id}/read": {
       "put": {
         "tags": [
           "account"
@@ -3570,7 +3570,7 @@
         "x-authkit-mounted-when": "notifications"
       }
     },
-    "/api/v1/me/notifications/{notification_id}/dismiss": {
+    "/auth/v1/me/notifications/{notification_id}/dismiss": {
       "put": {
         "tags": [
           "account"
@@ -3662,7 +3662,7 @@
         "x-authkit-mounted-when": "notifications"
       }
     },
-    "/api/v1/notifications/{producer}": {
+    "/auth/v1/notifications/{producer}": {
       "post": {
         "tags": [
           "admin"
@@ -3712,7 +3712,7 @@
         "x-authkit-mounted-when": "notifications"
       }
     },
-    "/api/v1/users": {
+    "/auth/v1/users": {
       "get": {
         "tags": [
           "account"
@@ -3760,7 +3760,7 @@
         "x-authkit-rate-limit": "users_read"
       }
     },
-    "/api/v1/admin/users": {
+    "/auth/v1/admin/users": {
       "get": {
         "tags": [
           "admin"
@@ -3869,7 +3869,7 @@
         "x-authkit-rate-limit": "admin_read"
       }
     },
-    "/api/v1/events": {
+    "/auth/v1/events": {
       "get": {
         "tags": [
           "admin"
@@ -3951,7 +3951,7 @@
         "x-authkit-rate-limit": "admin_read"
       }
     },
-    "/api/v1/admin/users/{user_id}": {
+    "/auth/v1/admin/users/{user_id}": {
       "get": {
         "tags": [
           "admin"
@@ -4093,7 +4093,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/admin/users/{user_id}/restore": {
+    "/auth/v1/admin/users/{user_id}/restore": {
       "post": {
         "tags": [
           "admin"
@@ -4134,7 +4134,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/admin/users/{user_id}/ban": {
+    "/auth/v1/admin/users/{user_id}/ban": {
       "put": {
         "tags": [
           "admin"
@@ -4224,7 +4224,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/admin/users/{user_id}/sessions": {
+    "/auth/v1/admin/users/{user_id}/sessions": {
       "get": {
         "tags": [
           "admin"
@@ -4310,7 +4310,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/admin/users/{user_id}/session-events": {
+    "/auth/v1/admin/users/{user_id}/session-events": {
       "get": {
         "tags": [
           "admin"
@@ -4382,7 +4382,7 @@
         "x-authkit-rate-limit": "admin_read"
       }
     },
-    "/api/v1/admin/provisioning/targets": {
+    "/auth/v1/admin/provisioning/targets": {
       "get": {
         "tags": [
           "admin"
@@ -4419,7 +4419,7 @@
         "x-authkit-rate-limit": "admin_read"
       }
     },
-    "/api/v1/admin/tenants": {
+    "/auth/v1/admin/tenants": {
       "post": {
         "tags": [
           "admin"
@@ -4467,7 +4467,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/admin/tenants/{tenant_id}": {
+    "/auth/v1/admin/tenants/{tenant_id}": {
       "get": {
         "tags": [
           "admin"
@@ -4570,7 +4570,7 @@
         "x-authkit-step-up": true
       }
     },
-    "/api/v1/admin/tenants/by-slug/{slug}": {
+    "/auth/v1/admin/tenants/by-slug/{slug}": {
       "get": {
         "tags": [
           "admin"
@@ -4617,7 +4617,7 @@
         "x-authkit-rate-limit": "admin_read"
       }
     },
-    "/api/v1/oauth2/authorizations/{authorization_id}": {
+    "/auth/v1/oauth2/authorizations/{authorization_id}": {
       "get": {
         "tags": [
           "authorization_server"
@@ -4660,7 +4660,7 @@
         "x-authkit-mounted-when": "authorization_server"
       }
     },
-    "/api/v1/oauth2/authorizations/{authorization_id}/approve": {
+    "/auth/v1/oauth2/authorizations/{authorization_id}/approve": {
       "post": {
         "tags": [
           "authorization_server"
@@ -4717,7 +4717,7 @@
         "x-authkit-mounted-when": "authorization_server"
       }
     },
-    "/api/v1/oauth2/authorizations/{authorization_id}/decline": {
+    "/auth/v1/oauth2/authorizations/{authorization_id}/decline": {
       "post": {
         "tags": [
           "authorization_server"
@@ -4770,7 +4770,7 @@
         "x-authkit-mounted-when": "authorization_server"
       }
     },
-    "/api/v1/groups/{group_id}/members": {
+    "/auth/v1/groups/{group_id}/members": {
       "get": {
         "tags": [
           "groups"
@@ -4864,7 +4864,7 @@
         "x-authkit-rate-limit": "group_read"
       }
     },
-    "/api/v1/groups/{group_id}/members/{kind}/{id}": {
+    "/auth/v1/groups/{group_id}/members/{kind}/{id}": {
       "put": {
         "tags": [
           "groups"
@@ -4997,7 +4997,7 @@
         "x-authkit-rate-limit": "group_write"
       }
     },
-    "/api/v1/groups/{group_id}/roles": {
+    "/auth/v1/groups/{group_id}/roles": {
       "get": {
         "tags": [
           "groups"
@@ -5100,7 +5100,7 @@
         "x-authkit-mounted-when": "custom_roles"
       }
     },
-    "/api/v1/groups/{group_id}/roles/{role}": {
+    "/auth/v1/groups/{group_id}/roles/{role}": {
       "get": {
         "tags": [
           "groups"
@@ -5266,7 +5266,7 @@
         "x-authkit-mounted-when": "custom_roles"
       }
     },
-    "/api/v1/groups/{group_id}/invitations": {
+    "/auth/v1/groups/{group_id}/invitations": {
       "get": {
         "tags": [
           "groups"
@@ -5387,7 +5387,7 @@
         "x-authkit-mounted-when": "invitations"
       }
     },
-    "/api/v1/groups/{group_id}/invitations/{id}": {
+    "/auth/v1/groups/{group_id}/invitations/{id}": {
       "delete": {
         "tags": [
           "groups"
@@ -5436,7 +5436,7 @@
         "x-authkit-mounted-when": "invitations"
       }
     },
-    "/api/v1/groups/{group_id}/oauth-clients": {
+    "/auth/v1/groups/{group_id}/oauth-clients": {
       "get": {
         "tags": [
           "groups"
@@ -5540,7 +5540,7 @@
         "x-authkit-mounted-when": "oauth_clients"
       }
     },
-    "/api/v1/groups/{group_id}/oauth-clients/{client_id}": {
+    "/auth/v1/groups/{group_id}/oauth-clients/{client_id}": {
       "get": {
         "tags": [
           "groups"
@@ -5707,7 +5707,7 @@
         "x-authkit-mounted-when": "oauth_clients"
       }
     },
-    "/api/v1/groups/{group_id}/oauth-clients/{client_id}/secret": {
+    "/auth/v1/groups/{group_id}/oauth-clients/{client_id}/secret": {
       "post": {
         "tags": [
           "groups"
@@ -5763,7 +5763,7 @@
         "x-authkit-mounted-when": "oauth_clients"
       }
     },
-    "/api/v1/groups/{group_id}/api-keys": {
+    "/auth/v1/groups/{group_id}/api-keys": {
       "get": {
         "tags": [
           "groups"
@@ -5881,7 +5881,7 @@
         "x-authkit-mounted-when": "api_keys"
       }
     },
-    "/api/v1/groups/{group_id}/api-keys/{id}": {
+    "/auth/v1/groups/{group_id}/api-keys/{id}": {
       "delete": {
         "tags": [
           "groups"
@@ -5930,7 +5930,7 @@
         "x-authkit-mounted-when": "api_keys"
       }
     },
-    "/api/v1/groups/{group_id}/remote-applications": {
+    "/auth/v1/groups/{group_id}/remote-applications": {
       "get": {
         "tags": [
           "groups"
@@ -6048,7 +6048,7 @@
         "x-authkit-mounted-when": "remote_applications"
       }
     },
-    "/api/v1/groups/{group_id}/remote-applications/{id}": {
+    "/auth/v1/groups/{group_id}/remote-applications/{id}": {
       "patch": {
         "tags": [
           "groups"
@@ -6161,7 +6161,7 @@
         "x-authkit-mounted-when": "remote_applications"
       }
     },
-    "/api/v1/invitations/redeem": {
+    "/auth/v1/invitations/redeem": {
       "post": {
         "tags": [
           "groups"

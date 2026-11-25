@@ -66,7 +66,7 @@ func scimRead(f func(*Service, http.ResponseWriter, *http.Request)) func(*Servic
 		jkt := ""
 		if isDPoP {
 			var err error
-			jkt, err = dpop.Verify(r, dpop.Check{URL: s.oauthURL(strings.TrimPrefix(r.URL.Path, s.http.BasePath)), AccessToken: token, Replay: s.replays.Claim})
+			jkt, err = dpop.Verify(r, dpop.Check{URL: s.oauthURL(strings.TrimPrefix(r.URL.Path, s.surface.Base)), AccessToken: token, Replay: s.replays.Claim})
 			switch {
 			case errors.Is(err, dpop.ErrReplayUnavailable):
 				scimFail(w, http.StatusServiceUnavailable, "", "the DPoP proof cannot be checked now")
@@ -105,7 +105,7 @@ func (s *Service) handleSCIMServiceProviderConfig(w http.ResponseWriter, _ *http
 		Filter:           scim.FilterSupport{Supported: true, MaxResults: scim.MaxResults},
 		AuthenticationSchemes: []scim.AuthScheme{{
 			Type: "oauthbearertoken", Name: "OAuth Bearer Token", Primary: true,
-			Description: "A client-credentials access token from this issuer for " + config.SCIMResource(s.cfg.Token.Issuer) + " with scope " + config.SCIMReadScope,
+			Description: "A client-credentials access token from this issuer for " + config.SCIMResource(s.cfg.Issuer) + " with scope " + config.SCIMReadScope,
 			SpecURI:     "https://www.rfc-editor.org/info/rfc6750",
 		}},
 		Meta: &scim.Meta{ResourceType: "ServiceProviderConfig", Location: s.scimLocation("/ServiceProviderConfig")},

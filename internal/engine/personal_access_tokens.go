@@ -70,7 +70,7 @@ func (s *Engine) personalTokenManager(ctx context.Context, st *permissionGroupSt
 	}
 	if fresh {
 		q := db.New(st.q)
-		proof, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: session.SessionID, Issuer: s.cfg.Token.Issuer})
+		proof, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: userID, SessionID: session.SessionID, Issuer: s.cfg.Issuer})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", iam.ErrSessionRevoked
 		}
@@ -135,7 +135,7 @@ func (s *Engine) CreatePersonalAccessToken(ctx context.Context, who auth.Identit
 			if err != nil {
 				return err
 			}
-			row, err := db.New(st.q).PersonalTokenInsert(ctx, db.PersonalTokenInsertParams{OwnerUserID: owner, GroupID: group.ID, Issuer: s.cfg.Token.Issuer,
+			row, err := db.New(st.q).PersonalTokenInsert(ctx, db.PersonalTokenInsertParams{OwnerUserID: owner, GroupID: group.ID, Issuer: s.cfg.Issuer,
 				LookupID: m.LookupID, SecretHash: m.SecretHash, Name: name, Permissions: permissions, ExpiresAt: expires})
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
@@ -166,7 +166,7 @@ func (s *Engine) ListPersonalAccessTokens(ctx context.Context, who auth.Identity
 		if err != nil {
 			return err
 		}
-		rows, err := db.New(st.q).PersonalTokensByOwner(ctx, db.PersonalTokensByOwnerParams{OwnerUserID: owner, Issuer: s.cfg.Token.Issuer, After: after, PageLimit: int64(page.PageLimit() + 1)})
+		rows, err := db.New(st.q).PersonalTokensByOwner(ctx, db.PersonalTokensByOwnerParams{OwnerUserID: owner, Issuer: s.cfg.Issuer, After: after, PageLimit: int64(page.PageLimit() + 1)})
 		if err != nil {
 			return err
 		}
@@ -193,7 +193,7 @@ func (s *Engine) RevokePersonalAccessToken(ctx context.Context, who auth.Identit
 		if !isUUID(id) {
 			return errmodel.E(errmodel.CodeInvalidRequest)
 		}
-		return db.New(st.q).PersonalTokenRevoke(ctx, db.PersonalTokenRevokeParams{ID: id, OwnerUserID: owner, Issuer: s.cfg.Token.Issuer})
+		return db.New(st.q).PersonalTokenRevoke(ctx, db.PersonalTokenRevokeParams{ID: id, OwnerUserID: owner, Issuer: s.cfg.Issuer})
 	})
 	if errors.Is(err, errPersonalTokenFresh) {
 		return s.StepUpRequired(ctx, stateOf(who).ID())
@@ -207,7 +207,7 @@ func (s *Engine) personalTokenAuthority(ctx context.Context, st *permissionGroup
 	if !s.cfg.PersonalAccessTokens.Enabled || !isUUID(id) {
 		return out, iam.ErrInsufficientAuthority
 	}
-	row, err := db.New(st.q).PersonalTokenByID(ctx, db.PersonalTokenByIDParams{ID: id, Issuer: s.cfg.Token.Issuer})
+	row, err := db.New(st.q).PersonalTokenByID(ctx, db.PersonalTokenByIDParams{ID: id, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, iam.ErrInsufficientAuthority
 	}
@@ -244,7 +244,7 @@ func (s *Engine) ResolvePersonalAccessToken(ctx context.Context, token string) (
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
-	row, err := s.q.PersonalTokenByLookupID(ctx, db.PersonalTokenByLookupIDParams{LookupID: lookup, Issuer: s.cfg.Token.Issuer})
+	row, err := s.q.PersonalTokenByLookupID(ctx, db.PersonalTokenByLookupIDParams{LookupID: lookup, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, iam.ErrPersonalAccessTokenInvalid
 	}
@@ -272,7 +272,7 @@ func (s *Engine) ResolvePersonalAccessToken(ctx context.Context, token string) (
 		_ = s.q.PersonalTokenTouch(ctx, row.ID)
 	}()
 	return iam.ResolvedPersonalAccessToken{ID: row.ID, OwnerUserID: row.OwnerUserID, TenantID: tenant,
-		Group: iam.Group{ID: group.ID, Persona: group.Persona, CreatedAt: row.GroupCreatedAt}, Issuer: s.cfg.Token.Issuer, Permissions: ident.Perms(authority.grants)}, nil
+		Group: iam.Group{ID: group.ID, Persona: group.Persona, CreatedAt: row.GroupCreatedAt}, Issuer: s.cfg.Issuer, Permissions: ident.Perms(authority.grants)}, nil
 }
 
 func (s *Engine) personalTokenClaims(ctx context.Context, token string) (verify.Claims, error) {

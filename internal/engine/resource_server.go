@@ -100,7 +100,7 @@ func (s *Engine) newResourceServer() (*resourceServer, error) {
 		verify.WithDPoP(s.redis),
 		verify.WithReplayStore(s.replayStore),
 		verify.WithStoredDPoPNonces(),
-		verify.WithPublicURL(rc.PublicURL),
+		verify.WithPublicURL(config.ResourceOrigin(rc)),
 		verify.WithLogger(s.log),
 	}
 	if s.resourceHosts != nil {
@@ -108,7 +108,7 @@ func (s *Engine) newResourceServer() (*resourceServer, error) {
 	}
 	rs := &resourceServer{s: s, v: verify.NewVerifier(opts...), assertions: verify.NewVerifier(verify.WithHTTPClient(client), verify.WithLogger(s.log)), metadata: client, registered: map[string]time.Time{}}
 	rs.jwksURIs = cachepolicy.New(cachepolicy.IssuerMetadata(), s.log, rs.discoverAll)
-	if err := rs.v.AddIssuer(s.cfg.Token.Issuer, []string{rc.ID}, verify.IssuerOptions{KeySource: s.keys, IsLocal: true}); err != nil {
+	if err := rs.v.AddIssuer(s.cfg.Issuer, []string{rc.ID}, verify.IssuerOptions{KeySource: s.keys, IsLocal: true}); err != nil {
 		return nil, err
 	}
 	return rs, nil
@@ -137,7 +137,7 @@ func (rs *resourceServer) verify(r *http.Request) (ResourceAccess, error) {
 		return ResourceAccess{}, errmodel.E(errmodel.CodeUnsupportedTokenTyp)
 	}
 	var out ResourceAccess
-	if iss := jose.String(unverified, "iss"); iss != rs.s.cfg.Token.Issuer {
+	if iss := jose.String(unverified, "iss"); iss != rs.s.cfg.Issuer {
 		app, err := rs.trusted(ctx, iss)
 		if err != nil {
 			return ResourceAccess{}, err

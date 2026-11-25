@@ -48,7 +48,7 @@ func (s *Engine) recordAccountCleanup(ctx context.Context, tx pgx.Tx, client *ri
 // Required cleanup remains in account_deletion_deliveries while an issuer is
 // offline. RiverSchema routes required cleanup and credential operations.
 func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, schema string) error {
-	if s.cfg.Token.Issuer == "" {
+	if s.cfg.Issuer == "" {
 		return nil
 	}
 	tx, err := s.pg.Begin(ctx)
@@ -56,7 +56,7 @@ func (s *Engine) registerAccountDeliveryFleet(ctx context.Context, schema string
 		return err
 	}
 	defer tx.Rollback(ctx)
-	q, issuer := s.qtx(tx), s.cfg.Token.Issuer
+	q, issuer := s.qtx(tx), s.cfg.Issuer
 	if err := q.AccountDeliveryFleetInsert(ctx, db.AccountDeliveryFleetInsertParams{Issuer: issuer, RiverSchema: schema}); err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func (s *Engine) warnUnboundAccountIssuers(ctx context.Context) {
 // this shared row lock until the account transaction commits also prevents a
 // rebind from racing new lifecycle jobs into the former destination.
 func (s *Engine) requireAccountProducerOn(ctx context.Context, tx pgx.Tx, local *river.Client[pgx.Tx]) error {
-	schema, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, s.cfg.Token.Issuer)
+	schema, err := s.qtx(tx).AccountDeliveryFleetSchemaForShare(ctx, s.cfg.Issuer)
 	if err != nil {
 		return err
 	}
@@ -128,7 +128,7 @@ func (s *Engine) runAccountCleanup(ctx context.Context, id int64) error {
 		defer cancel()
 		_ = lock.Close(cleanup)
 	}()
-	key := "authkit-account-callback:" + s.dbSchema() + ":" + s.cfg.Token.Issuer + ":" + userID
+	key := "authkit-account-callback:" + s.dbSchema() + ":" + s.cfg.Issuer + ":" + userID
 	if err := db.New(lock).AdvisoryLock(ctx, key); err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (s *Engine) runAccountCleanup(ctx context.Context, id int64) error {
 	if delivery.CompletedAt != nil {
 		return nil
 	}
-	if delivery.Issuer != s.cfg.Token.Issuer {
+	if delivery.Issuer != s.cfg.Issuer {
 		return errors.New("authkit: account delivery issuer mismatch")
 	}
 	deletion := userDeletion(delivery.AccountDeletion)

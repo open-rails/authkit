@@ -79,7 +79,7 @@ func TestCriticalRemoteInvitations(t *testing.T) {
 
 		t.Run("another_catalog", func(t *testing.T) {
 			const email = "other-catalog@remote.example"
-			peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Token.Issuer = "https://other-catalog.example" }))
+			peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Issuer = "https://other-catalog.example" }))
 			id := invite(t, peer, email, f.reader)
 			if _, err := f.auth.AcceptRemoteInvitation(ctx, remoteUser(t, f.auth, email), id); code(err) != "invitation_revoked" {
 				t.Fatalf("an invitation of another application's catalog was redeemed: %v", err)

@@ -29,7 +29,7 @@ pnpm add @openrails/auth-ui@X.Y.Z
 ```ts
 import { createAuthClient } from "@openrails/auth-ui/client"
 
-const auth = createAuthClient({ baseUrl: "/api/v1" }) // the defaults
+const auth = createAuthClient({ baseUrl: "/auth/v1" }) // the defaults
 const stop = auth.start() // restore from the refresh cookie, keep it fresh
 
 auth.subscribe(() => console.log(auth.getSnapshot())) // useSyncExternalStore-ready
@@ -40,7 +40,7 @@ if (result.status === "second_factor_required") {
   await auth.verifyTwoFactor({ userId: user_id, challenge, code })
 }
 
-const res = await auth.authFetch("/api/v1/things") // Bearer + one refresh retry, never on a step-up
+const res = await auth.authFetch("/auth/v1/things") // Bearer + one refresh retry, never on a step-up
 ```
 
 - The access token lives in memory only. Refresh is `POST /token` with the
@@ -528,7 +528,7 @@ const access = useGroupAdminAccess({ auth, group }) // access.any hides a tab
 The client covers AuthKit's group routes (members, invitations, roles, API
 keys, OAuth clients, remote applications), its account routes
 (`/admin/users…`), `GET /me/permissions` and `GET /capabilities`; `ADMIN_ROUTES` names each call's
-route. Every component takes `auth`, `baseUrl` (default `/api/v1`),
+route. Every component takes `auth`, `baseUrl` (default `/auth/v1`),
 `basePath` (its views are deep links beneath it), `navigation` (the host
 router as `{ pathname, search, navigate(to, { replace }) }`; the history API
 without it), `guard` (`useStepUpGuard()`, which runs every write; without it a
