@@ -283,6 +283,17 @@ func (r response) want(t *testing.T, status int, code string) {
 	}
 }
 
+// expect is want that lets the scenario go on: a refusal a scenario
+// guards, so a run that breaks several guards reports each.
+func (r response) expect(t *testing.T, status int, code string) {
+	t.Helper()
+	var env iam.ErrorEnvelope
+	_ = json.Unmarshal(r.body, &env)
+	if r.status != status || code != "" && env.Error.Code != code {
+		t.Errorf("HTTP %d %q, want %d %q: %s", r.status, env.Error.Code, status, code, r.body)
+	}
+}
+
 func decode(t *testing.T, body []byte, target any) {
 	t.Helper()
 	if err := json.Unmarshal(body, target); err != nil {

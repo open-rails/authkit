@@ -96,8 +96,8 @@ func TestCriticalPasskeys(t *testing.T) {
 		signed := key.assert(t, challenge, ceremonyPlace{})
 		tokensFrom(t, f.call(t, "POST", "/passkeys/login/finish", "", signed), u.ID)
 		// The same answer again, and a fresh signature over the spent challenge.
-		f.call(t, "POST", "/passkeys/login/finish", "", signed).want(t, http.StatusUnauthorized, "invalid_credentials")
-		f.call(t, "POST", "/passkeys/login/finish", "", key.assert(t, challenge, ceremonyPlace{})).want(t, http.StatusUnauthorized, "invalid_credentials")
+		f.call(t, "POST", "/passkeys/login/finish", "", signed).expect(t, http.StatusUnauthorized, "invalid_credentials")
+		f.call(t, "POST", "/passkeys/login/finish", "", key.assert(t, challenge, ceremonyPlace{})).expect(t, http.StatusUnauthorized, "invalid_credentials")
 		// A registration's challenge never signs in.
 		r := f.call(t, "POST", "/me/passkeys/register/begin", f.signIn(t, u).AccessToken, nil)
 		r.want(t, http.StatusOK, "")
@@ -107,18 +107,18 @@ func TestCriticalPasskeys(t *testing.T) {
 			} `json:"publicKey"`
 		}
 		decode(t, r.body, &begun)
-		f.call(t, "POST", "/passkeys/login/finish", "", key.assert(t, begun.PublicKey.Challenge, ceremonyPlace{})).want(t, http.StatusUnauthorized, "invalid_credentials")
+		f.call(t, "POST", "/passkeys/login/finish", "", key.assert(t, begun.PublicKey.Challenge, ceremonyPlace{})).expect(t, http.StatusUnauthorized, "invalid_credentials")
 		tokensFrom(t, key.signIn(t, f, ceremonyPlace{}), u.ID)
 	})
 	t.Run("AK-J42-C04_a_passkey_ceremony_on_another_origin_is_refused", func(t *testing.T) {
 		other := newSoftKey(t)
 		session := f.signIn(t, u).AccessToken
 		for _, origin := range []string{"https://evil.example", "http://auth.example.com", "https://auth.example.com.evil.example"} {
-			other.register(t, f, session, ceremonyPlace{origin: origin}).want(t, http.StatusBadRequest, "invalid_request")
+			newSoftKey(t).register(t, f, session, ceremonyPlace{origin: origin}).expect(t, http.StatusBadRequest, "invalid_request")
 		}
 		other.register(t, f, session, ceremonyPlace{}).want(t, http.StatusCreated, "")
 		for _, origin := range []string{"https://evil.example", "http://auth.example.com", "https://auth.example.com.evil.example"} {
-			other.signIn(t, f, ceremonyPlace{origin: origin}).want(t, http.StatusUnauthorized, "invalid_credentials")
+			other.signIn(t, f, ceremonyPlace{origin: origin}).expect(t, http.StatusUnauthorized, "invalid_credentials")
 		}
 		tokensFrom(t, other.signIn(t, f, ceremonyPlace{}), u.ID)
 	})

@@ -79,7 +79,7 @@ func TestCriticalProviderSignIn(t *testing.T) {
 			t.Fatalf("callback redirected to %s", location)
 		}
 		first := signedIn(t, f.call(t, "POST", "/oidc/exchange", "", map[string]string{"code": fragment.Get("code")}), person.Email)
-		f.call(t, "POST", "/oidc/exchange", "", map[string]string{"code": fragment.Get("code")}).want(t, http.StatusBadRequest, "invalid_state")
+		f.call(t, "POST", "/oidc/exchange", "", map[string]string{"code": fragment.Get("code")}).expect(t, http.StatusBadRequest, "invalid_state")
 		// The same identity signs in to the same account.
 		authURL, cookies = start(t)
 		again := signedIn(t, callback(t, idp.Redirect(t, authURL, person), cookies, true), person.Email)
@@ -93,17 +93,19 @@ func TestCriticalProviderSignIn(t *testing.T) {
 	})
 
 	t.Run("AK-J45-C02_a_callback_completes_only_in_the_browser_that_started_it_and_once", func(t *testing.T) {
-		mine, myCookies := start(t)
+		// Each refusal is its own flow: none spends another's state.
+		authURL, _ := start(t)
 		_, otherCookies := start(t)
-		query := idp.Redirect(t, mine, person)
-		// Another browser's state cookie, none, and a state nobody issued.
-		callback(t, query, otherCookies, true).want(t, http.StatusBadRequest, "invalid_state")
-		callback(t, query, nil, true).want(t, http.StatusBadRequest, "invalid_state")
+		callback(t, idp.Redirect(t, authURL, person), otherCookies, true).expect(t, http.StatusBadRequest, "invalid_state")
+		authURL, _ = start(t)
+		callback(t, idp.Redirect(t, authURL, person), nil, true).expect(t, http.StatusBadRequest, "invalid_state")
+		authURL, cookies := start(t)
+		query := idp.Redirect(t, authURL, person)
 		forged := url.Values{"state": {"forged-" + query.Get("state")}, "code": query["code"]}
-		callback(t, forged, myCookies, true).want(t, http.StatusBadRequest, "invalid_state")
+		callback(t, forged, cookies, true).expect(t, http.StatusBadRequest, "invalid_state")
 		// The browser that started it completes it, once.
-		signedIn(t, callback(t, query, myCookies, true), person.Email)
-		callback(t, query, myCookies, true).want(t, http.StatusBadRequest, "invalid_state")
+		signedIn(t, callback(t, query, cookies, true), person.Email)
+		callback(t, query, cookies, true).expect(t, http.StatusBadRequest, "invalid_state")
 	})
 
 	t.Run("AK-J45-C03_an_ID_token_for_another_sign_in's_nonce_is_refused", func(t *testing.T) {
@@ -113,9 +115,9 @@ func TestCriticalProviderSignIn(t *testing.T) {
 		replayed := request
 		replayed.Nonce = "another sign-in's nonce"
 		r := callback(t, url.Values{"state": {request.State}, "code": {idp.Code(stranger, replayed)}}, cookies, true)
-		r.want(t, http.StatusUnauthorized, "oidc_exchange_failed")
+		r.expect(t, http.StatusUnauthorized, "oidc_exchange_failed")
 		if _, err := f.auth.User(t.Context(), iam.UserByEmail(stranger.Email)); !errors.Is(err, iam.ErrUserNotFound) {
-			t.Fatalf("a refused ID token made an account: %v", err)
+			t.Errorf("a refused ID token made an account: %v", err)
 		}
 		// The same flow with its own nonce signs in.
 		authURL, cookies = start(t)

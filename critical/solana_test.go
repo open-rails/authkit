@@ -76,16 +76,16 @@ func TestCriticalSolanaSignIn(t *testing.T) {
 	t.Run("AK-J46-C02_another_key's_signature_and_a_replayed_message_are_refused", func(t *testing.T) {
 		w, stranger := newWallet(t), newWallet(t)
 		message := challenge(t, w)
-		login(t, w, message, ed25519.Sign(stranger.key, []byte(message))).want(t, http.StatusUnauthorized, "invalid_signature")
+		login(t, w, message, ed25519.Sign(stranger.key, []byte(message))).expect(t, http.StatusUnauthorized, "invalid_signature")
 		// The refused attempt spent its challenge.
-		login(t, w, message, ed25519.Sign(w.key, []byte(message))).want(t, http.StatusUnauthorized, "challenge_not_found")
+		login(t, w, message, ed25519.Sign(w.key, []byte(message))).expect(t, http.StatusUnauthorized, "challenge_not_found")
 		message = challenge(t, w)
 		tampered := ed25519.Sign(w.key, []byte(message))
 		tampered[0] ^= 1
-		login(t, w, message, tampered).want(t, http.StatusUnauthorized, "invalid_signature")
+		login(t, w, message, tampered).expect(t, http.StatusUnauthorized, "invalid_signature")
 		message = challenge(t, w)
 		signature := ed25519.Sign(w.key, []byte(message))
 		signedIn(t, login(t, w, message, signature))
-		login(t, w, message, signature).want(t, http.StatusUnauthorized, "challenge_not_found")
+		login(t, w, message, signature).expect(t, http.StatusUnauthorized, "challenge_not_found")
 	})
 }

@@ -77,12 +77,20 @@ func TestCriticalAuthorizationServer(t *testing.T) {
 	})
 
 	t.Run("AK-J44-C02_a_refresh_token_refreshes_only_with_its_DPoP_key_and_its_reuse_revokes_the_family", func(t *testing.T) {
-		verifier := randomText(t)
-		status, first := redeem(t, code(t, verifier), verifier, redirect)
-		if status != http.StatusOK {
-			t.Fatalf("redemption answered %d", status)
+		family := func() oauthAnswer {
+			verifier := randomText(t)
+			status, tokens := redeem(t, code(t, verifier), verifier, redirect)
+			if status != http.StatusOK {
+				t.Fatalf("redemption answered %d", status)
+			}
+			return tokens
 		}
-		refused(t, "another key's proof", oauthRefusal{"invalid_dpop_proof", "another DPoP key"})(refresh(t, authtest.NewDPoPKey(t), first.RefreshToken))
+		bound := family()
+		refused(t, "another key's proof", oauthRefusal{"invalid_dpop_proof", "another DPoP key"})(refresh(t, authtest.NewDPoPKey(t), bound.RefreshToken))
+		if status, _ := refresh(t, key, bound.RefreshToken); status != http.StatusOK {
+			t.Errorf("after another key's refusal its own key's refresh answered %d", status)
+		}
+		first := family()
 		status, second := refresh(t, key, first.RefreshToken)
 		if status != http.StatusOK || second.RefreshToken == "" || second.RefreshToken == first.RefreshToken {
 			t.Fatalf("refresh answered %d %+v", status, second)
@@ -140,7 +148,7 @@ func refused(t *testing.T, what string, want oauthRefusal) func(int, oauthAnswer
 	return func(status int, got oauthAnswer) {
 		t.Helper()
 		if status < 400 || status >= 500 || got.AccessToken != "" || got.Error != want.code || !strings.Contains(got.ErrorDescription, want.names) {
-			t.Fatalf("%s answered %d %+v, want %s naming %q", what, status, got, want.code, want.names)
+			t.Errorf("%s answered %d %+v, want %s naming %q", what, status, got, want.code, want.names)
 		}
 	}
 }
