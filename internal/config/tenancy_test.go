@@ -29,14 +29,14 @@ func TestBindDefaultTenant(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		norm.Provisioning.Targets = []ProvisioningTarget{{Name: "billing"}}
+		norm.Provisioning = []ProvisioningTarget{{Name: "billing"}}
 		norm.AuthorizationServer.Clients = []OAuthClientConfig{{ID: "scim"}}
 		return norm, BindDefaultTenant(&norm, id)
 	}
 
 	norm, err := bind(tenancyConfig(TenancySingle), sole)
 	if err != nil || norm.DefaultTenantID != sole ||
-		norm.Provisioning.Targets[0].TenantID != sole || norm.AuthorizationServer.Clients[0].TenantID != sole {
+		norm.Provisioning[0].TenantID != sole || norm.AuthorizationServer.Clients[0].TenantID != sole {
 		t.Fatalf("unnamed tenants not bound to the sole tenant: %v", err)
 	}
 

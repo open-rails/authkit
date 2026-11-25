@@ -11476,18 +11476,6 @@
               }
             ]
           },
-          "reconciled_at": {
-            "oneOf": [
-              {
-                "type": "string",
-                "format": "date-time",
-                "description": "RFC 3339, UTC"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "last_success_at": {
             "oneOf": [
               {
@@ -11530,7 +11518,6 @@
           "tenant_id",
           "name",
           "synced_at",
-          "reconciled_at",
           "last_success_at",
           "failing_since",
           "last_error",

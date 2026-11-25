@@ -7,31 +7,18 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 )
 
-// ProvisioningConfig pushes the accounts to SCIM 2.0 service providers
-// (RFC 7643, RFC 7644): each target receives every account and keeps it
-// current. A change to what a SCIM User shows (email, username, display
-// name, deletion, ban) is recorded in the change's transaction, which wakes
-// a River job that sends the target its pending users' latest state in SCIM
-// bulk requests. It needs Deps.Postgres and Start.
-type ProvisioningConfig struct {
-	// Targets are the service providers. A target removed from the list is
-	// forgotten, with its pending changes, when this issuer's River fleet
-	// starts.
-	Targets []ProvisioningTarget `yaml:"targets"`
-	// ReconcileInterval is how often each target's users are listed and
-	// compared with the accounts, repairing what drifted; 0 defaults to a
-	// day, under a second is a second, and a negative value turns
-	// reconciliation off.
-	ReconcileInterval time.Duration `yaml:"reconcile_interval"`
-}
-
-// ProvisioningTarget is one SCIM service provider: its base URL or an
-// in-process handler, and how AuthKit authenticates to it.
+// ProvisioningTarget is one SCIM 2.0 service provider (RFC 7643, RFC 7644)
+// AuthKit pushes the accounts to: each target receives every account and
+// keeps it current. A change to what a SCIM User shows (email, username,
+// display name, deletion, ban) is recorded in the change's transaction, which
+// wakes a River job that sends the target its pending users' latest state in
+// SCIM bulk requests; a failed push is retried, with backoff, when it is due.
+// It needs Deps.Postgres and Start. A target removed from the list is
+// forgotten, with its pending changes, when this issuer's River fleet starts.
 type ProvisioningTarget struct {
 	// TenantID is the canonical account owner sent to this target. An omitted
 	// value uses Config.DefaultTenantID; an unbound deployment must set it.
@@ -62,52 +49,41 @@ type ProvisioningTarget struct {
 // TargetInvalid is why Normalize disabled t; nil when t is usable.
 func TargetInvalid(t ProvisioningTarget) error { return t.invalid }
 
-// DefaultProvisioningReconcileInterval is ProvisioningConfig's default.
-const DefaultProvisioningReconcileInterval = 24 * time.Hour
-
 var provisioningTargetName = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
 
 // normalizeProvisioning refuses targets without Deps.Postgres. A target with an
 // invalid name is dropped; any other misconfigured one is disabled, keeping its
 // pending changes, and a name declared twice disables both.
-func normalizeProvisioning(p *ProvisioningConfig, d Deps, degrade func(error)) error {
-	if len(p.Targets) == 0 {
-		return nil
+func normalizeProvisioning(targets []ProvisioningTarget, d Deps, degrade func(error)) ([]ProvisioningTarget, error) {
+	if len(targets) == 0 {
+		return nil, nil
 	}
 	if d.Postgres == nil {
-		return errors.New("authkit: Provisioning needs Deps.Postgres")
+		return nil, errors.New("authkit: Provisioning needs Deps.Postgres")
 	}
-	switch {
-	case p.ReconcileInterval == 0:
-		p.ReconcileInterval = DefaultProvisioningReconcileInterval
-	case p.ReconcileInterval > 0 && p.ReconcileInterval < time.Second:
-		degrade(fmt.Errorf("authkit: Provisioning.ReconcileInterval %s is under one second; using one second", p.ReconcileInterval))
-		p.ReconcileInterval = time.Second
-	}
-	targets := make([]ProvisioningTarget, 0, len(p.Targets))
-	for i, t := range p.Targets {
+	out := make([]ProvisioningTarget, 0, len(targets))
+	for i, t := range targets {
 		t.Name = strings.TrimSpace(t.Name)
 		if !provisioningTargetName.MatchString(t.Name) {
-			degrade(fmt.Errorf("authkit: Provisioning.Targets[%d]: invalid name %q (want 1-64 of a-z, 0-9, '-', '_'); it is ignored", i, t.Name))
+			degrade(fmt.Errorf("authkit: Provisioning[%d]: invalid name %q (want 1-64 of a-z, 0-9, '-', '_'); it is ignored", i, t.Name))
 			continue
 		}
-		if j := slices.IndexFunc(targets, func(o ProvisioningTarget) bool { return o.Name == t.Name }); j >= 0 {
-			if targets[j].invalid == nil || !errors.Is(targets[j].invalid, errDeclaredTwice) {
-				targets[j].invalid = fmt.Errorf("authkit: Provisioning target %q: %w", t.Name, errDeclaredTwice)
-				degrade(targets[j].invalid)
+		if j := slices.IndexFunc(out, func(o ProvisioningTarget) bool { return o.Name == t.Name }); j >= 0 {
+			if out[j].invalid == nil || !errors.Is(out[j].invalid, errDeclaredTwice) {
+				out[j].invalid = fmt.Errorf("authkit: Provisioning target %q: %w", t.Name, errDeclaredTwice)
+				degrade(out[j].invalid)
 			}
 			continue
 		}
 		if t.invalid == nil {
 			if t.invalid = validProvisioningTarget(&t, d.SCIMHandlers[t.Name] != nil); t.invalid != nil {
-				t.invalid = fmt.Errorf("authkit: Provisioning.Targets[%d] (%s): %w; its changes wait until it is fixed", i, t.Name, t.invalid)
+				t.invalid = fmt.Errorf("authkit: Provisioning[%d] (%s): %w; its changes wait until it is fixed", i, t.Name, t.invalid)
 				degrade(t.invalid)
 			}
 		}
-		targets = append(targets, t)
+		out = append(out, t)
 	}
-	p.Targets = targets
-	return nil
+	return out, nil
 }
 
 var errDeclaredTwice = errors.New("declared twice; its changes wait until it is declared once")

@@ -242,7 +242,7 @@ pkg authkit, type Config struct, FrontendURL string `yaml:"frontend_url"`
 pkg authkit, type Config struct, HTTP *config.HTTPConfig `yaml:"http"`
 pkg authkit, type Config struct, Issuer string `yaml:"issuer"`
 pkg authkit, type Config struct, Languages []string `yaml:"languages"`
-pkg authkit, type Config struct, Provisioning config.ProvisioningConfig `yaml:"provisioning"`
+pkg authkit, type Config struct, Provisioning []config.ProvisioningTarget `yaml:"provisioning"`
 pkg authkit, type Config struct, Registration iam.RegistrationMode `yaml:"registration"`
 pkg authkit, type Config struct, RemoteApplications []config.RemoteApplicationConfig `yaml:"remote_applications"`
 pkg authkit, type Config struct, Resource config.ResourceConfig `yaml:"resource"`
@@ -363,10 +363,6 @@ pkg authkit, type Probe = engine.Probe
 pkg authkit, type Probe struct
 pkg authkit, type Probe struct, Check func(context.Context) error
 pkg authkit, type Probe struct, Name string
-pkg authkit, type ProvisioningConfig = config.ProvisioningConfig
-pkg authkit, type ProvisioningConfig struct
-pkg authkit, type ProvisioningConfig struct, ReconcileInterval time.Duration `yaml:"reconcile_interval"`
-pkg authkit, type ProvisioningConfig struct, Targets []config.ProvisioningTarget `yaml:"targets"`
 pkg authkit, type ProvisioningTarget = config.ProvisioningTarget
 pkg authkit, type ProvisioningTarget struct
 pkg authkit, type ProvisioningTarget struct, BearerToken string `yaml:"bearer_token"`
@@ -1580,7 +1576,6 @@ pkg authkit/iam, type ProvisioningTarget struct, FailingSince *time.Time `json:"
 pkg authkit/iam, type ProvisioningTarget struct, LastError *string `json:"last_error"`
 pkg authkit/iam, type ProvisioningTarget struct, LastSuccessAt *time.Time `json:"last_success_at"`
 pkg authkit/iam, type ProvisioningTarget struct, Name string `json:"name"`
-pkg authkit/iam, type ProvisioningTarget struct, ReconciledAt *time.Time `json:"reconciled_at"`
 pkg authkit/iam, type ProvisioningTarget struct, SyncedAt *time.Time `json:"synced_at"`
 pkg authkit/iam, type ProvisioningTarget struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type PublicUser struct

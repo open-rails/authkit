@@ -30,11 +30,8 @@ type (
 	// RemoteApplicationConfig declares one remote application
 	// (Config.RemoteApplications).
 	RemoteApplicationConfig = config.RemoteApplicationConfig
-	// ProvisioningConfig pushes the accounts to SCIM 2.0 service providers
-	// (Config.Provisioning).
-	ProvisioningConfig = config.ProvisioningConfig
-	ProvisioningTarget = config.ProvisioningTarget
-	HTTPConfig         = config.HTTPConfig
+	ProvisioningTarget      = config.ProvisioningTarget
+	HTTPConfig              = config.HTTPConfig
 )
 
 // OAuth grant types a client may use (OAuthClientConfig.GrantTypes).

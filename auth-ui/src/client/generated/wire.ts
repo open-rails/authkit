@@ -784,7 +784,6 @@ export type ProvisioningTarget = {
   tenant_id: string
   name: string
   synced_at: string | null
-  reconciled_at: string | null
   last_success_at: string | null
   failing_since: string | null
   last_error: string | null

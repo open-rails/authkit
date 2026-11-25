@@ -125,9 +125,9 @@ type Config struct {
 	// (Client.UpsertRemoteApplication, the bootstrap manifest) or declared by
 	// a deployment sharing the account store are never touched.
 	RemoteApplications []RemoteApplicationConfig `yaml:"remote_applications"`
-	// Provisioning pushes the accounts to SCIM 2.0 service providers. The
-	// zero value pushes nothing.
-	Provisioning ProvisioningConfig `yaml:"provisioning"`
+	// Provisioning are the SCIM 2.0 service providers the accounts are
+	// pushed to. None pushes nothing.
+	Provisioning []ProvisioningTarget `yaml:"provisioning"`
 
 	// HTTP configures the HTTP surface. Nil keeps the Client headless:
 	// operations and Verifier only.

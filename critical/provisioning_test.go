@@ -133,9 +133,9 @@ func (s *scimTarget) await(t *testing.T, userID string) time.Time {
 // fetch poll and scheduler run every second and five seconds.
 const riverLatency = 5 * time.Second
 
-func withTarget(target *scimTarget, reconcile time.Duration) []authtest.Option {
+func withTarget(target *scimTarget) []authtest.Option {
 	return []authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
-		c.Provisioning = authkit.ProvisioningConfig{Targets: []authkit.ProvisioningTarget{{Name: "directory"}}, ReconcileInterval: reconcile}
+		c.Provisioning = []authkit.ProvisioningTarget{{Name: "directory"}}
 	}), authtest.WithDeps(func(d *authkit.Deps) { d.SCIMHandlers = map[string]http.Handler{"directory": target} })}
 }
 
@@ -216,7 +216,7 @@ func (f *fixture) startCountedFleet(t *testing.T) (*river.Client[pgx.Tx], *runCo
 func TestCriticalProvisioningRuns(t *testing.T) {
 	t.Run("AK-J41-C01_a_change_reaches_the_target_within_seconds_and_an_idle_target_runs_nothing", func(t *testing.T) {
 		target := newSCIMTarget()
-		f := newFixture(t, withTarget(target, 0)...)
+		f := newFixture(t, withTarget(target)...)
 		fleet, counter := f.startCountedFleet(t)
 		f.synced(t)
 		for range 3 {
@@ -228,30 +228,19 @@ func TestCriticalProvisioningRuns(t *testing.T) {
 			}
 			t.Logf("commit to target: %s", latency.Round(time.Millisecond))
 		}
-		var next time.Time
-		eventually(t, "one run left, for the next reconciliation", func() bool {
-			left := outstanding(f.ownedJobs(t, fleet, "authkit_provisioning"))
-			if len(left) != 1 || left[0].State != rivertype.JobStateScheduled {
-				return false
-			}
-			next = left[0].ScheduledAt
-			return true
+		eventually(t, "no run left: nothing sweeps an idle target", func() bool {
+			return len(outstanding(f.ownedJobs(t, fleet, "authkit_provisioning"))) == 0
 		})
-		targets, err := f.auth.ProvisioningTargets(t.Context())
-		noError(t, err)
-		if due := targets[0].ReconciledAt.Add(24 * time.Hour); next.Before(due.Add(-time.Second)) || next.After(due.Add(time.Second)) {
-			t.Fatalf("idle target's next run at %s, reconciliation due %s", next, due)
-		}
 		before, requests := counter.count("authkit_provisioning"), len(target.requestTimes())
 		time.Sleep(6 * time.Second) // past River's 5 s scheduler interval
 		if after := counter.count("authkit_provisioning"); after != before || len(target.requestTimes()) != requests {
 			t.Fatalf("idle target ran %d jobs", after-before)
 		}
-		t.Logf("%d runs for the initial sync and 3 changes; none idle; next run in %s", before, time.Until(next).Round(time.Minute))
+		t.Logf("%d runs for the initial sync and 3 changes; none idle", before)
 	})
 	t.Run("AK-J41-C02_an_unreachable_target_is_retried_at_its_retry_at_and_no_sooner", func(t *testing.T) {
 		target := newSCIMTarget()
-		f := newFixture(t, withTarget(target, 0)...)
+		f := newFixture(t, withTarget(target)...)
 		f.startFleet(t)
 		f.synced(t)
 		sent := len(target.requestTimes())
@@ -281,49 +270,24 @@ func TestCriticalProvisioningRuns(t *testing.T) {
 			return targets[0].FailingSince == nil && targets[0].LastError == nil
 		})
 	})
-	t.Run("AK-J41-C03_reconciliation_runs_at_its_interval", func(t *testing.T) {
+	t.Run("AK-J41-C03_an_idle_target_is_never_swept", func(t *testing.T) {
 		target := newSCIMTarget()
-		const interval = 2 * time.Second
-		f := newFixture(t, withTarget(target, interval)...)
+		f := newFixture(t, withTarget(target)...)
 		_, counter := f.startCountedFleet(t)
 		f.user(t)
 		f.synced(t)
-		// When each reconciliation began, as AuthKit records it.
-		var began []time.Time
-		watch := func(n int) {
-			deadline := time.Now().Add(time.Duration(n) * (interval + riverLatency))
-			for len(began) < n && time.Now().Before(deadline) {
-				targets, err := f.auth.ProvisioningTargets(t.Context())
-				noError(t, err)
-				if at := targets[0].ReconciledAt; at != nil && (len(began) == 0 || at.After(began[len(began)-1])) {
-					began = append(began, *at)
-				}
-				time.Sleep(20 * time.Millisecond)
-			}
-			if len(began) < n {
-				t.Fatalf("%d reconciliations, want %d", len(began), n)
-			}
+		before, requests := counter.count("authkit_provisioning"), len(target.requestTimes())
+		time.Sleep(6 * time.Second) // past River's 5 s scheduler interval
+		if after := counter.count("authkit_provisioning"); after != before || len(target.requestTimes()) != requests {
+			t.Fatalf("an idle target ran %d jobs and got %d requests", after-before, len(target.requestTimes())-requests)
 		}
-		watch(3)
-		before, listed := counter.count("authkit_provisioning"), len(target.listings())
-		watch(5)
-		for i := 1; i < len(began); i++ {
-			if gap := began[i].Sub(began[i-1]); gap < interval || gap > interval+riverLatency {
-				t.Fatalf("reconciliation %d began %s after the last (interval %s)", i, gap, interval)
-			}
+		if n := len(target.listings()); n != 0 {
+			t.Fatalf("the target's users were listed %d times: nothing sweeps them", n)
 		}
-		listings := len(target.listings()) - listed
-		if listings < 2 {
-			t.Fatalf("%d listings for 2 reconciliations", listings)
-		}
-		if extra := counter.count("authkit_provisioning") - before - listings; extra > 1 {
-			t.Fatalf("%d runs beyond the reconciliations", extra)
-		}
-		t.Logf("reconciliations every %v (interval %s)", gaps(began), interval)
 	})
 	t.Run("AK-J41-C04_a_listener_down_at_the_write_catches_up_on_reconnect", func(t *testing.T) {
 		target := newSCIMTarget()
-		f := newFixture(t, withTarget(target, 0)...)
+		f := newFixture(t, withTarget(target)...)
 		f.startFleet(t)
 		f.synced(t)
 		listening := "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND query='LISTEN authkit_provisioning'"
@@ -353,12 +317,4 @@ func TestCriticalProvisioningRuns(t *testing.T) {
 			return
 		}
 	})
-}
-
-func gaps(times []time.Time) []time.Duration {
-	out := make([]time.Duration, 0, len(times))
-	for i := 1; i < len(times); i++ {
-		out = append(out, times[i].Sub(times[i-1]).Round(10*time.Millisecond))
-	}
-	return out
 }

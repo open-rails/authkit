@@ -101,16 +101,16 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema, c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}
-	c.Provisioning.Targets = slices.Clone(c.Provisioning.Targets)
-	for i := range c.Provisioning.Targets {
-		if c.Provisioning.Targets[i].TenantID.IsZero() {
-			c.Provisioning.Targets[i].TenantID = c.DefaultTenantID
+	c.Provisioning = slices.Clone(c.Provisioning)
+	for i := range c.Provisioning {
+		if c.Provisioning[i].TenantID.IsZero() {
+			c.Provisioning[i].TenantID = c.DefaultTenantID
 		}
-		if c.Provisioning.Targets[i].TenantID.IsZero() && !c.tenantPending() {
-			return c, nil, fmt.Errorf("authkit: Provisioning.Targets[%d] requires TenantID in an unbound deployment", i)
+		if c.Provisioning[i].TenantID.IsZero() && !c.tenantPending() {
+			return c, nil, fmt.Errorf("authkit: Provisioning[%d] requires TenantID in an unbound deployment", i)
 		}
 	}
-	if err := normalizeProvisioning(&c.Provisioning, d, degrade); err != nil {
+	if c.Provisioning, err = normalizeProvisioning(c.Provisioning, d, degrade); err != nil {
 		return Config{}, nil, err
 	}
 	if c.HTTP != nil {

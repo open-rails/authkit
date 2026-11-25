@@ -6,9 +6,9 @@ package engine
 // queues the target's run (a due job), which sends its pending users' current
 // state in bulk requests and deletes the rows the target accepted. A refused
 // user is retried with backoff, an unreachable target as a whole, each run at
-// the instant it is due. A new target first queues every account, and a
-// reconciliation every ReconcileInterval lists the target's users and queues
-// what drifted.
+// the instant it is due: a failed push stays pending until it lands. A new
+// target first queues every account. Nothing sweeps a target's users: work
+// follows changes.
 
 import (
 	"bytes"
@@ -70,7 +70,7 @@ func (s *Engine) initProvisioning(ctx context.Context) error {
 	if s.pg == nil {
 		return nil
 	}
-	for _, t := range s.cfg.Provisioning.Targets {
+	for _, t := range s.cfg.Provisioning {
 		if _, err := s.Tenant(ctx, t.TenantID); err != nil {
 			return fmt.Errorf("authkit: provisioning target %s tenant: %w", t.Name, err)
 		}
@@ -219,7 +219,7 @@ func (s *Engine) registerProvisioning(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(cfg.Workers, &provisioningWorker{engine: s}); err != nil {
 		return err
 	}
-	if len(s.cfg.Provisioning.Targets) == 0 {
+	if len(s.cfg.Provisioning) == 0 {
 		return nil
 	}
 	queue := provisioningQueue(s.dbSchema(), s.cfg.Issuer)
@@ -227,7 +227,7 @@ func (s *Engine) registerProvisioning(cfg *river.Config) error {
 		return fmt.Errorf("authkit: provisioning queue %q requires workers", queue)
 	}
 	if _, ok := cfg.Queues[queue]; !ok {
-		cfg.Queues[queue] = river.QueueConfig{MaxWorkers: len(s.cfg.Provisioning.Targets)}
+		cfg.Queues[queue] = river.QueueConfig{MaxWorkers: len(s.cfg.Provisioning)}
 	}
 	return nil
 }
@@ -264,8 +264,8 @@ func (w *provisioningWorker) Work(ctx context.Context, job *river.Job[provisioni
 }
 
 // provisioningNextRun is when t next has work: its earliest change's due_at,
-// now while its initial sync or a reconciliation is unfinished, and its next
-// reconciliation, none before a backoff's retry_at. Nil: none.
+// or now while its initial sync is unfinished, none before a backoff's
+// retry_at. Nil: none.
 func (s *Engine) provisioningNextRun(ctx context.Context, t *provisioningTarget) (*time.Time, error) {
 	key := db.ProvisioningTargetParams{Issuer: s.cfg.Issuer, Name: t.name}
 	row, err := s.q.ProvisioningTarget(ctx, key)
@@ -287,22 +287,14 @@ func (s *Engine) provisioningNextRun(ctx context.Context, t *provisioningTarget)
 	if row.SyncedAt == nil {
 		next = earliest(next, now)
 	}
-	if interval := s.cfg.Provisioning.ReconcileInterval; interval > 0 {
-		if row.ReconcileStartedAt != nil || row.ReconciledAt == nil {
-			next = earliest(next, now)
-		} else {
-			next = earliest(next, row.ReconciledAt.Add(interval))
-		}
-	}
 	if next != nil && row.RetryAt != nil && next.Before(*row.RetryAt) {
 		next = row.RetryAt
 	}
 	return next, nil
 }
 
-// runProvisioning is one run for t: the initial sync's queueing, every due
-// change in bulk until none is left or the budget is spent, then a
-// reconciliation when one is due. A failure to reach the target is recorded
+// runProvisioning is one run for t: the initial sync's queueing, then every
+// due change in bulk until none is left or the budget is spent. A failure to reach the target is recorded
 // on it, and only a database error fails the job.
 func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) error {
 	ctx = WithTenant(ctx, t.tenant)
@@ -329,27 +321,15 @@ func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) err
 		if err := s.queueInitialSync(ctx, t, row.SyncAfter); err != nil {
 			return err
 		}
-		row.ReconciledAt = &start
 	}
 	run := &provisioningRun{engine: s, target: t, deadline: start.Add(provisioningRunBudget), rounds: map[string]int{}}
-	caughtUp, err := run.deliver(ctx)
+	_, err = run.deliver(ctx)
 	var unreachable *targetError
 	if errors.As(err, &unreachable) {
 		return s.provisioningFailed(ctx, t, row, unreachable.err)
 	}
 	if err != nil {
 		return err
-	}
-	interval := s.cfg.Provisioning.ReconcileInterval
-	due := row.ReconcileStartedAt != nil || row.ReconciledAt == nil || s.nowTime().Sub(*row.ReconciledAt) >= interval
-	if caughtUp && interval > 0 && due {
-		err := run.reconcile(ctx, row)
-		if errors.As(err, &unreachable) {
-			return s.provisioningFailed(ctx, t, row, unreachable.err)
-		}
-		if err != nil {
-			return err
-		}
 	}
 	return s.q.ProvisioningTargetRan(ctx, db.ProvisioningTargetRanParams{
 		Issuer: s.cfg.Issuer, Name: t.name, Clean: run.lastError == "", LastError: nullable(run.lastError),
@@ -426,7 +406,7 @@ func (s *Engine) ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTar
 			continue
 		}
 		target := iam.ProvisioningTarget{
-			TenantID: configured.tenant, Name: r.Name, SyncedAt: r.SyncedAt, ReconciledAt: r.ReconciledAt, LastSuccessAt: r.LastSuccessAt,
+			TenantID: configured.tenant, Name: r.Name, SyncedAt: r.SyncedAt, LastSuccessAt: r.LastSuccessAt,
 			FailingSince: r.FailingSince, LastError: r.LastError, Backlog: int(r.Backlog),
 		}
 		if t := s.provisioningTarget(r.Name); t != nil && t.invalid != nil {

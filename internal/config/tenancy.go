@@ -31,8 +31,8 @@ func BindDefaultTenant(c *Config, id iam.TenantID) error {
 		}
 		named = append(named, *t)
 	}
-	for i := range c.Provisioning.Targets {
-		bind(&c.Provisioning.Targets[i].TenantID)
+	for i := range c.Provisioning {
+		bind(&c.Provisioning[i].TenantID)
 	}
 	for i := range c.AuthorizationServer.Clients {
 		bind(&c.AuthorizationServer.Clients[i].TenantID)
