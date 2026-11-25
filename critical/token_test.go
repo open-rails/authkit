@@ -94,6 +94,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		if fromRequest.UserID != u.ID || fromRequest.SessionID != native.SessionID {
 			t.Fatal("request verifier changed the signed subject or session")
 		}
+		authorize(t, request, session.AccessToken) // a fresh proof: the first is spent
 		verified, err := f.auth.AuthenticateRequest(t.Context(), request)
 		noError(t, err)
 		if verified.Identity().Subject != u.ID {

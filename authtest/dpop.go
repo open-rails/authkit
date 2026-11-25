@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -200,3 +201,38 @@ func Transport(t testing.TB, auth *authkit.Client, token string, base http.Round
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// Transport sends base's requests as a browser holding k does, for a host's
+// client of its own HTTP adapters: a request presenting a token k binds
+// (Holds, or SignIn's) goes as DPoP with a fresh proof; one presenting no
+// token (a sign-in) proves k, so the session it opens binds to k; any other
+// keeps its credential. Proofs name auth's public origin. Nil base is
+// http.DefaultTransport.
+func (k *DPoPKey) Transport(t testing.TB, auth *authkit.Client, base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("DPoP") != "" {
+			return base.RoundTrip(r)
+		}
+		r = r.Clone(r.Context())
+		u, err := url.Parse(auth.PublicAPIBase())
+		if err != nil {
+			return nil, err
+		}
+		target := u.Scheme + "://" + u.Host + r.URL.EscapedPath()
+		token, scheme := "", ""
+		if s, v, ok := strings.Cut(r.Header.Get("Authorization"), " "); ok {
+			scheme, token = s, v
+		}
+		switch {
+		case token == "":
+			r.Header.Set("DPoP", k.Proof(t, r.Method, target, "", ""))
+		case keyFor(token) == k && strings.EqualFold(scheme, "Bearer"):
+			r.Header.Set("Authorization", "DPoP "+token)
+			r.Header.Set("DPoP", k.Proof(t, r.Method, target, token, ""))
+		}
+		return base.RoundTrip(r)
+	})
+}

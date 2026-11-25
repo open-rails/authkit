@@ -72,6 +72,9 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 					sender = authtest.NewDPoPKey(t)
 					claims["cnf"] = map[string]any{"jkt": sender.Thumbprint()}
 				}
+				if sender == nil {
+					delete(claims, "cnf") // a bearer token, verified from outside AuthKit
+				}
 				token := signJWT(t, f.deps.KeySource.ActiveSigner(), header, claims)
 				request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proofOrigin+"/stream", nil)
 				noError(t, err)

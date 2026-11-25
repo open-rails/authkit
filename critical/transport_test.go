@@ -78,7 +78,8 @@ func TestCriticalTransport(t *testing.T) {
 						noError(t, <-done)
 					})
 				}
-				client := &http.Client{Timeout: 10 * time.Second}
+				// A host's client of its adapters: sign-ins prove the fixture's key.
+				client := &http.Client{Timeout: 10 * time.Second, Transport: f.dpop.Transport(t, f.auth, nil)}
 				call := func(method, path, token, body string) response {
 					return wire(t, client, method, address+f.auth.APIBase()+path, token, "application/json", body, nil)
 				}
