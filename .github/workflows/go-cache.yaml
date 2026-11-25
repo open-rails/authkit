@@ -1,0 +1,46 @@
+name: Go cache
+
+# Builds what the root suites build and saves the Go module and build cache
+# they restore (.github/actions/go). A pull request reads only its base's and
+# master's caches, so they are written on pushes there. Runs no test.
+on:
+  push:
+    branches: [master, "rc/**"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  GOWORK: 'off'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: go
+        uses: ./.github/actions/go
+      - name: Build the suites' packages and tools
+        run: |
+          go test -race -exec /bin/true ./...
+          go vet ./...
+          go build ./internal/cmd/migrate ./scripts/criticalcheck
+          go list -export -deps -test ./critical > /dev/null
+          go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 version
+          (cd auth-ui/e2e/server && go mod download)
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go.outputs.cache-key }}-${{ github.sha }}

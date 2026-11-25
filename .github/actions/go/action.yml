@@ -1,0 +1,32 @@
+name: Go
+description: >-
+  The Go toolchain of the root suites, with the module and build cache the Go
+  cache workflow saves on master and RC pushes. Restore only: a pull request
+  reads its base's or master's cache and never writes one.
+outputs:
+  cache-key:
+    description: Key prefix of this toolchain and go.sum; a save appends the commit.
+    value: ${{ steps.key.outputs.prefix }}
+runs:
+  using: composite
+  steps:
+    # The latest patched Go 1.26; go.mod's go line is the consumer floor.
+    - id: setup
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.11'
+        cache: false
+    - id: key
+      shell: bash
+      env:
+        GO_VERSION: ${{ steps.setup.outputs.go-version }}
+        GO_SUM: ${{ hashFiles('go.sum') }}
+      run: echo "prefix=go-$RUNNER_OS-$RUNNER_ARCH-$GO_VERSION-$GO_SUM" >> "$GITHUB_OUTPUT"
+    # The newest cache of this go.sum, else of any go.sum on this toolchain.
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+        key: ${{ steps.key.outputs.prefix }}-
+        restore-keys: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.go-version }}-
