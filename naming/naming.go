@@ -1,5 +1,6 @@
-// Package naming is the naming policy AuthKit applies to usernames and
-// tenant names, for a host to apply to its own (an OpenRails merchant's):
+// Package naming is the naming policy AuthKit applies to usernames (tenant
+// names, renamed only by an operator, keep the former-name reservation), for
+// a host to apply to its own names (an OpenRails merchant's):
 //
 //   - An owner may rename itself, at most once per RenameCooldown.
 //   - A name it renamed away from forwards to it, and nobody else may claim

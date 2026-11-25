@@ -54,8 +54,8 @@ func (s *Engine) twoFactorMethodAvailable(method string) bool {
 }
 
 // TwoFactorMethods are the second factors a user can enroll now, in stable
-// order: enabled by TwoFactor.Mode and Methods, with their dependency present
-// (Deps.Email and Deps.SMS while healthy, the TOTP key). Empty when
+// order: enabled by Config.TwoFactor, with their dependency present (Deps.SMS
+// while healthy, the TOTP key). Empty when
 // 2FA is disabled.
 func (s *Engine) TwoFactorMethods() []iam.TwoFactorMethod {
 	out := []iam.TwoFactorMethod{}

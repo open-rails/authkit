@@ -82,7 +82,7 @@ type Deps struct {
 	// fails the request. Client.RevokeConsent does not run it.
 	ConsentRevocationCheck func(ctx context.Context, userID, clientID string) error
 	// PasskeyTopOrigin admits passkey ceremonies inside a cross-origin
-	// iframe of Passkeys.Origins, as on a merchant's site embedding the
+	// iframe of FrontendURL's origin, as on a merchant's site embedding the
 	// host's sign-in: a ceremony whose client data names the framing page
 	// (topOrigin, an https origin) passes when it reports true, and one that
 	// names none (Safari) passes on its own origin. Nil refuses every
@@ -111,7 +111,7 @@ type Deps struct {
 	// replica and no Redis implements it on the store they share. Its errors
 	// refuse the proof. Rate limits stay with Redis or memory.
 	Replays verify.ReplayStore
-	// ResourceHosts admits hosts besides Config.Resource.PublicURL's that the
+	// ResourceHosts admits hosts besides Config.Resource.ID's that the
 	// resource answers on (a host's per-tenant API hosts): a DPoP proof's htu
 	// may name https://<host> when it reports true for the request's Host.
 	// No header is trusted otherwise.

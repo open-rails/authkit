@@ -70,7 +70,7 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	return authkit.New(ctx, cfg, authkit.Deps{
 		Postgres: db, // required: users, sessions and short-lived auth state
 		// Signing keys come from /vault/auth/keys.json (and totp.key) unless
-		// KeySource names another source, such as keys.Watch("/run/keys").
+		// KeySource names another source, such as keys.Watch("/run/keys", logger).
 		Email: email, // sends verification codes, login codes and password resets
 		SMS:   sms,   // same, for phone numbers
 		// Both also report when they can't deliver, pausing that channel's sign-in until they can.

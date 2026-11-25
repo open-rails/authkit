@@ -456,8 +456,7 @@ type Capabilities struct {
 	// Captcha is the bot challenge /passwordless/start and /register
 	// require (Deps.Captcha); null when none.
 	Captcha *iam.CaptchaWidget `json:"captcha"`
-	// DPoP is SignIn.DPoP: optional (each client chooses) or required (a
-	// sign-in proves a DPoP key, RFC 9449).
+	// DPoP is "required": every sign-in proves a DPoP key (RFC 9449).
 	DPoP  string     `json:"dpop"`
 	Paths MountPaths `json:"paths"`
 }
@@ -510,7 +509,7 @@ type ChannelCapabilities struct {
 	SMS   bool `json:"sms"`
 }
 
-// SMSCapabilities is the text-message policy (Config.SMS).
+// SMSCapabilities is the text-message policy (Config.SMSCountries).
 type SMSCapabilities struct {
 	// Countries are the regions messages may go to (ISO 3166-1 alpha-2);
 	// empty allows every region.

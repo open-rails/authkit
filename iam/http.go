@@ -67,7 +67,7 @@ type Route struct {
 func (r Route) Pattern() string { return r.Method + " " + r.Path }
 
 // JWKSPath serves the issuer's public signing keys beneath the issuer's path
-// (the mount's BasePath), so verifiers derive it: issuer + JWKSPath.
+// (the issuer's path), so verifiers derive it: issuer + JWKSPath.
 const JWKSPath = "/.well-known/jwks.json"
 
 // The authorization server's endpoints beneath the issuer's path, as its

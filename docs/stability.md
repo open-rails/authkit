@@ -3,7 +3,7 @@
 AuthKit has two contracts, versioned apart:
 
 - **The Go module** `github.com/open-rails/authkit`, by semantic version. v1 starts at v1.0.2; v1.0.0 and v1.0.1 are retracted.
-- **The HTTP API**, by its path version, `/api/v1/`, released with the module: auth-ui and the host update together.
+- **The HTTP API**, by its path version, `v1`, released with the module: auth-ui and the host update together.
 
 A patch release (v1.x.y) never breaks what this page covers. A minor release (v1.x) may, while AuthKit's consumers are its own apps: its release notes list every break under **Breaking**, with what a host changes. A security fix may change behavior when that behavior was the vulnerability.
 
@@ -46,14 +46,14 @@ Breaking, only in a minor release and listed in its notes:
 
 [`api/openapi.json`](../api/openapi.json) is the contract: every route's method, path, auth tier and permission, its request and response schemas and success statuses, and the error codes with their statuses and typed `metadata` (`x-authkit-error-codes`). It is generated from the route catalog, and CI fails when it is stale. These conventions hold on every route, and the route-catalog tests enforce them:
 
-- **Paths.** The JSON API is `{BasePath}{APIPath}/v1/…`, `/api/v1/…` by default: `APIPath` is the host's prefix, and AuthKit owns the version segment. Browser OIDC (`/oidc/{provider}/…`) and JWKS (`/.well-known/jwks.json`) are unversioned protocol paths. A group is `/groups/{group_id}`, with `root` for the site.
+- **Paths.** The JSON API is `/auth/v1/…` for an issuer at its origin's root, `{path}/v1/…` beneath an issuer's path; AuthKit owns the version segment. Browser OIDC (`/oidc/{provider}/…`) and JWKS (`/.well-known/jwks.json`) are unversioned protocol paths. A group is `/groups/{group_id}`, with `root` for the site.
 - **JSON.** snake_case members and lower snake_case enum values. Ids are opaque strings: a resource's own is `id`, a reference is `<thing>_id`. Roles and permissions are qualified text (`channel:moderator`, `channel:posts:edit`).
 - **Values.** Times are RFC 3339 in UTC. Durations are integer `*_seconds`; `TokenSet.expires_in` follows OAuth 2.0. Every documented member is always present: `null` when unset, `[]` when empty. Clients ignore members and enum values they don't know.
 - **Requests.** A body is `application/json` (415 otherwise) of at most 1 MiB, and unknown members are refused (400). GET and DELETE take no body.
 - **Statuses.** 200 is a result, 201 a creation (with any secret, shown only then), 202 accepted and 204 done, both without a body. DELETE is idempotent. Sign-in answers 200 with an `AuthResult` whose `status` names the next step.
 - **Lists.** `{data, next_cursor}`, paged by `?cursor=&limit=`: the limit is 1–500, 50 by default, and cursors are opaque.
 - **Errors.** `{error: {type, code, message, param, metadata}}`. The `code` is stable; the `message` is not contract. Every 5xx is `internal_error`, and 429 is `rate_limited` with `Retry-After`.
-- **Credentials.** `Authorization: Bearer` carries a JWT or an API key (`<prefix>_st_<lookup id>_<secret>`), and `DPoP` a sender-bound token's proof. The refresh cookie is `__Host-authkit_rt` (`authkit_rt` over plain HTTP); cookie mounts refuse cross-site requests with 403 `origin_not_allowed`.
+- **Credentials.** `Authorization: DPoP` carries a sender-bound JWT, every session's, with its proof in `DPoP`; `Authorization: Bearer` an unbound JWT or an API key (`<prefix>_st_<lookup id>_<secret>`). The refresh cookie is `__Host-authkit_rt_<hash>` (`authkit_rt_<hash>` over plain HTTP), one per issuer and tenant; cookie mounts refuse cross-site requests with 403 `origin_not_allowed`.
 
 Additive: new routes, optional request members, response members, error codes and enum values, and new kinds in `/groups/{group_id}/members/{kind}/{id}` (only `users` today). Breaking (minor releases only): removing or renaming a route, member, code or value; making a request member required; changing a type, status or meaning.
 
@@ -71,9 +71,9 @@ New claims may be added, so verifiers ignore claims they don't know; `verify` al
 ## Configuration and files
 
 - `Config` and `Deps` are Go values without serialization tags, and AuthKit reads no config file or environment variable. Their field names, types and documented defaults are part of the Go API.
-- Rate-limit bucket names, the keys of `HTTPConfig.RateLimits` and `DefaultRateLimits()`, are covered. Their default values are not.
+- Rate-limit bucket names (`x-authkit-rate-limit` in the OpenAPI) are covered. Their values are not.
 - The bootstrap manifest's YAML and JSON keys (`iam.BootstrapManifest`, `ParseBootstrapManifestYAML`) are covered. An unknown key is a warning, never an error.
-- The key directory, `KeysConfig.Path`, holds `keys.json` (`active_key_id`, `active_private_key_pem`, `public_keys`, `development`) and `totp.key` (with its `development:` prefix). Both formats are covered; see [keys](keys.md).
+- The key directory `keys.Watch` serves holds `keys.json` (`active_key_id`, `active_private_key_pem`, `public_keys`, `development`) and `totp.key` (with its `development:` prefix). Both formats are covered; see [keys](keys.md).
 
 ## Database
 
@@ -99,4 +99,4 @@ The only application data AuthKit keeps about an account is its public metadata,
 ## Not covered
 
 - `internal/…`, `cmd/…` and `examples/…`.
-- Log lines, error `message` text, default rate-limit values, and the order of `Client.Routes()`.
+- Log lines, error `message` text, rate-limit values, and the order of `Client.Routes()`.

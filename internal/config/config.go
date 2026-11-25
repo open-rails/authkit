@@ -213,7 +213,7 @@ type DatabaseConfig struct {
 	// Schema is the PostgreSQL schema AuthKit's tables live in. Empty
 	// defaults to "profiles". Deployments that must not share accounts on one
 	// database use different schemas; deployments that share accounts use the
-	// same one (see TokenConfig.AccountIssuers). It must match
+	// same one (see AccountIssuers). It must match
 	// ^[a-z_][a-z0-9_]*$ (max 63 bytes).
 	Schema string `yaml:"schema"`
 	// RiverSchema holds the River tables AuthKit's jobs (account lifecycle,

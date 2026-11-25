@@ -43,14 +43,8 @@ if (result.status === "second_factor_required") {
 const res = await auth.authFetch("/auth/v1/things") // Bearer + one refresh retry, never on a step-up
 ```
 
-- The access token lives in memory only. Refresh is `POST /token` with the
-  `authkit_rt` cookie; pass `storage` for mounts without the cookie.
-- Sessions are bearer by default. `createAuthClient({ dpop: true })` binds
-  each sign-in's session to a non-extractable DPoP key in IndexedDB (RFC
-  9449): every sign-in and refresh proves it, and the access tokens go as
-  `DPoP` with a proof, never as bearer tokens. An AuthKit whose sign-ins
-  require DPoP (capabilities `dpop: "required"`) refuses an unbound sign-in,
-  and the client then binds anyway. Sign-out deletes the key.
+- The access token lives in memory only. Refresh is `POST /token` with the HttpOnly refresh cookie.
+- Each sign-in's session is bound to a non-extractable DPoP key in IndexedDB (RFC 9449): every sign-in and refresh proves it, and the access tokens go as `DPoP` with a proof, never as bearer tokens. AuthKit requires it (capabilities `dpop: "required"`): `createAuthClient({ dpop: true })` binds from the first sign-in, and without it the client binds once AuthKit refuses an unbound one. Sign-out deletes the key.
 - When a host routes multiple account directories at one API URL, give each
   client a stable, distinct `sessionKeyName` and `sessionHint.key`, alongside
   its directory-specific refresh credentials. This prevents one directory's
@@ -65,19 +59,19 @@ const res = await auth.authFetch("/auth/v1/things") // Bearer + one refresh retr
   `account_recovery_required` and `device_verification_required` carry their
   next step and are returned, not thrown. Failures throw `AuthKitError` with the AuthKit `code`
   (`errorMetadata(err, code)` reads its typed metadata).
-- A typed code is confirmed with the challenge its start answered: `startPasswordless`, `requestVerification`, `register` (when it waits on a code), `changeEmail` and `changePhone` resolve to `{ challenge }`, and `confirmPasswordless` / `confirmVerification` take `{ challenge, code }`. Each resend has its own challenge; nobody else's starts or guesses spend it.
+- A typed code is confirmed with the challenge its start answered: `startPasswordless`, `requestVerification`, `register`, `changeEmail` and `changePhone` resolve to `{ challenge }`, and `confirmPasswordless` / `confirmVerification` take `{ challenge, code }`. Each resend has its own challenge; nobody else's starts or guesses spend it.
 - A password sign-in parked at `verification_required` carries a `password_proof` and its code's `challenge`; `confirmVerification` sends the proof with that address's code, so the account keeps its password.
 - A new device past the account's daily limit answers
   `device_verification_required`: a code went to the owner's email or phone.
   `confirmDeviceVerification` finishes the sign-in with it;
   `sendDeviceVerification` resends it, or to the other `channels` entry. Too
   many accounts from one device is `too_many_accounts` (429, `Retry-After`).
-- 2FA factors: `setupTwoFactor` starts one (TOTP answers its secret, email and
-  SMS send a code), `addTwoFactorFactor` confirms it and adopts the
+- 2FA factors: `setupTwoFactor` starts one (TOTP answers its secret, SMS
+  sends a code), `addTwoFactorFactor` confirms it and adopts the
   re-verified session. A forced enrollment passes the step's
   `enrollment.token_set` as `enrollmentToken` to both; the factor's `auth` is
   then the finished sign-in.
-- A wrong email/SMS 2FA code is `invalid_code` and can be retried. Once no
+- A wrong SMS 2FA code is `invalid_code` and can be retried. Once no
   code is live (the 5th miss, expiry, already used) AuthKit answers
   `code_expired`; resend to get a fresh code.
 - `readStepUpRequired(err)` turns a `401 step_up_required` into the methods to
@@ -121,14 +115,7 @@ const res = await auth.resourceFetch(
   `getResourceToken({ resource, scope, group: merchantId })`. Each group's
   token is cached apart, so switching groups never reuses another group's
   token. AuthKit refuses a group the user holds no role in (`invalid_target`).
-- Tokens are bearer tokens by default. `resourceTokens: { dpop: true }`
-  binds them to this browser's DPoP key (RFC 9449), and so does an issuer
-  that refuses an unbound exchange (`invalid_dpop_proof`). The key is a
-  non-extractable P-256 key in IndexedDB, so it survives a reload; a bound
-  token goes with a fresh proof on every request, and a `use_dpop_nonce`
-  challenge is answered once. A DPoP-bound session (`createAuthClient({
-dpop: true })`) is exchanged with its own key, the only one AuthKit
-  accepts for it, and its resource tokens are bound to that key.
+- The session is exchanged with its own DPoP key (RFC 9449), the only one AuthKit accepts for it, and its resource tokens are bound to that key: a non-extractable P-256 key in IndexedDB, so it survives a reload. A bound token goes with a fresh proof on every request, and a `use_dpop_nonce` challenge is answered once.
 - `resourceFetch` retries once with a new token on a 401 `invalid_token`.
 - Token endpoint refusals throw `OAuthError` (`error`, `description`).
 
@@ -162,7 +149,7 @@ const res = await issuer.authFetch(
   (RFC 9207), the ID token's `nonce`, `aud` and `exp` checked.
 - Tokens are bearer tokens by default. `dpop: true` binds the session to a
   non-extractable DPoP key (RFC 9449), and so does an issuer that refuses an
-  unbound token request (`invalid_dpop_proof`). The access token stays in
+  unbound token request (`invalid_dpop_proof`), as AuthKit's does. The access token stays in
   memory. The rotating refresh token is kept in IndexedDB (with the key,
   when bound), so a reload restores the session without a redirect, and
   tabs rotate it one at a time (Web Locks).
@@ -184,7 +171,7 @@ const res = await issuer.authFetch(
 ### The issuer's authorize page
 
 A deployment that is an authorization server renders `<OAuthAuthorize />` at
-`Frontend.AuthorizePath` (`/authorize`), inside `AuthProvider` and
+`/authorize` beneath AuthKit's `FrontendURL`, inside `AuthProvider` and
 `AuthUiProvider`. It signs the user in (second factors and step-ups
 included), approves the client's request, and sends the browser back with the
 code; `prompt=none` with nobody signed in returns `login_required`.
@@ -399,10 +386,10 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
 - Reset link route: `<ResetPasswordForm token={readLinkFragment(location.hash)?.token} onDone={openSignIn} />`.
 - OIDC callback route: `<AuthCallback navigate={(to) => router.replace(to)} />`
   finishes 2FA and other continuations in place.
-- Verification link route (AuthKit `Frontend.VerifyPath`, default `/verify`):
+- Verification link route (`/verify` beneath AuthKit's `FrontendURL`):
   `<VerifyLink token={readLinkFragment(location.hash)?.token} navigate={(to) => router.replace(to)} />`
   confirms the emailed/texted link once; `useVerifyLink` is the headless hook.
-- Sign-in link landing: on `Frontend.PasswordlessPath`,
+- Sign-in link landing: on `/passwordless` beneath AuthKit's `FrontendURL`,
   `<PasswordlessLink token={readLinkFragment(location.hash)?.token} navigate={(to) => router.replace(to)} />`
   spends the emailed link once and finishes every later step in place.
 
@@ -419,10 +406,10 @@ import { ContactSignIn } from "@openrails/auth-ui"
 ```
 
 - One field for an email or phone, then the 6-digit code sent there
-  (AuthKit `Registration.PasswordlessLogin`). The field's autofill offers
+  (AuthKit's `iam.RoutePasswordless`). The field's autofill offers
   saved passkeys (`autocomplete="username webauthn"`, WebAuthn conditional
   mediation); a "Sign in with a passkey" button covers browsers without it.
-- A new contact signs up (`PasswordlessAutoRegistration`): when AuthKit
+- A new contact signs up unless AuthKit's registration is `closed`: when AuthKit
   answers `agreement_required`, the user reads and accepts the documents and
   the same code creates the account. A code sign-up then offers a passkey.
 - Any completed sign-in whose `agreements_due` is not empty asks the user to

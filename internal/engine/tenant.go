@@ -184,8 +184,8 @@ func (s *Engine) createTenantIn(ctx context.Context, st *permissionGroupStore, i
 	return err
 }
 
-// RenameTenant gives a tenant a new name. Under Tenants.FormerNames the old
-// name forwards to it and blocks other claims; a name the tenant held before
+// RenameTenant gives a tenant a new name. The old name forwards to it for
+// naming.FormerNameReservation and blocks other claims; a name the tenant held before
 // is taken back.
 func (s *Engine) RenameTenant(ctx context.Context, id iam.TenantID, slug string) (iam.Tenant, error) {
 	if id.IsZero() {

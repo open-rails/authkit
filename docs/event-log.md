@@ -14,7 +14,7 @@ if err != nil { return err }
 ```
 
 The HTTP equivalent is `GET /events?after=<cursor>&limit=100` beneath AuthKit's
-configured API prefix. The tenant comes from trusted host dispatch. It requires
+JSON API base. The tenant comes from trusted host dispatch. It requires
 current `tenant:users:read` for that tenant or `root:users:read` on every request.
 An API key/identity's existing capability ceiling still applies. The explicit
 `authority=true` option reads only changes without a tenant-owned target and
@@ -38,7 +38,7 @@ independent. A read uses one repeatable-read snapshot, including the committed
 head and retention floor. This prevents a faster transaction from causing a
 reader to skip an earlier transaction that has not committed yet.
 
-`Config.EventRetention` defaults to 90 days and must be at least one second.
+Events are retained for 90 days.
 The existing auth-state cleanup tick removes old rows in bounded batches;
 request-time retention applies even before that tick runs. Retention is
 independent of every reader. `410 event_cursor_expired` means history is missing

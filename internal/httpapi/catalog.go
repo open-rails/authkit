@@ -35,7 +35,7 @@ type Feature string
 
 const (
 	Always              Feature = ""
-	FeaturePasskeys     Feature = "passkeys"      // Passkeys.RPID set
+	FeaturePasskeys     Feature = "passkeys"      // a passkey relying party (FrontendURL)
 	FeatureRegistration Feature = "registration"  // registration not closed
 	FeatureTwoFactor    Feature = "two_factor"    // two-factor authentication not disabled
 	FeatureSolana       Feature = "solana"        // a Solana network set
