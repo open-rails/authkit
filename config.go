@@ -11,24 +11,15 @@ import (
 type (
 	// Config is the host configuration: plain data. Everything that reaches
 	// outside the process is in Deps.
-	Config                     = config.Config
-	DatabaseConfig             = config.DatabaseConfig
-	NotificationProducer       = config.NotificationProducer
-	TokenConfig                = config.TokenConfig
-	SignInConfig               = config.SignInConfig
-	DPoPMode                   = config.DPoPMode
-	Tenancy                    = config.Tenancy
-	RegistrationConfig         = config.RegistrationConfig
-	AgreementConfig            = config.AgreementConfig
-	SMSConfig                  = config.SMSConfig
-	PasswordPolicy             = config.PasswordPolicy
-	UsernameConfig             = config.UsernameConfig
-	TenantsConfig              = config.TenantsConfig
-	NameRetention              = config.NameRetention
-	NameRetentionMode          = config.NameRetentionMode
-	TwoFactorConfig            = config.TwoFactorConfig
-	APIKeysConfig              = config.APIKeysConfig
-	PersonalAccessTokensConfig = config.PersonalAccessTokensConfig
+	Config               = config.Config
+	DatabaseConfig       = config.DatabaseConfig
+	NotificationProducer = config.NotificationProducer
+	Tenancy              = config.Tenancy
+	AgreementConfig      = config.AgreementConfig
+	UsernameConfig       = config.UsernameConfig
+	TenantsConfig        = config.TenantsConfig
+	NameRetention        = config.NameRetention
+	NameRetentionMode    = config.NameRetentionMode
 	// AuthorizationServerConfig declares the OAuth clients and resource
 	// servers of the authorization server (Config.AuthorizationServer).
 	AuthorizationServerConfig = config.AuthorizationServerConfig
@@ -43,7 +34,6 @@ type (
 	// RemoteApplicationConfig declares one remote application
 	// (Config.RemoteApplications).
 	RemoteApplicationConfig = config.RemoteApplicationConfig
-	LanguageConfig          = config.LanguageConfig
 	// ProvisioningConfig pushes the accounts to SCIM 2.0 service providers
 	// (Config.Provisioning).
 	ProvisioningConfig = config.ProvisioningConfig
@@ -64,12 +54,6 @@ const (
 const (
 	TenancySingle = config.TenancySingle
 	TenancyMulti  = config.TenancyMulti
-)
-
-// SignInConfig.DPoP modes.
-const (
-	DPoPOptional = config.DPoPOptional
-	DPoPRequired = config.DPoPRequired
 )
 
 // Name reservation modes (NameRetention.Mode).

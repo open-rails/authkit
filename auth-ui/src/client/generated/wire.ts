@@ -698,11 +698,6 @@ export type PasskeyCapabilities = {
 export type PasswordCapabilities = {
   min_length: number
   max_length: number
-  require_uppercase: boolean
-  require_lowercase: boolean
-  require_digit: boolean
-  require_symbol: boolean
-  allow_common: boolean
 }
 
 export type PasswordChangeRequest = {
@@ -716,10 +711,6 @@ export type PasswordLoginRequest = {
 
 export type PasswordRequest = {
   password?: string
-}
-
-export type PasswordRequirements = {
-  missing: string[]
 }
 
 export type PasswordResetConfirmRequest = {

@@ -16,21 +16,20 @@ import (
 
 // TwoFactorEnabled reports whether any 2FA flow is usable (Mode != Disabled).
 func (s *Engine) TwoFactorEnabled() bool {
-	return s.cfg.TwoFactor.Mode != iam.TwoFactorDisabled
+	return s.cfg.TwoFactor != iam.TwoFactorDisabled
 }
 
 func (s *Engine) twoFactorMethodConfigured(m iam.TwoFactorMethod) bool {
 	if !s.TwoFactorEnabled() {
 		return false
 	}
-	methods := s.cfg.TwoFactor.Methods
-	if len(methods) == 0 {
-		return true // empty Methods means all three are offered.
-	}
-	for _, x := range methods {
-		if x == m {
-			return true
-		}
+	// The methods follow from what is wired: TOTP with a TOTP key, SMS with
+	// a sender; never email (NIST SP 800-63B-4 §3.1.3.1).
+	switch m {
+	case iam.TwoFactorTOTP:
+		return len(s.totpKey) > 0
+	case iam.TwoFactorSMS:
+		return s.sms != nil
 	}
 	return false
 }

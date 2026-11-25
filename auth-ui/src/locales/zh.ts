@@ -720,7 +720,6 @@ export const zh: AuthUiMessageBundle = {
     passkey_required: "此账户使用通行密钥登录。请使用您的通行密钥继续。",
     passkey_user_verification_required: "通行密钥必须验证用户身份。",
     password_contains_identifier: "密码不能包含您的用户名或邮箱。",
-    password_requirements_unmet: "密码不符合要求。",
     password_reset_required:
       "您的帐户创建于我们启用新登录系统之前，请重置密码后继续。",
     password_too_common: "该密码过于常见，请选择更难猜测的密码。",

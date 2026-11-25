@@ -63,10 +63,7 @@ func (s *Engine) OAuthRemoteAssertion(ctx context.Context, in authflow.OAuthJWTB
 	if signer == nil {
 		return authflow.OAuthTokens{}, iam.ErrSigningNotConfigured
 	}
-	ttl := s.cfg.AuthorizationServer.AccessTokenTTL
-	if ttl <= 0 {
-		ttl = config.DefaultOAuthAccessTokenTTL
-	}
+	ttl := config.AccessTokenTTL
 	id, err := newUUIDV7String()
 	if err != nil {
 		return authflow.OAuthTokens{}, err

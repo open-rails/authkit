@@ -18,7 +18,7 @@ func preferredLanguageFromRequest(r *http.Request) string { return lang.Request(
 // mode, conflicts, the pending write + code send, the session) is
 // authkit.Register (ak#318).
 func (s *Service) handleRegisterUnifiedPOST(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
+	if s.cfg.Registration == iam.RegistrationModeClosed {
 		s.registrationDisabled(w)
 		return
 	}

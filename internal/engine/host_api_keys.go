@@ -50,12 +50,6 @@ func (s *Engine) CreateAPIKey(ctx context.Context, a auth.Identity, ref iam.Grou
 	if expiresAt != nil && !expiresAt.After(now) {
 		return iam.APIKeyCreated{}, errmodel.ErrInvalidExpiry
 	}
-	if maxTTL := s.cfg.APIKeys.MaxTTL; maxTTL > 0 {
-		capAt := now.Add(maxTTL)
-		if expiresAt == nil || expiresAt.After(capAt) {
-			expiresAt = &capAt
-		}
-	}
 	var out iam.APIKeyCreated
 	err = s.withGroupMutationIn(ctx, a, host, ref, func(st *permissionGroupStore, g groupTarget) error {
 		// A persona without API keys has none, whoever asks (the system too).
@@ -88,7 +82,7 @@ func (s *Engine) CreateAPIKey(ctx context.Context, a auth.Identity, ref iam.Grou
 			provisions = &id
 		}
 		for range 5 {
-			minted, err := apikey.Mint(s.cfg.APIKeys.Prefix)
+			minted, err := apikey.Mint(s.cfg.APIKeyPrefix)
 			if err != nil {
 				return err
 			}
@@ -187,7 +181,7 @@ func (s *Engine) ResolveAPIKey(ctx context.Context, token string) (iam.ResolvedA
 	if err := s.requirePG(); err != nil {
 		return iam.ResolvedAPIKey{}, err
 	}
-	lookupID, secret, ok := apikey.Parse(s.cfg.APIKeys.Prefix, strings.TrimSpace(token))
+	lookupID, secret, ok := apikey.Parse(s.cfg.APIKeyPrefix, strings.TrimSpace(token))
 	if !ok {
 		return iam.ResolvedAPIKey{}, iam.ErrAPIKeyInvalid
 	}

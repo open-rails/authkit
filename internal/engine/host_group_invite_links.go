@@ -39,7 +39,7 @@ const (
 // stranger has no way to obtain an account, so the capability is OFF (an admin
 // assigns roles directly via the members endpoint instead).
 func (s *Engine) externalInvitesEnabled() bool {
-	mode := s.cfg.Registration.NativeUserMode
+	mode := s.cfg.Registration
 	return mode == iam.RegistrationModeOpen || mode == iam.RegistrationModeInviteOnly
 }
 

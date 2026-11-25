@@ -829,8 +829,6 @@ export const de: AuthUiMessageBundle = {
       "Der Passkey muss den Benutzer verifizieren.",
     password_contains_identifier:
       "Das Passwort darf Ihren Benutzernamen oder Ihre E-Mail-Adresse nicht enthalten.",
-    password_requirements_unmet:
-      "Das Passwort erfüllt die Anforderungen nicht.",
     password_reset_required:
       "Ihr Konto stammt aus der Zeit vor unserem neuen Anmeldesystem. Bitte setzen Sie Ihr Passwort zurück, um fortzufahren.",
     password_too_common:

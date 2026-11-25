@@ -24,7 +24,7 @@ var admissionRows []byte
 func fullSurfaceFixture(t *testing.T) *fixture {
 	t.Helper()
 	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.TwoFactor.Mode = iam.TwoFactorOptional
+		c.TwoFactor = iam.TwoFactorOptional
 		mountGroups(c, iam.RouteDeviceKeys)
 		c.SolanaNetwork = iam.SolanaMainnet
 		c.Roles.Persona("oauthshop", authkit.OAuthClients)

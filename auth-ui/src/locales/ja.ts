@@ -789,7 +789,6 @@ export const ja: AuthUiMessageBundle = {
       "パスキーでユーザー認証を行う必要があります。",
     password_contains_identifier:
       "パスワードにユーザー名やメールアドレスを含めることはできません。",
-    password_requirements_unmet: "パスワードが要件を満たしていません。",
     password_reset_required:
       "お使いのアカウントは新しいログインシステム以前に作成されたものです。続行するにはパスワードをリセットしてください。",
     password_too_common:

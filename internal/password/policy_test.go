@@ -3,15 +3,9 @@ package password
 import (
 	"errors"
 	"testing"
-
-	"github.com/open-rails/authkit/internal/config"
 )
 
 func TestValidateCommonIgnoresCaseAndSeparators(t *testing.T) {
-	p, err := config.NormalizePassword(config.PasswordPolicy{})
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, c := range []struct {
 		pw     string
 		common bool
@@ -26,7 +20,7 @@ func TestValidateCommonIgnoresCaseAndSeparators(t *testing.T) {
 		{"Tr4il-Mix-Quokka", false},   // not common
 		{"ünïcode-Pässwörd-7", false}, // letters of any script stay
 	} {
-		err := Validate(p, c.pw)
+		err := Validate(c.pw)
 		if got := errors.Is(err, ErrTooCommon); got != c.common {
 			t.Errorf("Validate(%q) = %v, want common %v", c.pw, err, c.common)
 		}

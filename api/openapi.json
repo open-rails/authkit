@@ -11179,31 +11179,11 @@
           },
           "max_length": {
             "type": "integer"
-          },
-          "require_uppercase": {
-            "type": "boolean"
-          },
-          "require_lowercase": {
-            "type": "boolean"
-          },
-          "require_digit": {
-            "type": "boolean"
-          },
-          "require_symbol": {
-            "type": "boolean"
-          },
-          "allow_common": {
-            "type": "boolean"
           }
         },
         "required": [
           "min_length",
-          "max_length",
-          "require_uppercase",
-          "require_lowercase",
-          "require_digit",
-          "require_symbol",
-          "allow_common"
+          "max_length"
         ]
       },
       "PasswordChangeRequest": {
@@ -11232,20 +11212,6 @@
             "type": "string"
           }
         }
-      },
-      "PasswordRequirements": {
-        "type": "object",
-        "properties": {
-          "missing": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "missing"
-        ]
       },
       "PasswordResetConfirmRequest": {
         "type": "object",
@@ -15004,13 +14970,6 @@
     "password_contains_identifier": {
       "status": 400,
       "message": "Password can't contain your username or email."
-    },
-    "password_requirements_unmet": {
-      "status": 400,
-      "message": "Password doesn't meet the requirements.",
-      "metadata": {
-        "$ref": "#/components/schemas/PasswordRequirements"
-      }
     },
     "password_reset_required": {
       "status": 401,

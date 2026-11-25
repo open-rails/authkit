@@ -426,7 +426,7 @@ func (s *Engine) groupClient(row db.GroupOauthClient) authflow.OAuthClient {
 	c := config.OAuthClientConfig{
 		ID: row.ClientID, Name: row.ClientName, RedirectURIs: row.RedirectUris, PostLogoutRedirectURIs: row.PostLogoutRedirectUris,
 		GrantTypes: []config.OAuthGrantType{config.GrantAuthorizationCode, config.GrantRefreshToken},
-		Agreements: s.cfg.AuthorizationServer.GroupClients.Agreements,
+		Agreements: config.GroupClientAgreements(s.cfg),
 	}
 	if row.SecretHash != nil {
 		c.SecretSHA256 = *row.SecretHash

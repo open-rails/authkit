@@ -175,7 +175,7 @@ func (s *Service) mounts(f Feature) bool {
 	case FeaturePasskeys:
 		return s.svc.PasskeysEnabled()
 	case FeatureRegistration:
-		return cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
+		return cfg.Registration != iam.RegistrationModeClosed
 	case FeatureTwoFactor:
 		return s.svc.TwoFactorEnabled()
 	case FeatureSolana:

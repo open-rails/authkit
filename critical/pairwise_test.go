@@ -144,7 +144,7 @@ func oauthGet(t *testing.T, as *authtest.AuthorizationServer, path, bearer strin
 	r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, as.URL+path, nil)
 	noError(t, err)
 	if bearer != "" {
-		r.Header.Set("Authorization", "Bearer "+bearer)
+		authorize(t, r, bearer)
 	}
 	res, err := as.HTTPClient().Do(r)
 	noError(t, err)

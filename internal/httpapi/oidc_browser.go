@@ -113,7 +113,7 @@ func (s *Service) startProviderFlow(w http.ResponseWriter, r *http.Request, name
 			reject(errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("dpop_jkt")))
 			return
 		}
-		if login.dpopKey == "" && s.cfg.SignIn.DPoP == config.DPoPRequired {
+		if login.dpopKey == "" {
 			reject(errmodel.E(errmodel.CodeSenderProofRequired))
 			return
 		}

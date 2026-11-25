@@ -99,7 +99,7 @@ func TestCriticalRetainedEvents(t *testing.T) {
 		authtest.GrantRole(t, f.auth, iam.RootGroup(), iam.UserSubject(reader.ID), f.rootReader)
 		session := f.signIn(t, reader)
 		f.user(t)
-		remote, err := authkit.NewRemoteEventReader(authkit.RemoteEventConfig{BaseURL: f.server.URL + f.auth.APIBase(), HTTPClient: f.server.Client(), Headers: http.Header{"Authorization": {"Bearer " + session.AccessToken}}})
+		remote, err := authkit.NewRemoteEventReader(authkit.RemoteEventConfig{BaseURL: f.server.URL + f.auth.APIBase(), HTTPClient: &http.Client{Transport: credentialTransport{t, session.AccessToken, f.server.Client().Transport}}})
 		noError(t, err)
 		query := eventlog.Query{Types: []string{"user.registered"}, Limit: 50}
 		local, err := f.auth.EventReader().ListEvents(t.Context(), query)

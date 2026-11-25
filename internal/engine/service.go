@@ -72,15 +72,15 @@ type Engine struct {
 	// signs reports whether the engine mints tokens: its KeySource has a signer.
 	signs bool
 	// degraded are the survivable problems New handled (Probes).
-	degraded           []error
-	email              config.EmailSender
-	sms                config.SMSSender
-	emailHealth        senderHealth
-	smsHealth          senderHealth
-	healthMu           sync.Mutex
+	degraded    []error
+	email       config.EmailSender
+	sms         config.SMSSender
+	emailHealth senderHealth
+	smsHealth   senderHealth
+	healthMu    sync.Mutex
 	// producers are the registered notification producers, by tenant and name.
-	producersMu sync.Mutex
-	producers   map[string]notificationProducer
+	producersMu        sync.Mutex
+	producers          map[string]notificationProducer
 	stopHealth         context.CancelFunc
 	entitlements       func(context.Context, []string) (map[string][]string, error)
 	entitlementHolders func(context.Context, string) ([]string, error)

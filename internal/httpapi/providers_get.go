@@ -40,11 +40,11 @@ func (s *Service) Capabilities() Capabilities {
 	return Capabilities{
 		Captcha:       captcha,
 		Notifications: true,
-		DPoP:          string(cfg.SignIn.DPoP),
+		DPoP:          "required",
 		Registration: RegistrationCapabilities{
-			Mode:                string(cfg.Registration.NativeUserMode),
-			InviteTokenRequired: cfg.Registration.NativeUserMode == iam.RegistrationModeInviteOnly,
-			Agreements:          nonNil(cfg.Registration.Agreements),
+			Mode:                string(cfg.Registration),
+			InviteTokenRequired: cfg.Registration == iam.RegistrationModeInviteOnly,
+			Agreements:          nonNil(config.SignUpAgreements(cfg)),
 		},
 		Agreements:             s.svc.Agreements(),
 		ExternalLoginProviders: s.providerSummaries(),
@@ -56,15 +56,7 @@ func (s *Service) Capabilities() Capabilities {
 			RenameIntervalSeconds: int64(naming.Cooldown(cfg.Username) / time.Second),
 			FormerNames:           naming.NewState(cfg.Username, nil, time.Time{}).Policy,
 		},
-		Password: PasswordCapabilities{
-			MinLength:        cfg.Password.MinLength,
-			MaxLength:        cfg.Password.MaxLength,
-			RequireUppercase: cfg.Password.RequireUppercase,
-			RequireLowercase: cfg.Password.RequireLowercase,
-			RequireDigit:     cfg.Password.RequireDigit,
-			RequireSymbol:    cfg.Password.RequireSymbol,
-			AllowCommon:      cfg.Password.AllowCommon,
-		},
+		Password: PasswordCapabilities{MinLength: config.PasswordMinLength, MaxLength: config.PasswordMaxLength},
 		Passwordless: PasswordlessCapabilities{
 			Enabled:  config.Mounted(cfg, iam.RoutePasswordless),
 			Channels: channels,
@@ -76,13 +68,13 @@ func (s *Service) Capabilities() Capabilities {
 			Login: cfg.SolanaNetwork != "",
 		},
 		Verification: VerificationCapabilities{
-			Registration: string(cfg.Registration.Verification),
+			Registration: string(iam.RegistrationVerificationRequired),
 		},
 		Channels:    ChannelCapabilities{Email: email, SMS: sms},
-		SMS:         SMSCapabilities{Countries: nonNil(cfg.SMS.AllowedCountries)},
-		TwoFactor:   TwoFactorCapabilities{Mode: cfg.TwoFactor.Mode, Methods: s.svc.TwoFactorMethods()},
+		SMS:         SMSCapabilities{Countries: nonNil(cfg.SMSCountries)},
+		TwoFactor:   TwoFactorCapabilities{Mode: cfg.TwoFactor, Methods: s.svc.TwoFactorMethods()},
 		Invitations: InvitationCapabilities{Enabled: config.InvitationsOn(cfg)},
-		Languages:   cfg.Languages.Supported,
+		Languages:   cfg.Languages,
 	}
 }
 

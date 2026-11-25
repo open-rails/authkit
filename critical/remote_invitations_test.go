@@ -40,7 +40,7 @@ func TestCriticalRemoteInvitations(t *testing.T) {
 				"exp": now.Add(10 * time.Minute).Unix(), "jti": uuid.NewString(), "email": email, "email_verified": true})
 			r, err := http.NewRequestWithContext(ctx, http.MethodGet, resource+"/invitations", nil)
 			noError(t, err)
-			r.Header.Set("Authorization", "Bearer "+token)
+			authorize(t, r, token)
 			v, err := client.Authenticator().Authenticate(r)
 			noError(t, err)
 			return v

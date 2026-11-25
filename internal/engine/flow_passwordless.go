@@ -426,10 +426,9 @@ func (s *Engine) sendPasswordlessChallenge(ctx context.Context, rec passwordless
 }
 
 func (s *Engine) passwordlessAutoRegistrationAllowed() bool {
-	if s == nil || !s.cfg.Registration.PasswordlessAutoRegistration {
-		return false
-	}
-	return s.cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
+	// A verified contact signing up, when registration admits it (an
+	// invite-only one checks the invitation).
+	return s != nil && s.cfg.Registration != iam.RegistrationModeClosed
 }
 
 func normalizePasswordlessIdentifier(identifier string) (channel, normalized string, err error) {

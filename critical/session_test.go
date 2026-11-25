@@ -568,7 +568,7 @@ func TestCriticalSessions(t *testing.T) {
 		f.call(t, "PATCH", "/me", tokens.AccessToken, map[string]string{"username": "mustnotpersist"}).want(t, http.StatusUnauthorized, "session_revoked")
 		r, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/identity", nil)
 		noError(t, err)
-		r.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+		authorize(t, r, tokens.AccessToken)
 		if _, err = f.auth.Authenticator().Authenticate(r); !errors.Is(err, auth.ErrUnauthenticated) || !errors.Is(err, auth.ErrRevoked) {
 			t.Fatalf("live authenticator must classify revoked authority: %v", err)
 		}
@@ -585,7 +585,7 @@ func TestCriticalSessions(t *testing.T) {
 		request := func(ctx context.Context, token string) *http.Request {
 			r, err := http.NewRequestWithContext(ctx, "GET", f.server.URL+"/member", nil)
 			noError(t, err)
-			r.Header.Set("Authorization", "Bearer "+token)
+			authorize(t, r, token)
 			return r
 		}
 		// The hosts' tenant member gate: a live sign-in, then its source account.

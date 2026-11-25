@@ -111,9 +111,7 @@ func TestCriticalPasswordless(t *testing.T) {
 	})
 	t.Run("AK-J33-C02_new_accounts_still_obey_invitation_and_agreement_policy", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Agreements = []authkit.AgreementConfig{{Key: "terms", Version: "v1", URL: "https://policy.example/terms"}}
-			c.Registration.Agreements = []string{"terms"}
-			c.Registration.PasswordlessAutoRegistration = true
+			c.Agreements = []authkit.AgreementConfig{{Key: "terms", Version: "v1", URL: "https://policy.example/terms", SignUp: true}}
 			c.Username.RandomNames = []string{"journeyperson"}
 		}))
 		proof := f.passwordlessProof(t, "agreement-signup@example.com", "code")
@@ -135,8 +133,7 @@ func TestCriticalPasswordless(t *testing.T) {
 			t.Fatal("signup failed to record its literal accepted document")
 		}
 		closed := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
-			c.Registration.PasswordlessAutoRegistration = true
+			c.Registration = iam.RegistrationModeInviteOnly
 		}))
 		closed.call(t, "POST", "/passwordless/start", "", map[string]string{"identifier": "not-invited@example.com", "mode": "code"}).want(t, http.StatusForbidden, "registration_disabled")
 		if len(closed.out.Messages(iam.MessageVerification, "not-invited@example.com")) != 0 {

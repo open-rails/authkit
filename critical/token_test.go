@@ -88,7 +88,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		}
 		request, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/resource", nil)
 		noError(t, err)
-		request.Header.Set("Authorization", "Bearer "+session.AccessToken)
+		authorize(t, request, session.AccessToken)
 		fromRequest, err := f.auth.VerifyRequest(request)
 		noError(t, err)
 		if fromRequest.UserID != u.ID || fromRequest.SessionID != native.SessionID {
@@ -325,7 +325,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			r.Header.Set("Authorization", "Bearer "+token)
+			authorize(t, r, token)
 			if _, err := g.auth.Authenticator().Authenticate(r); err == nil {
 				t.Error("token of an issuer without keys was accepted")
 			}

@@ -298,7 +298,7 @@ func (s *Engine) ResolveTenantActor(ctx context.Context, verified auth.Verified)
 	id := verified.Identity()
 	state, ok := iam.StateOf(id)
 	if !ok || !state.IsUser() || id.SubjectKind != auth.SubjectUser ||
-		(id.Issuer != s.cfg.Issuer && !slices.Contains(s.cfg.Token.AccountIssuers, id.Issuer)) {
+		(id.Issuer != s.cfg.Issuer && !slices.Contains(s.cfg.AccountIssuers, id.Issuer)) {
 		return iam.TenantActor{}, auth.ErrForbidden
 	}
 	if deadline := state.ValidUntil(); !deadline.IsZero() && time.Now().After(deadline) {

@@ -154,7 +154,7 @@ func (a *Authenticator) authenticate(ctx context.Context, token string, r *http.
 }
 
 func (a *Authenticator) credential(ctx context.Context, token string, r *http.Request, dpop bool) (verify.Claims, error) {
-	if apikey.HasMarker(a.s.cfg.APIKeys.Prefix, token) {
+	if apikey.HasMarker(a.s.cfg.APIKeyPrefix, token) {
 		if dpop {
 			return verify.Claims{}, verify.ErrSenderProofRequired
 		}

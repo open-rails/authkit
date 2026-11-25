@@ -41,7 +41,7 @@ func liveProofRequest(t *testing.T, provider auth.Authenticator, token string, s
 	t.Helper()
 	r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proofOrigin+"/customer-proof", nil)
 	noError(t, err)
-	r.Header.Set("Authorization", "Bearer "+token)
+	authorize(t, r, token)
 	if sender != nil {
 		sender.Authorize(t, r, token, "")
 	}

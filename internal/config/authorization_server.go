@@ -27,16 +27,6 @@ type AuthorizationServerConfig struct {
 	// Resources are the resource servers access tokens may be minted for
 	// (RFC 8707 resource indicators).
 	Resources []ResourceServerConfig `yaml:"resources"`
-	// AccessTokenTTL is the lifetime of the RFC 9068 access tokens it mints,
-	// and those a resource server (Config.Resource) mints for its remote
-	// applications' assertions, which may set it with no Clients. 0
-	// defaults to 5 minutes; at most 15.
-	AccessTokenTTL time.Duration `yaml:"access_token_ttl"`
-	// RefreshTokenTTL bounds a refresh token family: rotation never extends
-	// it, and the client signs the user in again (prompt=none) after it.
-	// 0 defaults to 12 hours; at most 30 days. A family also ends with the
-	// sign-in it was issued from.
-	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl"`
 	// GroupClients is the policy for the OAuth clients groups register at
 	// run time (personas declared with OAuthClients): third-party clients
 	// whose users consent to each scope.
@@ -53,9 +43,6 @@ type GroupClientsConfig struct {
 	// (openid, email, phone, profile), each for one resource, with the
 	// description the consent screen shows.
 	Scopes []GroupClientScope `yaml:"scopes"`
-	// Agreements are keys of Config.Agreements a user accepts, at their
-	// current versions, before approving any group client.
-	Agreements []string `yaml:"agreements"`
 	// PairwiseSubjects gives each user a different sub, and sid, at each
 	// group's clients (OIDC Core §8.1, the group as the sector), so groups
 	// cannot join their users: in ID tokens, userinfo, access tokens and
@@ -139,13 +126,6 @@ type ResourceServerConfig struct {
 	// with this ceiling, so the resource server authorizes from the token.
 	// Empty mints tokens with no permissions.
 	Permissions []string `yaml:"permissions"`
-	// ContactClaims puts the user's contact in every access token for the
-	// resource, whatever scopes it carries: the OIDC claims email and
-	// email_verified, preferred_username, name and updated_at (seconds since
-	// the epoch, when one of them last changed). A resource that keeps its
-	// own copy of who a user is learns a new user from the first request.
-	// Other resources' tokens carry only what their scopes grant.
-	ContactClaims bool `yaml:"contact_claims"`
 }
 
 // OAuthGrantType is an OAuth 2.0 grant type a client may use.
@@ -167,18 +147,15 @@ const (
 	GrantJWTBearer OAuthGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 )
 
-// DefaultOAuthAccessTokenTTL is AuthorizationServerConfig.AccessTokenTTL's
-// default; MaxOAuthAccessTokenTTL its ceiling.
+// OAuthAccessTokenTTL is the lifetime of every access token AuthKit mints,
+// its authorization server's and its resource server's included;
+// OAuthRefreshTokenTTL bounds an authorization-server refresh token family:
+// rotation never extends it, and the client signs the user in again
+// (prompt=none) after it. A family also ends with the sign-in it was issued
+// from.
 const (
-	DefaultOAuthAccessTokenTTL = 5 * time.Minute
-	MaxOAuthAccessTokenTTL     = 15 * time.Minute
-)
-
-// DefaultOAuthRefreshTokenTTL is AuthorizationServerConfig.RefreshTokenTTL's
-// default; MaxOAuthRefreshTokenTTL its ceiling.
-const (
-	DefaultOAuthRefreshTokenTTL = 12 * time.Hour
-	MaxOAuthRefreshTokenTTL     = 30 * 24 * time.Hour
+	OAuthAccessTokenTTL  = AccessTokenTTL
+	OAuthRefreshTokenTTL = 12 * time.Hour
 )
 
 // oidcScopes are the scopes AuthKit defines itself; a resource may not
@@ -259,28 +236,13 @@ func OIDCScope(scope string) bool { return slices.Contains(oidcScopes, scope) }
 func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error {
 	a.groupClients = c.Roles != nil && c.Roles.oauthClients()
 	if len(a.Clients) == 0 && !a.groupClients {
-		if len(a.Resources) > 0 || a.AccessTokenTTL != 0 && !c.Resource.Enabled() || a.RefreshTokenTTL != 0 || len(a.GroupClients.Scopes) > 0 || len(a.GroupClients.Agreements) > 0 {
-			return errors.New("authkit: AuthorizationServer has resources, a TTL or group-client policy but no Clients and no persona with OAuthClients — the authorization server is off")
-		}
-		if a.AccessTokenTTL < 0 || a.AccessTokenTTL > MaxOAuthAccessTokenTTL {
-			return fmt.Errorf("authkit: AuthorizationServer.AccessTokenTTL must be between 0 and %v, got %v", MaxOAuthAccessTokenTTL, a.AccessTokenTTL)
+		if len(a.Resources) > 0 || len(a.GroupClients.Scopes) > 0 {
+			return errors.New("authkit: AuthorizationServer has resources or group-client scopes but no Clients and no persona with OAuthClients — the authorization server is off")
 		}
 		return nil
 	}
 	if c.HTTP == nil {
 		return errors.New("authkit: AuthorizationServer needs Config.HTTP: its endpoints are part of the HTTP surface")
-	}
-	switch {
-	case a.AccessTokenTTL < 0 || a.AccessTokenTTL > MaxOAuthAccessTokenTTL:
-		return fmt.Errorf("authkit: AuthorizationServer.AccessTokenTTL must be between 0 and %v, got %v", MaxOAuthAccessTokenTTL, a.AccessTokenTTL)
-	case a.AccessTokenTTL == 0:
-		a.AccessTokenTTL = DefaultOAuthAccessTokenTTL
-	}
-	switch {
-	case a.RefreshTokenTTL < 0 || a.RefreshTokenTTL > MaxOAuthRefreshTokenTTL:
-		return fmt.Errorf("authkit: AuthorizationServer.RefreshTokenTTL must be between 0 and %v, got %v", MaxOAuthRefreshTokenTTL, a.RefreshTokenTTL)
-	case a.RefreshTokenTTL == 0:
-		a.RefreshTokenTTL = DefaultOAuthRefreshTokenTTL
 	}
 
 	resources := make([]ResourceServerConfig, 0, len(a.Resources))
@@ -305,7 +267,7 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 	scim := ResourceServerConfig{ID: SCIMResource(c.Issuer), Scopes: []string{SCIMReadScope}}
 	if i := slices.IndexFunc(resources, func(r ResourceServerConfig) bool { return r.ID == scim.ID }); i >= 0 {
 		// Normalized once already, or declared by hand.
-		if r := resources[i]; !slices.Equal(r.Scopes, scim.Scopes) || len(r.Permissions) > 0 || r.ContactClaims {
+		if r := resources[i]; !slices.Equal(r.Scopes, scim.Scopes) || len(r.Permissions) > 0 {
 			return fmt.Errorf("authkit: AuthorizationServer.Resources: %q is AuthKit's own SCIM service provider; clients name it without declaring it", scim.ID)
 		}
 		resources = slices.Delete(resources, i, i+1)
@@ -341,12 +303,12 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		clients = append(clients, cl)
 	}
 	a.Clients = clients
-	return normalizeGroupClients(&a.GroupClients, a.Resources, c.Agreements)
+	return normalizeGroupClients(&a.GroupClients, a.Resources)
 }
 
 // normalizeGroupClients checks each group-client scope names a resource
-// that defines it, and each agreement a declared document.
-func normalizeGroupClients(g *GroupClientsConfig, resources []ResourceServerConfig, agreements []AgreementConfig) error {
+// that defines it.
+func normalizeGroupClients(g *GroupClientsConfig, resources []ResourceServerConfig) error {
 	scopes := make([]GroupClientScope, 0, len(g.Scopes))
 	for i, sc := range g.Scopes {
 		sc.Name, sc.Resource, sc.Description = strings.TrimSpace(sc.Name), strings.TrimSpace(sc.Resource), strings.TrimSpace(sc.Description)
@@ -365,12 +327,6 @@ func normalizeGroupClients(g *GroupClientsConfig, resources []ResourceServerConf
 		scopes = nil
 	}
 	g.Scopes = scopes
-	g.Agreements = dedup(g.Agreements)
-	for _, key := range g.Agreements {
-		if !slices.ContainsFunc(agreements, func(a AgreementConfig) bool { return a.Key == key }) {
-			return fmt.Errorf("authkit: AuthorizationServer.GroupClients names agreement %q, which Agreements does not declare", key)
-		}
-	}
 	return nil
 }
 

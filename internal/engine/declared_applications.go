@@ -31,7 +31,7 @@ func (s *Engine) reconcileRemoteApplications(ctx context.Context) error {
 	}
 	apps := make([]iam.RemoteApplication, len(declared))
 	for i, app := range declared {
-		apps[i] = iam.RemoteApplication{Issuer: app.Issuer, PublicKeys: app.PublicKeys, Enabled: !app.Disabled, Role: app.Role, RoleMap: app.RoleMap}
+		apps[i] = iam.RemoteApplication{Issuer: app.Issuer, PublicKeys: app.PublicKeys, Enabled: true, Role: app.Role, RoleMap: app.RoleMap}
 	}
 	return s.declareRemoteApplications(ctx, nil, iam.RootGroup(), apps, "Config.RemoteApplications")
 }

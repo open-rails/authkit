@@ -47,7 +47,6 @@ func TestCriticalCodeAbuse(t *testing.T) {
 			VerifyURL: siteverify.URL, Hostnames: []string{"shop.example.com"}})
 		noError(t, err)
 		f := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) { d.Captcha = v }), authtest.WithConfig(func(c *authkit.Config) {
-			c.Registration.PasswordlessAutoRegistration = true
 		}))
 
 		var caps struct {
@@ -100,7 +99,7 @@ func TestCriticalCodeAbuse(t *testing.T) {
 	})
 
 	t.Run("AK-J33-C11_numbers_no_person_texts_from_and_numbers_the_provider_refuses_are_phone_number_not_allowed", func(t *testing.T) {
-		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.Registration.PasswordlessAutoRegistration = true }))
+		f := newFixture(t)
 		for number, reason := range map[string]string{
 			"+449012345678": "premium_rate",
 			"+18002345678":  "toll_free",
@@ -147,7 +146,6 @@ func TestCriticalCodeAbuse(t *testing.T) {
 			Client: client, DeliveryPollInterval: 10 * time.Millisecond})
 		noError(t, err)
 		g := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) { d.SMS = sendOnly{sms} }), authtest.WithConfig(func(c *authkit.Config) {
-			c.Registration.PasswordlessAutoRegistration = true
 		}))
 		for number, reason := range map[string]string{"+12025550190": "region_not_enabled", "+12025550191": "provider_blocked"} {
 			r := g.call(t, "POST", "/passwordless/start", "", map[string]string{"identifier": number, "mode": "code"})
@@ -163,7 +161,6 @@ func TestCriticalCodeAbuse(t *testing.T) {
 
 	t.Run("AK-J33-C12_unconfirmed_texts_per_number_range_and_per_client_are_capped_and_a_proven_code_gives_its_text_back", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Registration.PasswordlessAutoRegistration = true
 			config.Tune(c, func(tn *config.Tuning) { tn.RateLimits["sms_range"] = config.RateLimit{Limit: 2, Window: time.Hour} })
 		}))
 		start := func(number string) response {
@@ -183,7 +180,6 @@ func TestCriticalCodeAbuse(t *testing.T) {
 		challengeOf(t, start("+12025550172"))
 
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Registration.PasswordlessAutoRegistration = true
 			config.Tune(c, func(tn *config.Tuning) { tn.RateLimits["sms_client"] = config.RateLimit{Limit: 2, Window: time.Hour} })
 		}), authtest.WithDeps(func(d *authkit.Deps) {
 			d.RequestClient = func(r *http.Request) string { return r.Header.Get("X-Checkout-Merchant") }

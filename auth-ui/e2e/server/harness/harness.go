@@ -64,11 +64,10 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	cfg := authkit.Config{
 		DefaultTenantID: tenant,
 		Roles:           roles,
-		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true, Groups: append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)},
+		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true, Groups: append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)},
 		Database:        authkit.DatabaseConfig{Schema: schema},
 		Issuer:          origin,
-		Registration:    authkit.RegistrationConfig{Verification: iam.RegistrationVerificationRequired},
-		TwoFactor:       authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional},
+		TwoFactor:       iam.TwoFactorOptional,
 	}
 	config.Tune(&cfg, func(tn *config.Tuning) {
 		tn.RateLimits = limits
@@ -81,7 +80,6 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 		}}}
 	}
 	if profile == "unproved" {
-		cfg.Registration.Verification = iam.RegistrationVerificationOptional
 		cfg.HTTP.Groups = slices.DeleteFunc(cfg.HTTP.Groups, func(g iam.RouteGroup) bool { return g == iam.RouteInvitations })
 	}
 	client, err := authkit.New(ctx, cfg, authkit.Deps{

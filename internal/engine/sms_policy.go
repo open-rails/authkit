@@ -44,7 +44,7 @@ func (s *Engine) smsRegion(number string) (string, error) {
 			region = ""
 		}
 	}
-	if allowed := s.cfg.SMS.AllowedCountries; len(allowed) > 0 && !slices.Contains(allowed, region) {
+	if allowed := s.cfg.SMSCountries; len(allowed) > 0 && !slices.Contains(allowed, region) {
 		return region, errmodel.E(errmodel.CodePhoneCountryNotAllowed, errmodel.WithDetails(errmodel.PhoneCountry{Country: region}))
 	}
 	if err == nil {

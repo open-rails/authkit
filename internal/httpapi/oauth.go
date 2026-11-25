@@ -407,11 +407,11 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 
 // oauthTokenDPoP verifies the token request's DPoP proof (no ath at the
 // token endpoint) and returns its key's thumbprint: "" without one, which a
-// user grant may omit unless SignIn.DPoP is required (the jwt-bearer grant
-// refuses it; client credentials never need one).
+// user grant never omits (the jwt-bearer grant refuses it too; client
+// credentials never need one).
 func (s *Service) oauthTokenDPoP(r *http.Request, grant config.OAuthGrantType) (string, error) {
 	if len(r.Header.Values("DPoP")) == 0 {
-		if grant != config.GrantClientCredentials && grant != config.GrantJWTBearer && s.cfg.SignIn.DPoP == config.DPoPRequired {
+		if grant != config.GrantClientCredentials && grant != config.GrantJWTBearer {
 			return "", authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "a DPoP proof is required")
 		}
 		return "", nil

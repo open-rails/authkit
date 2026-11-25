@@ -70,12 +70,6 @@ type LengthBounds struct {
 	MaxLength int `json:"max_length"`
 }
 
-// PasswordRequirements lists the character classes a new password lacks:
-// the metadata of password_requirements_unmet.
-type PasswordRequirements struct {
-	Missing []string `json:"missing"`
-}
-
 // ContactProofRequired names the address an account must prove first: the
 // metadata of verification_required and contact_not_verified. Reason says why
 // ("contact_unproven" when no address is proven yet).

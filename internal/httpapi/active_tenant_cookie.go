@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/tenancy"
 )
 
@@ -50,8 +51,6 @@ func (s *Service) setActiveTenantCookie(w http.ResponseWriter, r *http.Request) 
 	current := CurrentCookie(CookieActiveTenant, secure)
 	expireCookieVariants(w, r, CookieActiveTenant, &current, secure, func(v CookieVariant) string { return ActiveTenantCookieName(s.cfg.Issuer, v.Secure) }, true)
 	cookie := &http.Cookie{Name: ActiveTenantCookieName(s.cfg.Issuer, secure), Value: tenant.String(), Path: current.Path, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode}
-	if duration := s.cfg.Token.RefreshTokenDuration; duration > 0 {
-		cookie.MaxAge = int(duration.Seconds())
-	}
+	cookie.MaxAge = int(config.SessionTTL.Seconds())
 	http.SetCookie(w, cookie)
 }

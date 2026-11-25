@@ -91,7 +91,7 @@ func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email st
 }
 
 func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*db.AccountInviteForUpdateRow, error) {
-	mode := s.cfg.Registration.NativeUserMode
+	mode := s.cfg.Registration
 	if mode == iam.RegistrationModeClosed {
 		return nil, errmodel.ErrRegistrationDisabled
 	}

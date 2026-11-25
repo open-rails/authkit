@@ -83,7 +83,7 @@ func (s *Engine) resolveExternalIdentity(ctx context.Context, in authflow.Extern
 			return "", false, errmodel.ErrAccountExistsLinkRequired
 		}
 	}
-	if s.cfg.Registration.NativeUserMode == iam.RegistrationModeClosed {
+	if s.cfg.Registration == iam.RegistrationModeClosed {
 		return "", false, errmodel.ErrRegistrationDisabled
 	}
 	username, err := s.GenerateUsername(ctx)

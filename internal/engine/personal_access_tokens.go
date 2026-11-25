@@ -108,11 +108,11 @@ func (s *Engine) CreatePersonalAccessToken(ctx context.Context, who auth.Identit
 		}
 	}
 	now := s.nowTime()
-	expires := now.Add(s.cfg.PersonalAccessTokens.DefaultTTL)
+	expires := now.Add(config.PersonalAccessTokenTTL)
 	if in.ExpiresAt != nil {
 		expires = in.ExpiresAt.UTC()
 	}
-	if !expires.After(now) || expires.After(now.Add(s.cfg.PersonalAccessTokens.MaxTTL)) {
+	if !expires.After(now) || expires.After(now.Add(config.PersonalAccessTokenMaxTTL)) {
 		return out, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("expires_at"))
 	}
 	err := s.withAuthorityMutation(ctx, who, func(st *permissionGroupStore) error {

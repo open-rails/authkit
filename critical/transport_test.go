@@ -35,7 +35,7 @@ func wire(t *testing.T, client *http.Client, method, address, credential, mediaT
 	r, err := http.NewRequestWithContext(t.Context(), method, address, strings.NewReader(body))
 	noError(t, err)
 	if credential != "" {
-		r.Header.Set("Authorization", "Bearer "+credential)
+		authorize(t, r, credential)
 	}
 	if mediaType != "" {
 		r.Header.Set("Content-Type", mediaType)
@@ -194,7 +194,6 @@ func TestCriticalTransport(t *testing.T) {
 	})
 	t.Run("AK-J31-C05_cookie_origin_CORS_and_proxy_headers_cannot_grant_trust", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RefreshCookie = true
 			c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: "web", RedirectURIs: []string{"https://client.example/callback"}}}
 		}))
 		f.server.Close()
@@ -203,14 +202,19 @@ func TestCriticalTransport(t *testing.T) {
 		u := f.user(t)
 		body, _ := json.Marshal(map[string]string{"identifier": u.Email, "password": u.Password})
 		address := f.server.URL + f.auth.APIBase() + "/password/login"
+		// proved adds a fresh proof of the fixture's key for path.
+		proved := func(h http.Header, path string) http.Header {
+			h.Set("DPoP", f.dpop.Proof(t, "POST", origin(f.cfg.Issuer)+f.auth.APIBase()+path, "", ""))
+			return h
+		}
 		for _, h := range []http.Header{{"Origin": {"https://attacker.example"}}, {"Origin": {"null"}}, {"Origin": {f.server.URL}, "Sec-Fetch-Site": {"cross-site"}}, {"Origin": {"https://attacker.example"}, "X-Forwarded-Host": {"attacker.example"}, "X-Forwarded-Proto": {"https"}}} {
-			r := wire(t, f.server.Client(), "POST", address, "", "application/json", string(body), h)
+			r := wire(t, f.server.Client(), "POST", address, "", "application/json", string(body), proved(h, "/password/login"))
 			r.want(t, 403, "origin_not_allowed")
 			if r.header.Get("Set-Cookie") != "" {
 				t.Fatal("rejected origin received a sign-in cookie")
 			}
 		}
-		good := wire(t, f.server.Client(), "POST", address, "", "application/json", string(body), http.Header{"Origin": {f.server.URL}, "Sec-Fetch-Site": {"same-origin"}})
+		good := wire(t, f.server.Client(), "POST", address, "", "application/json", string(body), proved(http.Header{"Origin": {f.server.URL}, "Sec-Fetch-Site": {"same-origin"}}, "/password/login"))
 		good.want(t, 200, "")
 		var signed signInResult
 		decode(t, good.body, &signed)
@@ -230,8 +234,8 @@ func TestCriticalTransport(t *testing.T) {
 		if cookie == "" {
 			t.Fatal("valid origin received no HttpOnly refresh cookie")
 		}
-		wire(t, f.server.Client(), "POST", f.server.URL+f.auth.APIBase()+"/token", "", "application/json", `{"grant_type":"refresh_token"}`, http.Header{"Origin": {"https://attacker.example"}, "Cookie": {cookie}}).want(t, 403, "origin_not_allowed")
-		wire(t, f.server.Client(), "POST", f.server.URL+f.auth.APIBase()+"/token", "", "application/json", `{"grant_type":"refresh_token"}`, http.Header{"Origin": {f.server.URL}, "Cookie": {cookie}}).want(t, 200, "")
+		wire(t, f.server.Client(), "POST", f.server.URL+f.auth.APIBase()+"/token", "", "application/json", `{"grant_type":"refresh_token"}`, proved(http.Header{"Origin": {"https://attacker.example"}, "Cookie": {cookie}}, "/token")).want(t, 403, "origin_not_allowed")
+		wire(t, f.server.Client(), "POST", f.server.URL+f.auth.APIBase()+"/token", "", "application/json", `{"grant_type":"refresh_token"}`, proved(http.Header{"Origin": {f.server.URL}, "Cookie": {cookie}}, "/token")).want(t, 200, "")
 		for _, origin := range []string{"https://client.example", "https://attacker.example"} {
 			r := wire(t, f.server.Client(), "OPTIONS", f.server.URL+"/oauth2/token", "", "", "", http.Header{"Origin": {origin}})
 			r.want(t, 204, "")

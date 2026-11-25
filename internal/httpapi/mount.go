@@ -157,9 +157,7 @@ func NewMount(svc *Service) (result *Mount, err error) {
 	mount(svc.SCIMRoutes(opts.Groups...), base, false)
 
 	result.handler = withMountLayout(svc.apiMisses(mux, api), layout)
-	if opts.RefreshCookie {
-		result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
-	}
+	result.handler = withRefreshCookiePolicy(result.handler, refreshCookiePolicy{})
 	result.handler = noStore(result.handler)
 	return result, nil
 }

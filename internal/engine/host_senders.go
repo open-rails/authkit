@@ -57,8 +57,8 @@ func (s *Engine) messageLanguage(ctx context.Context, preferred string) string {
 	if l := lang.Request(ctx); l != "" {
 		return l
 	}
-	if s.cfg.Languages.Default != "" {
-		return s.cfg.Languages.Default
+	if config.DefaultLanguage(s.cfg) != "" {
+		return config.DefaultLanguage(s.cfg)
 	}
 	return lang.Default
 }

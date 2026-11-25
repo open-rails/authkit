@@ -458,7 +458,7 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 		return authflow.OAuthTokens{}, iam.ErrSigningNotConfigured
 	}
 	now := s.nowTime()
-	ttl := s.cfg.AuthorizationServer.AccessTokenTTL
+	ttl := config.AccessTokenTTL
 	if m.workload {
 		ttl = devicekey.MaxCapabilityLifetime + authflow.AssertionSkew // grantEnd, the capability's exp, bounds it
 	}
@@ -557,14 +557,8 @@ func (s *Engine) mintOAuthTokens(ctx context.Context, m oauthMint) (authflow.OAu
 	}
 	if m.client.ThirdParty() {
 		addVerifiedContactClaims(at, u, m.scopes)
-	} else if (slices.Contains(m.scopes, "email") || resource.ContactClaims) && u.Email != nil {
+	} else if slices.Contains(m.scopes, "email") && u.Email != nil {
 		at["email"], at["email_verified"] = *u.Email, u.EmailVerified
-	}
-	if resource.ContactClaims && !m.client.ThirdParty() {
-		if u.Username != nil {
-			at["preferred_username"], at["name"] = *u.Username, *u.Username
-		}
-		at["updated_at"] = u.ProfileUpdatedAt.Unix()
 	}
 	access, err := jose.Sign(ctx, signer, jose.ResourceAccessTokenType, at)
 	if err != nil {

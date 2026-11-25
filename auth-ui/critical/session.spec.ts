@@ -1,6 +1,6 @@
 import { test } from "./browser"
 import { expect } from "@playwright/test"
-import { identity, login, open, register, seed, settle } from "./browser"
+import { login, open, register, seed, settle } from "./browser"
 
 test("AK-UI-01: AK-J29-C01: start, stop, subscribe and browser restore retain only the current identity", async ({
   page,
@@ -319,19 +319,12 @@ test("AK-UI-05: AK-J29-C06: real auth errors, rate limits and abort preserve the
 
 test("AK-UI-06: AK-J29-C04: contact proof cannot replay a mutation across a replacement sign-in", async ({
   page,
+  request,
 }) => {
-  const who = identity()
+  // A host-created account signs in unproven.
+  const who = await seed(request, { profile: "unproved", verified: false })
   await open(page, "?unproved")
-  const signIn = await settle(
-    page,
-    (who) =>
-      window.ak.client.register({
-        identifier: who.email,
-        username: who.username,
-        password: who.password,
-      }),
-    who
-  )
+  const signIn = await login(page, who)
   expect(signIn && "status" in signIn && signIn.status).toBe("complete")
   const result = await settle(page, async () => {
     const seen: { identifier: string; channel: string }[] = []

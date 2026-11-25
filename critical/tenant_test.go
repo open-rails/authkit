@@ -184,7 +184,7 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		noError(t, err)
 		r, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/source", nil)
 		noError(t, err)
-		r.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+		authorize(t, r, tokens.AccessToken)
 		verified, err := f.auth.Authenticator().Authenticate(r)
 		noError(t, err)
 		actor, err := view.ResolveTenantActor(t.Context(), verified)
@@ -210,7 +210,7 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		foreignTokens := foreign.signIn(t, foreignUser)
 		foreignRequest, err := http.NewRequestWithContext(t.Context(), "GET", foreign.server.URL+"/source", nil)
 		noError(t, err)
-		foreignRequest.Header.Set("Authorization", "Bearer "+foreignTokens.AccessToken)
+		authorize(t, foreignRequest, foreignTokens.AccessToken)
 		foreignVerified, err := foreign.auth.Authenticator().Authenticate(foreignRequest)
 		noError(t, err)
 		if actor, err := view.ResolveTenantActor(t.Context(), foreignVerified); !errors.Is(err, auth.ErrForbidden) || actor != (iam.TenantActor{}) {

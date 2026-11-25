@@ -527,13 +527,8 @@ type TwoFactorCapabilities struct {
 // PasswordCapabilities is everything a browser needs to pre-validate a new
 // password except the blocklist itself. AllowCommon says the blocklist is off.
 type PasswordCapabilities struct {
-	MinLength        int  `json:"min_length"`
-	MaxLength        int  `json:"max_length"`
-	RequireUppercase bool `json:"require_uppercase"`
-	RequireLowercase bool `json:"require_lowercase"`
-	RequireDigit     bool `json:"require_digit"`
-	RequireSymbol    bool `json:"require_symbol"`
-	AllowCommon      bool `json:"allow_common"`
+	MinLength int `json:"min_length"`
+	MaxLength int `json:"max_length"`
 }
 
 type PasswordlessCapabilities struct {

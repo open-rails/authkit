@@ -22,7 +22,7 @@ func TestCriticalWorkloads(t *testing.T) {
 	jwtBearer := []authkit.OAuthGrantType{authkit.GrantJWTBearer}
 	as := authtest.NewAuthorizationServer(t, authtest.WithConfig(func(c *authkit.Config) {
 		mountGroups(c, iam.RouteDeviceKeys)
-		c.TwoFactor.Mode = iam.TwoFactorDisabled
+		c.TwoFactor = iam.TwoFactorDisabled
 		c.AuthorizationServer = authkit.AuthorizationServerConfig{
 			Resources: []authkit.ResourceServerConfig{{ID: resource}},
 			Clients: []authkit.OAuthClientConfig{

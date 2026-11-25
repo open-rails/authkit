@@ -315,7 +315,7 @@ func TestCriticalGroupAuthority(t *testing.T) {
 		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Issuer}, verify.IssuerOptions{KeySource: f.deps.KeySource}))
 		r, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/identity", nil)
 		noError(t, err)
-		r.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		authorize(t, r, token.AccessToken)
 		identity, err := v.AuthenticateRequest(t.Context(), r)
 		noError(t, err)
 		if identity.Identity().Subject != operator.ID {

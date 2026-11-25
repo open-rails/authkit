@@ -169,7 +169,7 @@ func (s *Engine) applyProviders(providers []provider.Provider) {
 // issuers, which no identity provider may claim.
 func (s *Engine) accountIssuer(issuer string) bool {
 	key := issuerKey(issuer)
-	for _, own := range s.cfg.Token.AccountIssuers {
+	for _, own := range s.cfg.AccountIssuers {
 		if issuerKey(own) == key {
 			return true
 		}

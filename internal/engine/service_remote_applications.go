@@ -290,7 +290,7 @@ func (s *Engine) reservedIssuer(issuer string) bool {
 // sign for every shared account.
 func (s *Engine) accountPeerIssuer(issuer string) bool {
 	key := issuerKey(issuer)
-	for _, peer := range s.cfg.Token.AccountIssuers {
+	for _, peer := range s.cfg.AccountIssuers {
 		if key != "" && issuerKey(peer) == key {
 			return true
 		}

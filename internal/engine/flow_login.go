@@ -46,8 +46,6 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	if identifier == "" || in.Password == "" {
 		return s.rejectLogin(ctx, in, "", errmodel.ErrInvalidCredentials), nil
 	}
-	requiresVerification := s.registrationVerificationRequired()
-
 	var (
 		u   *db.User
 		err error
@@ -75,13 +73,9 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 		}
 	}
 
-	// Verify the password BEFORE sending any OTP so an unauthenticated caller
-	// can neither trigger sends nor enumerate accounts.
-	if requiresVerification && !s.cfg.Registration.UnprovenPasswordSignIn {
-		if out, parked, err := s.verificationGate(ctx, in, u); err != nil || parked {
-			return out, err
-		}
-	}
+	// An account with an unproven contact is one a host operation created
+	// (CreateUser, an import, SCIM): every sign-up proves its contact before
+	// the account exists. It signs in by password, and stays unproven.
 
 	version, err := s.authenticatePassword(ctx, u, in.Password)
 	if errors.Is(err, password.ErrBusy) {
@@ -230,50 +224,6 @@ func (s *Engine) recoverPendingLogin(ctx context.Context, in authflow.PasswordLo
 		channel = "phone"
 	}
 	return authflow.LoginOutcome{Kind: authflow.LoginVerificationRequired, Verification: &authflow.VerificationRequired{Identifier: identifier, Channel: channel, Challenge: challenge}}, nil
-}
-
-// verificationGate parks an unverified account: the password must verify
-// first (no OTP for the unauthenticated), then a fresh code goes out over the
-// unverified channel and the login ends in LoginVerificationRequired with a
-// password proof. An account with no proven contact whose code no channel can
-// send now is refused with ErrVerificationUnavailable, never signed in on the
-// password alone.
-func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLoginInput, u *db.User) (authflow.LoginOutcome, bool, error) {
-	needsEmail := !u.EmailVerified && u.Email != nil
-	needsPhone := !u.PhoneVerified && u.PhoneNumber != nil
-	if !needsEmail && !needsPhone {
-		return authflow.LoginOutcome{}, false, nil
-	}
-	if err := s.CheckUserPassword(ctx, u.ID, in.Password); errors.Is(err, password.ErrBusy) {
-		return authflow.LoginOutcome{}, true, err
-	} else if err != nil {
-		out, err := s.passwordRejected(ctx, in, u.ID, err)
-		return out, true, err
-	}
-	if needsEmail && s.EmailAvailable() {
-		challenge, err := s.requestEmailVerification(ctx, *u.Email)
-		if err != nil {
-			return authflow.LoginOutcome{}, true, stageErr("send_email_verification", fmt.Errorf("%w: %w", errmodel.ErrEmailVerificationSendFailed, err))
-		}
-		s.loginFailed(ctx, in, u.ID, "email_not_verified")
-		return s.verificationRequired(ctx, u.ID, *u.Email, "email", challenge, defaultEmailVerificationTTL)
-	}
-	if needsPhone && s.SMSAvailable() {
-		challenge, err := s.sendPhoneVerificationToUser(ctx, *u.PhoneNumber, u.ID)
-		if err != nil {
-			return authflow.LoginOutcome{}, true, stageErr("send_phone_verification", fmt.Errorf("%w: %w", errmodel.ErrPhoneVerificationSendFailed, err))
-		}
-		s.loginFailed(ctx, in, u.ID, "phone_not_verified")
-		return s.verificationRequired(ctx, u.ID, *u.PhoneNumber, "phone", challenge, defaultPhoneVerificationTTL)
-	}
-	// An account that already proved one contact signs in as before, so a site
-	// without SMS does not lock out a verified email beside an unverified phone.
-	if u.EmailVerified && u.Email != nil || u.PhoneVerified && u.PhoneNumber != nil {
-		return authflow.LoginOutcome{}, false, nil
-	}
-	s.log.Warn("password sign-in refused: no channel can send the required verification code", "user_id", u.ID, "email_available", s.EmailAvailable(), "sms_available", s.SMSAvailable())
-	s.loginFailed(ctx, in, u.ID, "verification_unavailable")
-	return authflow.LoginOutcome{}, true, errmodel.ErrVerificationUnavailable
 }
 
 // verificationRequired parks a login that proved userID's password at the code

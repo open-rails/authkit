@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/open-rails/authkit/internal/config"
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
@@ -182,7 +183,7 @@ func (s *Engine) registerRiver(cfg *river.Config) error {
 	if _, ok := cfg.Queues[sweepQueue]; !ok {
 		cfg.Queues[sweepQueue] = river.QueueConfig{MaxWorkers: 1}
 	}
-	interval := s.cfg.CleanupInterval
+	interval := config.CleanupInterval
 	cfg.PeriodicJobs = append(cfg.PeriodicJobs, riverhelpers.NewPeriodicJob(
 		cfg, interval,
 		func() (river.JobArgs, *river.InsertOpts) {

@@ -775,7 +775,6 @@ export const ko: AuthUiMessageBundle = {
       "패스키에서 사용자 인증을 거쳐야 합니다.",
     password_contains_identifier:
       "비밀번호에 사용자 이름이나 이메일을 포함할 수 없습니다.",
-    password_requirements_unmet: "비밀번호가 요구 사항을 충족하지 않습니다.",
     password_reset_required:
       "계정이 새 로그인 시스템 도입 이전에 만들어졌습니다. 계속하려면 비밀번호를 재설정해 주세요.",
     password_too_common:

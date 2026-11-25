@@ -202,21 +202,21 @@ func engineKeySource(host keys.Source, dev *developmentKeys, log *slog.Logger) (
 func (s *Engine) Config() config.Config { return s.cfg }
 
 func (s *Engine) registrationVerificationRequired() bool {
-	return s.cfg.Registration.Verification == iam.RegistrationVerificationRequired
+	return true
 }
 
 func (s *Engine) RegistrationVerificationEnabled() bool {
-	return s.cfg.Registration.Verification != iam.RegistrationVerificationNone
+	return true
 }
 
 // PublicNativeUserRegistrationEnabled reports whether public native-user
 // self-registration / auto-registration is allowed.
 func (s *Engine) PublicNativeUserRegistrationEnabled() bool {
-	return s.cfg.Registration.NativeUserMode == iam.RegistrationModeOpen
+	return s.cfg.Registration == iam.RegistrationModeOpen
 }
 
 // requireMFAEnrollment reports whether every user must enroll a second factor
 // before establishing/refreshing a session (TwoFactor.Mode == "required").
 func (s *Engine) requireMFAEnrollment() bool {
-	return s.cfg.TwoFactor.Mode == iam.TwoFactorRequired
+	return s.cfg.TwoFactor == iam.TwoFactorRequired
 }

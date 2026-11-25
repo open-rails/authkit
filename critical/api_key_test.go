@@ -37,7 +37,7 @@ func (f *fixture) authenticate(t *testing.T, credential string) (auth.Verified, 
 	t.Helper()
 	r, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/resource", nil)
 	noError(t, err)
-	r.Header.Set("Authorization", "Bearer "+credential)
+	authorize(t, r, credential)
 	return f.auth.Authenticator().Authenticate(r)
 }
 
@@ -88,12 +88,11 @@ func TestCriticalAPIKeyAuthority(t *testing.T) {
 		if !errors.Is(err, auth.ErrRevoked) || auth.Refuse(nil, err).Status != http.StatusUnauthorized {
 			t.Fatalf("revoked key classification=%v", err)
 		}
-		expiredFixture := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.APIKeys.MaxTTL = time.Nanosecond }))
-		expired, _, _ := expiredFixture.key(t)
-		if expired.APIKey.ExpiresAt == nil || !expired.APIKey.ExpiresAt.Before(time.Now()) {
-			t.Fatal("fixture key has not reached its returned expiration boundary")
-		}
-		_, err = expiredFixture.authenticate(t, expired.Secret)
+		soon := time.Now().Add(1500 * time.Millisecond)
+		expired, err := f.auth.CreateAPIKey(t.Context(), who, iam.GroupByID(group.ID), iam.NewAPIKey{Name: "expiring worker", Role: f.reader, ExpiresAt: &soon})
+		noError(t, err)
+		eventually(t, "the key's expiry", func() bool { return time.Now().After(soon) })
+		_, err = f.authenticate(t, expired.Secret)
 		if !errors.Is(err, auth.ErrExpired) || auth.Refuse(nil, err).Status != http.StatusUnauthorized {
 			t.Fatalf("expired key classification=%v", err)
 		}
@@ -152,7 +151,7 @@ func TestCriticalAPIKeyAuthority(t *testing.T) {
 		peer := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Issuer = "https://other-app.example" }))
 		r, err := http.NewRequestWithContext(t.Context(), "GET", "https://other-app.example/resource", nil)
 		noError(t, err)
-		r.Header.Set("Authorization", "Bearer "+key.Secret)
+		authorize(t, r, key.Secret)
 		if _, err := peer.Authenticator().Authenticate(r); !errors.Is(err, auth.ErrUnauthenticated) {
 			t.Fatalf("same database different issuer accepted key: %v", err)
 		}

@@ -11,7 +11,7 @@ var validationCodes = map[errmodel.Code]bool{
 	errmodel.CodeUsernameCannotContainAt: true, errmodel.CodeUsernameCannotStartWithPlus: true, errmodel.CodeUsernameInvalidCharacters: true,
 	errmodel.CodeUsernameInUse: true, errmodel.CodeUsernameNotAllowed: true, errmodel.CodeRenameRateLimited: true,
 	errmodel.CodeInvalidEmail: true, errmodel.CodeInvalidPhoneNumber: true, errmodel.CodePasswordTooShort: true, errmodel.CodePasswordTooLong: true,
-	errmodel.CodePasswordTooCommon: true, errmodel.CodePasswordContainsIdentifier: true, errmodel.CodePasswordRequirementsUnmet: true,
+	errmodel.CodePasswordTooCommon: true, errmodel.CodePasswordContainsIdentifier: true,
 	errmodel.CodeInvalidPreferredLanguage: true,
 }
 

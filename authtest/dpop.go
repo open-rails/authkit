@@ -176,10 +176,22 @@ func Authorize(t testing.TB, auth *authkit.Client, r *http.Request, token string
 	r.Header.Set("DPoP", key.Proof(t, r.Method, base.Scheme+"://"+base.Host+r.URL.EscapedPath(), token, ""))
 }
 
-// requiresDPoP reports whether auth's sign-ins need a DPoP key, from its
-// configuration: asking /capabilities would spend the caller's rate limit.
-func requiresDPoP(t testing.TB, auth *authkit.Client) bool {
-	t.Helper()
-	cfg, _ := builtWith(t, auth)
-	return cfg.SignIn.DPoP == authkit.DPoPRequired
+// Transport presents token on every request base sends, as Authorize does: a
+// token SignIn bound goes as DPoP with a fresh proof, any other as Bearer.
+// Hand it to code that calls the host's APIs with a signed-in user's
+// session, such as another service in a host's end-to-end fixture. Nil base
+// is http.DefaultTransport.
+func Transport(t testing.TB, auth *authkit.Client, token string, base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		r = r.Clone(r.Context())
+		Authorize(t, auth, r, token)
+		return base.RoundTrip(r)
+	})
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

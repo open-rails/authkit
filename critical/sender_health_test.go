@@ -221,7 +221,7 @@ func TestCriticalSenderHealth(t *testing.T) {
 	})
 	t.Run("AK-J40-C03_unproven_sign_in_keeps_its_code_through_one_failed_check_and_is_refused_after_two_in_a_row", func(t *testing.T) {
 		email, held := holdEmail()
-		f := newFixture(t, proofRegistration(), held, heldTiming)
+		f := newFixture(t, held, heldTiming)
 		unproven, err := f.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-held@example.com", Username: "unprovenheld", Password: authtest.Password})
 		noError(t, err)
 		login := func() response {

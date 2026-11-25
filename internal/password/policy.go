@@ -17,27 +17,12 @@ import (
 // MinIdentifierLength is the shortest identifier a password may not contain.
 const MinIdentifierLength = 4
 
-// Character classes named by RequirementsError.Missing.
-const (
-	ClassUppercase = "uppercase"
-	ClassLowercase = "lowercase"
-	ClassDigit     = "digit"
-	ClassSymbol    = "symbol"
-)
-
 var (
 	ErrTooShort           = errors.New("password_too_short")
 	ErrTooLong            = errors.New("password_too_long")
 	ErrTooCommon          = errors.New("password_too_common")
 	ErrContainsIdentifier = errors.New("password_contains_identifier")
 )
-
-// RequirementsError lists the required character classes a password lacks.
-type RequirementsError struct{ Missing []string }
-
-func (e *RequirementsError) Error() string {
-	return "password_requirements_unmet: " + strings.Join(e.Missing, ",")
-}
 
 //go:generate go run ./internal/commongen
 
@@ -78,19 +63,17 @@ func IsCommon(pw string) bool {
 	return false
 }
 
-// Validate checks pw against a normalized policy. identifiers are the
-// account's username and email local-part; pw may not contain any of at
-// least MinIdentifierLength characters, compared case-insensitively.
-func Validate(p config.PasswordPolicy, pw string, identifiers ...string) error {
+// Validate checks pw against AuthKit's policy (config.PasswordMinLength to
+// config.PasswordMaxLength code points, not on the blocklist). identifiers
+// are the account's username and email local-part; pw may not contain any of
+// at least MinIdentifierLength characters, compared case-insensitively.
+func Validate(pw string, identifiers ...string) error {
 	n := utf8.RuneCountInString(pw)
-	if n < p.MinLength {
+	if n < config.PasswordMinLength {
 		return ErrTooShort
 	}
-	if n > p.MaxLength {
+	if n > config.PasswordMaxLength {
 		return ErrTooLong
-	}
-	if missing := missingClasses(p, pw); len(missing) > 0 {
-		return &RequirementsError{Missing: missing}
 	}
 	lower := strings.ToLower(pw)
 	for _, id := range identifiers {
@@ -99,7 +82,7 @@ func Validate(p config.PasswordPolicy, pw string, identifiers ...string) error {
 			return ErrContainsIdentifier
 		}
 	}
-	if !p.AllowCommon && common(p, lower) {
+	if common(lower) {
 		return ErrTooCommon
 	}
 	return nil
@@ -107,9 +90,9 @@ func Validate(p config.PasswordPolicy, pw string, identifiers ...string) error {
 
 // common reports whether lower, or lower without its punctuation and spaces
 // ("change-me" as "changeme"), is on the blocklist. The stripped form counts
-// only when it is still MinLength long, so a short common core inside
+// only when it is still PasswordMinLength long, so a short common core inside
 // punctuation is not a match.
-func common(p config.PasswordPolicy, lower string) bool {
+func common(lower string) bool {
 	if IsCommon(lower) {
 		return true
 	}
@@ -119,33 +102,7 @@ func common(p config.PasswordPolicy, lower string) bool {
 		}
 		return -1
 	}, lower)
-	return core != lower && utf8.RuneCountInString(core) >= p.MinLength && IsCommon(core)
-}
-
-func missingClasses(p config.PasswordPolicy, pw string) []string {
-	var upper, lower, digit, symbol bool
-	for _, r := range pw {
-		switch {
-		case unicode.IsUpper(r):
-			upper = true
-		case unicode.IsLower(r):
-			lower = true
-		case unicode.IsDigit(r):
-			digit = true
-		case !unicode.IsLetter(r):
-			symbol = true
-		}
-	}
-	var missing []string
-	for _, c := range []struct {
-		required, present bool
-		class             string
-	}{{p.RequireUppercase, upper, ClassUppercase}, {p.RequireLowercase, lower, ClassLowercase}, {p.RequireDigit, digit, ClassDigit}, {p.RequireSymbol, symbol, ClassSymbol}} {
-		if c.required && !c.present {
-			missing = append(missing, c.class)
-		}
-	}
-	return missing
+	return core != lower && utf8.RuneCountInString(core) >= config.PasswordMinLength && IsCommon(core)
 }
 
 // EmailLocalPart returns the part of email before its last '@', or "".

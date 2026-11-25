@@ -49,6 +49,12 @@ type fixture struct {
 	teamWriter   iam.Role
 	// notify is the notification fixture's remote-publication permission.
 	notify iam.Perm
+	// dpop binds the sessions the fixture's requests open.
+	dpop *authtest.DPoPKey
+	t    *testing.T
+	// refreshCookie is the refresh cookie's name, once a sign-in set it.
+	mu            sync.Mutex
+	refreshCookie string
 }
 
 func newFixture(t *testing.T, options ...authtest.Option) *fixture {
@@ -59,7 +65,7 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 	roles := authkit.NewRoles(authkit.CustomRoles)
 	shop := roles.Persona("shop", authkit.APIKeys, authkit.CustomRoles, authkit.RemoteApplications)
 	read, write := shop.Permission("orders", "read"), shop.Permission("orders", "write")
-	f := &fixture{roles: roles, shop: shop, read: read, write: write, tenant: iam.NewTenantID()}
+	f := &fixture{roles: roles, shop: shop, read: read, write: write, tenant: iam.NewTenantID(), dpop: newFixtureKey(t)}
 	f.rootReader = roles.Root.Role("auditor", roles.Root.Users.Read)
 	f.tenantReader = roles.Tenant.Role("directoryreader", roles.Tenant.Users.Read)
 	f.reader = shop.Role("reader", read)
@@ -84,11 +90,12 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 		c.Database = authkit.DatabaseConfig{Schema: f.schema, RiverSchema: f.schema}
 		c.DefaultTenantID = f.tenant
 		c.Roles = roles
-		c.TwoFactor.Mode = iam.TwoFactorDisabled
+		c.TwoFactor = iam.TwoFactorDisabled
 		c.HTTP.Groups = append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)
 	})
 	opts := append([]authtest.Option{base, authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = f.pool })}, options...)
 	opts = append(opts, authtest.WithConfig(func(c *authkit.Config) { f.cfg = *c }), authtest.WithDeps(func(d *authkit.Deps) { f.deps = *d }))
+	f.t = t
 	f.auth, f.out = authtest.New(t, opts...)
 	f.server = httptest.NewServer(f.auth.Handler())
 	t.Cleanup(f.server.Close)
@@ -173,26 +180,29 @@ func (f *fixture) request(ctx context.Context, method, path, credential string, 
 }
 
 func (f *fixture) requestHeaders(ctx context.Context, method, path, credential string, body any, headers http.Header) (response, error) {
+	r, err := http.NewRequestWithContext(ctx, method, f.server.URL+f.auth.APIBase()+path, nil)
+	if err != nil {
+		return response{}, err
+	}
+	body = f.refreshToCookie(r, path, body)
 	var data []byte
-	var err error
 	if body != nil {
 		data, err = json.Marshal(body)
 		if err != nil {
 			return response{}, err
 		}
-	}
-	r, err := http.NewRequestWithContext(ctx, method, f.server.URL+f.auth.APIBase()+path, bytes.NewReader(data))
-	if err != nil {
-		return response{}, err
-	}
-	if body != nil {
+		r.Body = io.NopCloser(bytes.NewReader(data))
+		r.ContentLength = int64(len(data))
 		r.Header.Set("Content-Type", "application/json")
-	}
-	if credential != "" {
-		r.Header.Set("Authorization", "Bearer "+credential)
 	}
 	for k, values := range headers {
 		r.Header[k] = append([]string(nil), values...)
+	}
+	if credential != "" && r.Header.Get("Authorization") == "" {
+		authorize(f.t, r, credential)
+	}
+	if r.Header.Get("DPoP") == "" && !strings.HasPrefix(r.Header.Get("Authorization"), "DPoP ") {
+		f.prove(f.t, r)
 	}
 	c := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 	res, err := c.Do(r)
@@ -204,7 +214,7 @@ func (f *fixture) requestHeaders(ctx context.Context, method, path, credential s
 	if err != nil {
 		return response{}, err
 	}
-	return response{status: res.StatusCode, header: res.Header, body: data}, nil
+	return response{status: res.StatusCode, header: res.Header, body: f.refreshFromCookie(res.Header, data)}, nil
 }
 
 type signInResult struct {
@@ -297,7 +307,7 @@ func (f *fixture) identity(t *testing.T, token string) auth.Identity {
 	t.Helper()
 	r, err := http.NewRequestWithContext(context.Background(), "GET", f.server.URL+"/identity", nil)
 	noError(t, err)
-	r.Header.Set("Authorization", "Bearer "+token)
+	authorize(t, r, token)
 	v, err := f.auth.Authenticator().Authenticate(r)
 	noError(t, err)
 	return v.Identity()
