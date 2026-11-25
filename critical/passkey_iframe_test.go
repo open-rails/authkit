@@ -84,6 +84,46 @@ func TestCriticalPasskeyFrames(t *testing.T) {
 	})
 }
 
+// TestCriticalPasskeys covers top-level passkey ceremonies on the relying
+// party's own origin.
+func TestCriticalPasskeys(t *testing.T) {
+	f := passkeyFixture(t, nil)
+	u := f.user(t)
+	key := newSoftKey(t)
+	t.Run("AK-J42-C03_a_passkey_challenge_answers_one_ceremony", func(t *testing.T) {
+		key.register(t, f, f.signIn(t, u).AccessToken, ceremonyPlace{}).want(t, http.StatusCreated, "")
+		challenge := beginPasskeyLogin(t, f)
+		signed := key.assert(t, challenge, ceremonyPlace{})
+		tokensFrom(t, f.call(t, "POST", "/passkeys/login/finish", "", signed), u.ID)
+		// The same answer again, and a fresh signature over the spent challenge.
+		f.call(t, "POST", "/passkeys/login/finish", "", signed).want(t, http.StatusUnauthorized, "invalid_credentials")
+		f.call(t, "POST", "/passkeys/login/finish", "", key.assert(t, challenge, ceremonyPlace{})).want(t, http.StatusUnauthorized, "invalid_credentials")
+		// A registration's challenge never signs in.
+		r := f.call(t, "POST", "/me/passkeys/register/begin", f.signIn(t, u).AccessToken, nil)
+		r.want(t, http.StatusOK, "")
+		var begun struct {
+			PublicKey struct {
+				Challenge string `json:"challenge"`
+			} `json:"publicKey"`
+		}
+		decode(t, r.body, &begun)
+		f.call(t, "POST", "/passkeys/login/finish", "", key.assert(t, begun.PublicKey.Challenge, ceremonyPlace{})).want(t, http.StatusUnauthorized, "invalid_credentials")
+		tokensFrom(t, key.signIn(t, f, ceremonyPlace{}), u.ID)
+	})
+	t.Run("AK-J42-C04_a_passkey_ceremony_on_another_origin_is_refused", func(t *testing.T) {
+		other := newSoftKey(t)
+		session := f.signIn(t, u).AccessToken
+		for _, origin := range []string{"https://evil.example", "http://auth.example.com", "https://auth.example.com.evil.example"} {
+			other.register(t, f, session, ceremonyPlace{origin: origin}).want(t, http.StatusBadRequest, "invalid_request")
+		}
+		other.register(t, f, session, ceremonyPlace{}).want(t, http.StatusCreated, "")
+		for _, origin := range []string{"https://evil.example", "http://auth.example.com", "https://auth.example.com.evil.example"} {
+			other.signIn(t, f, ceremonyPlace{origin: origin}).want(t, http.StatusUnauthorized, "invalid_credentials")
+		}
+		tokensFrom(t, other.signIn(t, f, ceremonyPlace{}), u.ID)
+	})
+}
+
 func passkeyFixture(t *testing.T, topOrigin func(context.Context, string) (bool, error)) *fixture {
 	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.FrontendURL = passkeyOrigin // the relying party
@@ -92,9 +132,11 @@ func passkeyFixture(t *testing.T, topOrigin func(context.Context, string) (bool,
 
 // ceremonyPlace is where the browser ran a ceremony: top-level on the RP's
 // origin, or in its iframe on topOrigin's page ("" as Safari reports it).
+// origin, when set, is the page the browser reports instead of the RP's.
 type ceremonyPlace struct {
 	crossOrigin bool
 	topOrigin   string
+	origin      string
 }
 
 // softKey is a passkey authenticator: one ES256 discoverable credential,
@@ -119,13 +161,17 @@ var b64 = base64.RawURLEncoding
 
 func clientData(t *testing.T, kind, challenge string, at ceremonyPlace) []byte {
 	t.Helper()
+	origin := at.origin
+	if origin == "" {
+		origin = passkeyOrigin
+	}
 	data, err := json.Marshal(struct {
 		Type        string `json:"type"`
 		Challenge   string `json:"challenge"`
 		Origin      string `json:"origin"`
 		CrossOrigin bool   `json:"crossOrigin"`
 		TopOrigin   string `json:"topOrigin,omitempty"`
-	}{kind, challenge, passkeyOrigin, at.crossOrigin, at.topOrigin})
+	}{kind, challenge, origin, at.crossOrigin, at.topOrigin})
 	noError(t, err)
 	return data
 }
@@ -192,6 +238,12 @@ func (k *softKey) register(t *testing.T, f *fixture, access string, at ceremonyP
 // signIn is a discoverable passkey sign-in at /passkeys/login.
 func (k *softKey) signIn(t *testing.T, f *fixture, at ceremonyPlace) response {
 	t.Helper()
+	return f.call(t, "POST", "/passkeys/login/finish", "", k.assert(t, beginPasskeyLogin(t, f), at))
+}
+
+// beginPasskeyLogin is a sign-in ceremony's challenge.
+func beginPasskeyLogin(t *testing.T, f *fixture) string {
+	t.Helper()
 	r := f.call(t, "POST", "/passkeys/login/begin", "", nil)
 	r.want(t, http.StatusOK, "")
 	var begun struct {
@@ -200,13 +252,20 @@ func (k *softKey) signIn(t *testing.T, f *fixture, at ceremonyPlace) response {
 		} `json:"publicKey"`
 	}
 	decode(t, r.body, &begun)
-	data := clientData(t, "webauthn.get", begun.PublicKey.Challenge, at)
+	return begun.PublicKey.Challenge
+}
+
+// assert is the key's freshly signed assertion of challenge, as the browser
+// at at hands it to the page.
+func (k *softKey) assert(t *testing.T, challenge string, at ceremonyPlace) map[string]any {
+	t.Helper()
+	data := clientData(t, "webauthn.get", challenge, at)
 	auth := k.authenticatorData(t, false)
 	hash := sha256.Sum256(data)
 	digest := sha256.Sum256(append(append([]byte{}, auth...), hash[:]...))
 	sig, err := ecdsa.SignASN1(rand.Reader, k.key, digest[:])
 	noError(t, err)
-	return f.call(t, "POST", "/passkeys/login/finish", "", map[string]any{
+	return map[string]any{
 		"id": b64.EncodeToString(k.id), "rawId": b64.EncodeToString(k.id), "type": "public-key", "clientExtensionResults": map[string]any{},
 		"response": map[string]any{
 			"clientDataJSON":    b64.EncodeToString(data),
@@ -214,5 +273,5 @@ func (k *softKey) signIn(t *testing.T, f *fixture, at ceremonyPlace) response {
 			"signature":         b64.EncodeToString(sig),
 			"userHandle":        b64.EncodeToString(k.userHandle),
 		},
-	})
+	}
 }
