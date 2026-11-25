@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
@@ -49,7 +48,7 @@ func (s *Engine) twoFactorMethodAvailable(method string) bool {
 	case iam.TwoFactorEmail:
 		return s.EmailAvailable()
 	case iam.TwoFactorTOTP:
-		return len(s.cfg.TwoFactor.TOTPSecretKey) > 0
+		return len(s.totpKey) > 0
 	default:
 		return false
 	}
@@ -72,7 +71,7 @@ func (s *Engine) TwoFactorMethods() []iam.TwoFactorMethod {
 // secondFactorProblem is why someone must hold MFA but no second factor can be
 // enrolled now: the MFA gate then refuses them (fail closed) until a method's
 // dependency returns. New reports it as degraded and Probes as
-// authkit_two_factor. An engine that signs no one in (Keys.VerifyOnly) has
+// authkit_two_factor. An engine that signs no one in (a KeySource without a signer) has
 // nothing to enroll.
 func (s *Engine) secondFactorProblem() error {
 	if !s.TwoFactorEnabled() || !s.signs || s.PasskeysEnabled() || len(s.TwoFactorMethods()) > 0 {
@@ -90,8 +89,8 @@ func (s *Engine) secondFactorProblem() error {
 		return nil
 	}
 	var fixes []string
-	if s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.cfg.TwoFactor.TOTPSecretKey) == 0 {
-		fixes = append(fixes, fmt.Sprintf("put a 16, 24 or 32-byte key at %s (or set TwoFactor.TOTPSecretKey)", filepath.Join(s.cfg.Keys.Path, totpKeyFilename)))
+	if s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.totpKey) == 0 {
+		fixes = append(fixes, "put a 16, 24 or 32-byte totp.key beside keys.json (Deps.KeySource as a keys.TOTPSource)")
 	}
 	if s.twoFactorMethodConfigured(iam.TwoFactorEmail) {
 		fixes = append(fixes, "set a healthy Deps.Email")

@@ -44,7 +44,7 @@ func (s *Engine) startTOTPEnrollment(ctx context.Context, userID string) (secret
 	if !s.twoFactorMethodAvailable(string(iam.TwoFactorTOTP)) {
 		return "", "", errmodel.ErrTwoFAMethodUnavailable
 	}
-	if _, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey); err != nil {
+	if _, err := aes.NewCipher(s.totpKey); err != nil {
 		return "", "", fmt.Errorf("totp secret encryption key not configured")
 	}
 	if !s.useEphemeralStore() {
@@ -202,7 +202,7 @@ func totpCode(secret string, step int64) (string, error) {
 const totpKeyVersion byte = 1
 
 func (s *Engine) encryptTOTPSecret(secret string) ([]byte, error) {
-	block, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey)
+	block, err := aes.NewCipher(s.totpKey)
 	if err != nil {
 		return nil, fmt.Errorf("totp secret encryption key not configured")
 	}
@@ -221,7 +221,7 @@ func (s *Engine) encryptTOTPSecret(secret string) ([]byte, error) {
 }
 
 func (s *Engine) decryptTOTPSecret(data []byte) (string, error) {
-	block, err := aes.NewCipher(s.cfg.TwoFactor.TOTPSecretKey)
+	block, err := aes.NewCipher(s.totpKey)
 	if err != nil {
 		return "", fmt.Errorf("totp secret encryption key not configured")
 	}

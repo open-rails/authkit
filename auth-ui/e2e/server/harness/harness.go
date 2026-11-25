@@ -70,7 +70,7 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 		Database:        authkit.DatabaseConfig{Schema: schema},
 		Issuer:          origin,
 		Registration:    authkit.RegistrationConfig{Verification: iam.RegistrationVerificationRequired},
-		TwoFactor:       authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, TOTPSecretKey: totpKey},
+		TwoFactor:       authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional},
 	}
 	config.Tune(&cfg, func(tn *config.Tuning) {
 		tn.RateLimits = limits
@@ -88,7 +88,7 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	}
 	client, err := authkit.New(ctx, cfg, authkit.Deps{
 		Postgres:      pool,
-		KeySource:     keys.Static{Active: signer, Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()}},
+		KeySource:     keys.Static{Active: signer, Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()}, TOTP: totpKey},
 		RequestTenant: requestTenant,
 		Email:         outbox.Email(), SMS: outbox.SMS(),
 	})

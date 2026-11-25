@@ -251,7 +251,6 @@ pkg authkit, type Config struct, DefaultTenantID iam.TenantID `yaml:"default_ten
 pkg authkit, type Config struct, FrontendURL string `yaml:"frontend_url"`
 pkg authkit, type Config struct, HTTP *config.HTTPConfig `yaml:"http"`
 pkg authkit, type Config struct, Issuer string `yaml:"issuer"`
-pkg authkit, type Config struct, Keys config.KeysConfig `yaml:"keys"`
 pkg authkit, type Config struct, Languages config.LanguageConfig `yaml:"languages"`
 pkg authkit, type Config struct, Notifications *config.NotificationsConfig `yaml:"notifications"`
 pkg authkit, type Config struct, Password config.PasswordPolicy `yaml:"password"`
@@ -333,10 +332,6 @@ pkg authkit, type HTTPConfig struct, Groups []iam.RouteGroup `yaml:"groups"`
 pkg authkit, type HTTPConfig struct, RefreshCookie bool `yaml:"refresh_cookie"`
 pkg authkit, type HTTPConfig struct, RefreshCookieName string `yaml:"refresh_cookie_name"`
 pkg authkit, type HTTPConfig struct, TrustedProxies []string `yaml:"trusted_proxies"`
-pkg authkit, type KeysConfig = config.KeysConfig
-pkg authkit, type KeysConfig struct
-pkg authkit, type KeysConfig struct, Path string `yaml:"path"`
-pkg authkit, type KeysConfig struct, VerifyOnly bool `yaml:"verify_only"`
 pkg authkit, type LanguageConfig = config.LanguageConfig
 pkg authkit, type LanguageConfig struct
 pkg authkit, type LanguageConfig struct, Default string `yaml:"default"`
@@ -525,7 +520,6 @@ pkg authkit, type TwoFactorConfig = config.TwoFactorConfig
 pkg authkit, type TwoFactorConfig struct
 pkg authkit, type TwoFactorConfig struct, Methods []iam.TwoFactorMethod `yaml:"methods"`
 pkg authkit, type TwoFactorConfig struct, Mode iam.TwoFactorMode `yaml:"mode"`
-pkg authkit, type TwoFactorConfig struct, TOTPSecretKey []byte `yaml:"totp_secret_key"`
 pkg authkit, type UserPerms = config.UserPerms
 pkg authkit, type UserPerms struct
 pkg authkit, type UserPerms struct, Ban iam.Perm
@@ -1927,8 +1921,10 @@ pkg authkit/keys, method (*FileSource) Close()
 pkg authkit/keys, method (*FileSource) Development() bool
 pkg authkit/keys, method (*FileSource) PublicKeys() map[string]crypto.PublicKey
 pkg authkit/keys, method (*FileSource) Reload() error
+pkg authkit/keys, method (*FileSource) TOTPKey() []byte
 pkg authkit/keys, method (Static) ActiveSigner() Signer
 pkg authkit/keys, method (Static) PublicKeys() map[string]crypto.PublicKey
+pkg authkit/keys, method (Static) TOTPKey() []byte
 pkg authkit/keys, type FileSource struct
 pkg authkit/keys, type JWK = iam.JWK
 pkg authkit/keys, type JWKS struct
@@ -1944,6 +1940,11 @@ pkg authkit/keys, type Source interface, PublicKeys() map[string]crypto.PublicKe
 pkg authkit/keys, type Static struct
 pkg authkit/keys, type Static struct, Active Signer
 pkg authkit/keys, type Static struct, Public map[string]crypto.PublicKey
+pkg authkit/keys, type Static struct, TOTP []byte
+pkg authkit/keys, type TOTPSource interface
+pkg authkit/keys, type TOTPSource interface, ActiveSigner() Signer
+pkg authkit/keys, type TOTPSource interface, PublicKeys() map[string]crypto.PublicKey
+pkg authkit/keys, type TOTPSource interface, TOTPKey() []byte
 pkg authkit/notify, const AudienceOperator Audience = "operator"
 pkg authkit/notify, const AudienceUser Audience = "user"
 pkg authkit/notify, const MaxMutations untyped int = 100

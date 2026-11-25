@@ -26,9 +26,15 @@ type Deps struct {
 	// every replica.
 	Postgres *pgxpool.Pool
 
-	// KeySource signs and publishes tokens. Nil resolves keys from
-	// Config.Keys. Hosts never handle the private key: they hand AuthKit a
-	// source that signs.
+	// KeySource signs and publishes tokens: keys.Watch(dir) serves a key
+	// directory's keys.json and totp.key (keys.TOTPSource, the TOTP key; TOTP
+	// is unavailable without one). A source with no active signer only
+	// verifies: minting returns iam.ErrSigningNotConfigured. Nil watches
+	// /vault/auth, or for a loopback Issuer a per-issuer development
+	// directory, $XDG_STATE_HOME/authkit/development/<issuer SHA-256>, where
+	// AuthKit generates what is missing, marked as development keys that no
+	// other issuer loads. Hosts never handle the private key: they hand
+	// AuthKit a source that signs.
 	KeySource keys.Source
 	// Providers are the external identity providers: provider.Google,
 	// Apple, Discord and GitHub, or provider.OIDC and OAuth2 for any other.

@@ -72,11 +72,11 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 // differ from a zero Config only where a test needs them to:
 //
 //   - Issuer.
-//   - TwoFactor.TOTPSecretKey: random, so authenticator apps can enroll.
 //   - HTTP: served (DirectPeerIP), with every rate limit lifted.
 //   - The sign-in limits off, since tests sign many accounts in from one
 //     address. The session cap stays (LiftLimits lifts it too).
-//   - Deps.KeySource: an RSA key generated once per test binary.
+//   - Deps.KeySource: an RSA key generated once per test binary, and a
+//     random TOTP key, so authenticator apps can enroll.
 //   - Database.Schema and Database.RiverSchema: the scratch schema, unless set.
 //
 // The Client is not started: call Start when a test needs River's work, such
@@ -89,19 +89,19 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 		opt(&s)
 	}
 	outbox := &Outbox{}
-	key := make([]byte, 32)
-	_, _ = rand.Read(key)
 	cfg := authkit.Config{
 		DefaultTenantID: iam.NewTenantID(),
 		Issuer:          Issuer,
-		TwoFactor:       authkit.TwoFactorConfig{TOTPSecretKey: key},
 		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true},
 	}
 	config.Tune(&cfg, func(t *config.Tuning) {
 		t.NoRateLimits = true
 		t.AccountsPerDevice, t.AccountsPerAddress, t.NewDevicesPerAccount = -1, -1, -1
 	})
-	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email(), SMS: outbox.SMS()}
+	ks := signingKeys()
+	ks.TOTP = make([]byte, 32)
+	_, _ = rand.Read(ks.TOTP)
+	deps := authkit.Deps{KeySource: ks, Email: outbox.Email(), SMS: outbox.SMS()}
 	for _, fn := range s.config {
 		fn(&cfg)
 	}

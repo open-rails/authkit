@@ -39,7 +39,7 @@ func (s *Engine) Ready(ctx context.Context) error {
 	if err := s.riverReady(); err != nil {
 		return err
 	}
-	if !s.cfg.Keys.VerifyOnly && s.keys.ActiveSigner() == nil {
+	if s.signs && s.keys.ActiveSigner() == nil {
 		return errors.New("authkit: signing keys: the key source has no active signing key")
 	}
 	return nil

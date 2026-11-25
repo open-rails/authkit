@@ -113,9 +113,6 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 			return Config{}, nil, fmt.Errorf("authkit: invalid TwoFactor.Methods entry %q (want email, sms, or totp)", m)
 		}
 	}
-	if n := len(c.TwoFactor.TOTPSecretKey); n > 0 && n != 16 && n != 24 && n != 32 {
-		return Config{}, nil, fmt.Errorf("authkit: TwoFactor.TOTPSecretKey must be 16, 24, or 32 bytes, got %d", n)
-	}
 
 	c.APIKeys.Prefix = strings.TrimSpace(c.APIKeys.Prefix)
 	if !validAPIKeyPrefix(c.APIKeys.Prefix) {

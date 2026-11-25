@@ -19,7 +19,6 @@ type (
 	SignInConfig               = config.SignInConfig
 	DPoPMode                   = config.DPoPMode
 	Tenancy                    = config.Tenancy
-	KeysConfig                 = config.KeysConfig
 	RegistrationConfig         = config.RegistrationConfig
 	AgreementConfig            = config.AgreementConfig
 	SMSConfig                  = config.SMSConfig

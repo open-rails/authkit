@@ -58,8 +58,6 @@ type Config struct {
 	// person signing in and out of many accounts, and one account shared by
 	// many people. The zero value is on, with generous limits.
 	SignIn SignInConfig `yaml:"sign_in"`
-	// Keys controls signing-key resolution when Deps.KeySource is nil.
-	Keys KeysConfig `yaml:"keys"`
 	// Registration controls verification policy and public self-registration.
 	Registration RegistrationConfig `yaml:"registration"`
 	// Agreements are the documents users accept, such as terms and a privacy
@@ -208,21 +206,6 @@ func (t Tenancy) String() string {
 		return "multi"
 	}
 	return fmt.Sprintf("Tenancy(%d)", uint8(t))
-}
-
-// KeysConfig controls signing-key resolution when Deps.KeySource is nil.
-type KeysConfig struct {
-	// Path is the directory holding keys.json (hot-reloaded on rotation) and
-	// totp.key. Empty is /vault/auth, or for a loopback Token.Issuer
-	// $XDG_STATE_HOME/authkit/development/<issuer SHA-256> (falling back to
-	// ~/.local/state). For a loopback issuer AuthKit generates whichever of
-	// the two is missing and reuses it across restarts, marked as development
-	// keys, which no other issuer loads. Any other issuer never generates.
-	Path string `yaml:"path"`
-	// VerifyOnly builds AuthKit with no signer: minting returns
-	// iam.ErrSigningNotConfigured, verification and permission reads work, and
-	// JWKS serves an empty set. Key resolution is skipped.
-	VerifyOnly bool `yaml:"verify_only"`
 }
 
 // RegistrationConfig controls public self-registration and whether password
@@ -377,10 +360,6 @@ type TwoFactorConfig struct {
 	// is unavailable regardless. Unless Mode is disabled, New refuses a
 	// deployment with none available: the root owner always needs MFA.
 	Methods []iam.TwoFactorMethod `yaml:"methods"`
-	// TOTPSecretKey encrypts stored authenticator-app secrets: 16, 24 or 32 raw
-	// bytes. It overrides <Keys.Path>/totp.key; with neither, TOTP enrollment
-	// is unavailable.
-	TOTPSecretKey []byte `yaml:"totp_secret_key"`
 }
 
 // APIKeysConfig configures opaque permission-group-owned machine credentials.

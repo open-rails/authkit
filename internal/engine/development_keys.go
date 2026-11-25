@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/open-rails/authkit/internal/config"
 )
@@ -25,15 +24,12 @@ type developmentKeys struct {
 	used      bool
 }
 
-// newDevelopmentKeys resolves the key directory: Keys.Path; else for a
-// loopback issuer its own local state directory, so issuers never share
-// generated keys; else /vault/auth.
-func newDevelopmentKeys(c config.KeysConfig, issuer string) (*developmentKeys, error) {
-	d := &developmentKeys{issuer: issuer, dir: strings.TrimSpace(c.Path), local: config.LoopbackURL(issuer)}
-	switch {
-	case d.dir != "":
-		return d, nil
-	case !d.local:
+// newDevelopmentKeys resolves the key directory when Deps.KeySource is nil:
+// for a loopback issuer its own local state directory, so issuers never
+// share generated keys; else /vault/auth.
+func newDevelopmentKeys(issuer string) (*developmentKeys, error) {
+	d := &developmentKeys{issuer: issuer, local: config.LoopbackURL(issuer)}
+	if !d.local {
 		d.dir = defaultKeysPath
 		return d, nil
 	}

@@ -2,10 +2,8 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,20 +32,19 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	if err != nil {
 		return nil, err
 	}
-	dev, err := newDevelopmentKeys(norm.Keys, norm.Issuer)
+	dev, err := newDevelopmentKeys(norm.Issuer)
 	if err != nil {
 		return nil, err
 	}
-	norm.Keys.Path = dev.dir
-	signs := deps.KeySource != nil || !norm.Keys.VerifyOnly
-	// #232: the TOTP key is the explicit override or <Keys.Path>/totp.key;
-	// without either, TOTP is unavailable. The engine reads Config, so the
-	// resolved key is written back into it.
-	if norm.TwoFactor.TOTPSecretKey, err = resolveTOTPSecretKey(norm, signs, dev, log); err != nil {
+	src, owned, err := engineKeySource(deps.KeySource, dev, log)
+	if err != nil {
 		return nil, err
 	}
-	src, owned, err := engineKeySource(norm.Keys, deps.KeySource, dev, log)
+	// A source with no active signer only verifies.
+	signs := src.ActiveSigner() != nil
+	totpKey, err := totpKeyOf(src)
 	if err != nil {
+		owned.Close()
 		return nil, err
 	}
 	dev.report(log)
@@ -56,6 +53,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		cfg:               norm,
 		passkeys:          config.Passkeys(norm.FrontendURL),
 		keys:              src,
+		totpKey:           totpKey,
 		ownedKeySource:    owned,
 		signs:             signs,
 		schema:            norm.Database.Schema,
@@ -70,9 +68,6 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 			_ = s.Close(context.WithoutCancel(ctx))
 		}
 	}()
-	if !norm.Keys.VerifyOnly && src.ActiveSigner() == nil {
-		return nil, errors.New("authkit: Deps.KeySource has no active signing key, so no token could be signed; give it one, or set Keys.VerifyOnly for a deployment that only verifies")
-	}
 	for _, problem := range degraded {
 		s.degrade(problem)
 	}
@@ -127,8 +122,8 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 	}
 	if problem := s.secondFactorProblem(); problem != nil {
 		s.degrade(problem)
-	} else if s.signs && s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.cfg.TwoFactor.TOTPSecretKey) == 0 {
-		s.log.Warn("authkit: TOTP is offered but has no key, so it is unavailable", "path", filepath.Join(s.cfg.Keys.Path, totpKeyFilename))
+	} else if s.signs && s.twoFactorMethodConfigured(iam.TwoFactorTOTP) && len(s.totpKey) == 0 {
+		s.log.Warn("authkit: TOTP is offered but Deps.KeySource holds no TOTP key (totp.key beside keys.json), so it is unavailable")
 	}
 	if err := s.initRiver(ctx, deps.Postgres); err != nil {
 		return nil, err
@@ -194,25 +189,23 @@ func waitForPostgres(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool) 
 	}
 }
 
-// engineKeySource is the host's Deps.KeySource, or none (VerifyOnly), or
-// <Keys.Path>/keys.json. With no keys a loopback issuer generates development
-// keys and any other fails construction; development keys sign only for a
-// loopback issuer. The source is read per operation, never snapshotted, so a
-// hot-reloading file source is observed for the engine's lifetime (#238).
-// owned is closed with the engine.
-func engineKeySource(c config.KeysConfig, host keys.Source, dev *developmentKeys, log *slog.Logger) (_ keys.Source, owned *keys.FileSource, _ error) {
+// engineKeySource is the host's Deps.KeySource, else keys.Watch of the key
+// directory (/vault/auth, or a loopback issuer's development directory).
+// With no keys a loopback issuer generates development keys and any other
+// fails construction; development keys sign only for a loopback issuer. The
+// source is read per operation, never snapshotted, so a hot-reloading file
+// source is observed for the engine's lifetime (#238). owned is closed with
+// the engine.
+func engineKeySource(host keys.Source, dev *developmentKeys, log *slog.Logger) (_ keys.Source, owned *keys.FileSource, _ error) {
 	switch {
 	case host != nil:
 		if marked, ok := host.(interface{ Development() bool }); ok && marked.Development() {
 			if err := dev.refuse("Deps.KeySource"); err != nil {
 				return nil, nil, err
 			}
+			dev.used = true
 		}
 		return host, nil, nil
-	case c.VerifyOnly:
-		// #87: no signer: minting returns ErrSigningNotConfigured, while
-		// verification, permission reads and the (empty) JWKS work.
-		return keys.Static{}, nil, nil
 	}
 	src, err := signingKeys(dev, log)
 	if err != nil {

@@ -54,6 +54,8 @@ type Engine struct {
 	// a live keys.Source (e.g. the reloadable file source) hot-swaps keys
 	// behind an atomic pointer, and the engine must observe every swap (#238).
 	keys keys.Source
+	// totpKey encrypts stored authenticator-app secrets (keys.TOTPSource).
+	totpKey []byte
 
 	// Only resources allocated by New are closed with the client.
 	ownedKeySource *keys.FileSource
@@ -64,7 +66,7 @@ type Engine struct {
 	providers           []provider.Provider
 	configuredProviders []provider.Provider
 	providerProblems    map[string]error
-	// signs reports whether the engine mints tokens (not Keys.VerifyOnly).
+	// signs reports whether the engine mints tokens: its KeySource has a signer.
 	signs bool
 	// degraded are the survivable problems New handled (Probes).
 	degraded           []error

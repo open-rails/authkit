@@ -33,9 +33,6 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 		// Every other URL derives from it (the API at https://myapp.com/auth/v1).
 		Issuer: "https://myapp.com",
 
-		Keys: authkit.KeysConfig{
-			Path: "/vault/auth", // where your signing keys are stored; a keys.json file
-		},
 		HTTP: &authkit.HTTPConfig{
 			DirectPeerIP: true, // no proxy in front; otherwise set TrustedProxies
 			// Rate limits live in memory; set Deps.Redis when you run more than one copy of your server.
@@ -71,9 +68,11 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 
 	// 2. Build the auth engine. It creates or upgrades its tables first; safe on every boot.
 	return authkit.New(ctx, cfg, authkit.Deps{
-		Postgres: db,    // required: users, sessions and short-lived auth state
-		Email:    email, // sends verification codes, login codes and password resets
-		SMS:      sms,   // same, for phone numbers
+		Postgres: db, // required: users, sessions and short-lived auth state
+		// Signing keys come from /vault/auth/keys.json (and totp.key) unless
+		// KeySource names another source, such as keys.Watch("/run/keys").
+		Email: email, // sends verification codes, login codes and password resets
+		SMS:   sms,   // same, for phone numbers
 		// Both also report when they can't deliver, pausing that channel's sign-in until they can.
 	})
 }

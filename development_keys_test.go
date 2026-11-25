@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/keys"
 )
 
 // Development keys are generated, persisted and reused only for a loopback
@@ -34,11 +35,13 @@ type devKeyBoot struct {
 	logs   string
 }
 
-func bootKeys(t *testing.T, issuer string, keys authkit.KeysConfig) devKeyBoot {
+// bootKeys builds a Client of issuer on src; nil is AuthKit's own key
+// directory.
+func bootKeys(t *testing.T, issuer string, src keys.Source) devKeyBoot {
 	t.Helper()
 	var logs bytes.Buffer
-	cfg := authkit.Config{Issuer: issuer, Keys: keys}
-	client, err := authkit.New(context.Background(), cfg, authkit.Deps{Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	cfg := authkit.Config{Issuer: issuer}
+	client, err := authkit.New(context.Background(), cfg, authkit.Deps{KeySource: src, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
 	if client != nil {
 		t.Cleanup(func() { _ = client.Close(context.Background()) })
 	}
@@ -108,7 +111,7 @@ func TestLoopbackIssuerGeneratesPersistsAndReusesDevelopmentKeys(t *testing.T) {
 	id := sha256.Sum256([]byte(localIssuer))
 	dir := filepath.Join(state, "authkit", "development", hex.EncodeToString(id[:]))
 
-	first := mustBoot(t, bootKeys(t, localIssuer, authkit.KeysConfig{}))
+	first := mustBoot(t, bootKeys(t, localIssuer, nil))
 	assertDevelopmentKeys(t, dir)
 	if first.developmentLines() != 1 || !strings.Contains(first.logs, dir) {
 		t.Fatalf("want one INFO line naming %s, got:\n%s", dir, first.logs)
@@ -116,7 +119,7 @@ func TestLoopbackIssuerGeneratesPersistsAndReusesDevelopmentKeys(t *testing.T) {
 	signing, totp := readKey(t, dir, "keys.json"), readKey(t, dir, "totp.key")
 	noErr(t, first.client.Close(context.Background()))
 
-	again := mustBoot(t, bootKeys(t, localIssuer, authkit.KeysConfig{}))
+	again := mustBoot(t, bootKeys(t, localIssuer, nil))
 	if !bytes.Equal(signing, readKey(t, dir, "keys.json")) || !bytes.Equal(totp, readKey(t, dir, "totp.key")) {
 		t.Fatal("restart regenerated development keys")
 	}
@@ -124,34 +127,33 @@ func TestLoopbackIssuerGeneratesPersistsAndReusesDevelopmentKeys(t *testing.T) {
 		t.Fatalf("restart should log reuse, not generation:\n%s", again.logs)
 	}
 
-	other := mustBoot(t, bootKeys(t, "http://127.0.0.1:9000", authkit.KeysConfig{}))
+	other := mustBoot(t, bootKeys(t, "http://127.0.0.1:9000", nil))
 	if strings.Contains(other.logs, dir) {
 		t.Fatal("another loopback issuer shared the directory")
 	}
 }
 
-func TestLoopbackIssuerGeneratesIntoConfiguredPath(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	dir := filepath.Join(t.TempDir(), "vault", "auth")
-	for _, issuer := range []string{localIssuer, "http://127.0.0.1:4780/auth", "http://[::1]:4780"} {
-		b := mustBoot(t, bootKeys(t, issuer, authkit.KeysConfig{Path: dir}))
-		assertDevelopmentKeys(t, dir)
-		if b.developmentLines() != 1 || !strings.Contains(b.logs, dir) {
-			t.Fatalf("%s: want one INFO line naming %s:\n%s", issuer, dir, b.logs)
-		}
+// watch is keys.Watch of dir, closed with the test.
+func watch(t *testing.T, dir string) keys.Source {
+	t.Helper()
+	src, err := keys.Watch(dir, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Cleanup(src.Close)
+	return src
 }
 
 func TestNonLoopbackIssuerNeverGenerates(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	dir := t.TempDir()
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
 	for _, issuer := range []string{productionIssuer, "https://10.0.0.5:8443", "https://localhost.example.com"} {
-		b := bootKeys(t, issuer, authkit.KeysConfig{Path: dir})
+		b := bootKeys(t, issuer, nil)
 		if b.err == nil || !strings.Contains(b.err.Error(), "keys.json not found; mount keys.json or provide Deps.KeySource") {
 			t.Fatalf("%s: New = %v, want a missing keys.json refusal", issuer, b.err)
 		}
 	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+	if entries, _ := os.ReadDir(state); len(entries) != 0 {
 		t.Fatalf("a non-loopback issuer wrote %d files", len(entries))
 	}
 }
@@ -163,7 +165,11 @@ func TestProvisionedKeysAreUsedNeverRegenerated(t *testing.T) {
 		signing := provisionedKeysJSON(t, false)
 		writeKey(t, dir, "keys.json", signing)
 		writeKey(t, dir, "totp.key", []byte(hex.EncodeToString(make([]byte, 32))))
-		b := mustBoot(t, bootKeys(t, issuer, authkit.KeysConfig{Path: dir}))
+		src := watch(t, dir)
+		if totp, ok := src.(keys.TOTPSource); !ok || len(totp.TOTPKey()) != 32 {
+			t.Fatalf("%s: keys.Watch does not serve totp.key", issuer)
+		}
+		b := mustBoot(t, bootKeys(t, issuer, src))
 		if b.developmentLines() != 0 || !bytes.Equal(signing, readKey(t, dir, "keys.json")) {
 			t.Fatalf("%s: provisioned keys were replaced or reported as development:\n%s", issuer, b.logs)
 		}
@@ -171,11 +177,13 @@ func TestProvisionedKeysAreUsedNeverRegenerated(t *testing.T) {
 }
 
 func TestDevelopmentKeysSignOnlyForLoopbackIssuers(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	dir := t.TempDir()
-	mustBoot(t, bootKeys(t, localIssuer, authkit.KeysConfig{Path: dir}))
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	mustBoot(t, bootKeys(t, localIssuer, nil))
+	id := sha256.Sum256([]byte(localIssuer))
+	dir := filepath.Join(state, "authkit", "development", hex.EncodeToString(id[:]))
 
-	b := bootKeys(t, productionIssuer, authkit.KeysConfig{Path: dir})
+	b := bootKeys(t, productionIssuer, watch(t, dir))
 	if b.err == nil || !strings.Contains(b.err.Error(), "development keys cannot sign for "+productionIssuer+": provision real keys") {
 		t.Fatalf("New = %v, want development keys refused", b.err)
 	}
@@ -183,30 +191,29 @@ func TestDevelopmentKeysSignOnlyForLoopbackIssuers(t *testing.T) {
 	// Each file is checked: a provisioned keys.json beside a generated totp.key
 	// still refuses.
 	writeKey(t, dir, "keys.json", provisionedKeysJSON(t, false))
-	b = bootKeys(t, productionIssuer, authkit.KeysConfig{Path: dir})
-	if b.err == nil || !strings.Contains(b.err.Error(), "totp.key: development keys cannot sign") {
+	b = bootKeys(t, productionIssuer, watch(t, dir))
+	if b.err == nil || !strings.Contains(b.err.Error(), "development keys cannot sign") {
 		t.Fatalf("New = %v, want the development totp.key refused", b.err)
 	}
 
-	used := mustBoot(t, bootKeys(t, "http://127.0.0.1:4780", authkit.KeysConfig{Path: dir}))
+	used := mustBoot(t, bootKeys(t, "http://127.0.0.1:4780", watch(t, dir)))
 	if used.developmentLines() != 1 {
 		t.Fatalf("development totp.key used without its INFO line:\n%s", used.logs)
 	}
 }
 
+// A source without a signer only verifies, and generates nothing.
 func TestVerifyOnlyGeneratesNothing(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	for _, issuer := range []string{localIssuer, productionIssuer} {
-		dir := t.TempDir()
-		b := mustBoot(t, bootKeys(t, issuer, authkit.KeysConfig{Path: dir, VerifyOnly: true}))
-		if entries, _ := os.ReadDir(dir); len(entries) != 0 || b.developmentLines() != 0 {
-			t.Fatalf("%s: VerifyOnly generated keys", issuer)
+		b := mustBoot(t, bootKeys(t, issuer, keys.Static{}))
+		if b.developmentLines() != 0 {
+			t.Fatalf("%s: a verify-only source reported development keys", issuer)
 		}
-		mustBoot(t, bootKeys(t, issuer, authkit.KeysConfig{VerifyOnly: true}))
 	}
 	if entries, _ := os.ReadDir(state); len(entries) != 0 {
-		t.Fatal("VerifyOnly created a development directory")
+		t.Fatal("a verify-only source created a development directory")
 	}
 }
 
