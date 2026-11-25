@@ -8,6 +8,7 @@ package engine
 // the sign-in it stands on.
 
 import (
+	"cmp"
 	"context"
 	"crypto"
 	"crypto/sha256"
@@ -36,7 +37,8 @@ import (
 const (
 	keyOAuthAuthorization = "oauth:authz:" // +hash of the request id
 	oauthAuthorizationTTL = 10 * time.Minute
-	keyOAuthCode          = "oauth:code:" // +hash of the code
+	keyOAuthCode          = "oauth:code:"       // +hash of the code
+	keyOAuthCodeSpent     = "oauth:code-spent:" // +hash of a redeemed code: its refresh family's key
 	oauthCodeTTL          = 60 * time.Second
 	oauthIDTokenTTL       = 10 * time.Minute
 	// idTokenType is the ID token's JOSE typ; no other token is signed with it.
@@ -205,12 +207,13 @@ func (s *Engine) ExchangeOAuthCode(ctx context.Context, in authflow.OAuthCodeExc
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the authorization code is invalid, expired or already used")
 	}
 	var g authflow.OAuthGrant
-	ok, err := s.ephemConsumeJSON(ctx, keyOAuthCode+secret.Hash(in.Code), &g)
+	codeHash := secret.Hash(in.Code)
+	ok, err := s.ephemConsumeJSON(ctx, keyOAuthCode+codeHash, &g)
 	switch {
 	case err != nil:
 		return authflow.OAuthTokens{}, err
 	case !ok:
-		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the authorization code is invalid, expired or already used")
+		return authflow.OAuthTokens{}, s.refuseSpentCode(ctx, codeHash)
 	case !secret.Equal(g.ClientID, in.ClientID):
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the authorization code was issued to another client")
 	case g.RedirectURI != in.RedirectURI:
@@ -247,9 +250,34 @@ func (s *Engine) ExchangeOAuthCode(ctx context.Context, in authflow.OAuthCodeExc
 		if tokens.RefreshToken, err = s.startOAuthRefreshFamily(ctx, m); err != nil {
 			return authflow.OAuthTokens{}, err
 		}
+		id, _, _, _ := parseRefreshToken(tokens.RefreshToken)
+		if err := s.ephemSetString(ctx, keyOAuthCodeSpent+codeHash, keyOAuthRefresh+secret.Hash(id), oauthCodeTTL); err != nil {
+			return authflow.OAuthTokens{}, err
+		}
 	}
 	s.oauthAudit(ctx, "oauth_code_exchanged", g.UserID, map[string]string{"client_id": g.ClientID, "session_id": g.SessionID})
 	return tokens, nil
+}
+
+// refuseSpentCode answers a code that is unknown, expired or used. Used
+// again within its lifetime, it revokes the refresh family it started
+// (RFC 6749 §4.1.2); its access tokens expire on their own.
+func (s *Engine) refuseSpentCode(ctx context.Context, codeHash string) error {
+	refused := authflow.NewOAuthError(authflow.OAuthInvalidGrant, "the authorization code is invalid, expired or already used")
+	key, ok, err := s.ephemGetString(ctx, keyOAuthCodeSpent+codeHash)
+	if err != nil || !ok {
+		return cmp.Or(err, error(refused))
+	}
+	var f oauthRefreshFamily
+	_, found, err := s.ephemReadJSON(ctx, key, &f)
+	if err != nil || !found {
+		return cmp.Or(err, error(refused))
+	}
+	if err := s.ephemeral.Del(ctx, key); err != nil {
+		return err
+	}
+	s.oauthAudit(ctx, "oauth_code_reuse_revoked", f.UserID, map[string]string{"client_id": f.ClientID, "session_id": f.SessionID})
+	return refused
 }
 
 // oauthSignInStands is requireOAuthSignIn answering invalid_grant (with

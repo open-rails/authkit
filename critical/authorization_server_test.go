@@ -64,7 +64,7 @@ func TestCriticalAuthorizationServer(t *testing.T) {
 		return token(t, key, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refreshToken}})
 	}
 
-	t.Run("AK-J44-C01_an_authorization_code_redeems_once_with_its_PKCE_verifier_at_its_redirect_URI", func(t *testing.T) {
+	t.Run("AK-J44-C01_an_authorization_code_redeems_once_with_its_PKCE_verifier_at_its_redirect_URI_and_reuse_revokes_its_tokens", func(t *testing.T) {
 		verifier := randomText(t)
 		refused(t, "wrong verifier", invalidGrant("code_verifier"))(redeem(t, code(t, verifier), randomText(t), redirect))
 		refused(t, "wrong redirect_uri", invalidGrant("redirect_uri"))(redeem(t, code(t, verifier), verifier, "https://client.example/elsewhere"))
@@ -73,8 +73,10 @@ func TestCriticalAuthorizationServer(t *testing.T) {
 		if status != http.StatusOK || tokens.AccessToken == "" || tokens.RefreshToken == "" || tokens.IDToken == "" || tokens.TokenType != "DPoP" {
 			t.Fatalf("redemption answered %d %+v", status, tokens)
 		}
-		// RFC 6749 §4.1.2: a code used twice is refused.
+		// RFC 6749 §4.1.2: a code used twice is refused, and the refresh
+		// tokens issued from it are revoked.
 		refused(t, "reused code", invalidGrant("already used"))(redeem(t, issued, verifier, redirect))
+		refused(t, "refresh from a reused code", invalidGrant(""))(refresh(t, key, tokens.RefreshToken))
 	})
 
 	t.Run("AK-J44-C02_a_refresh_token_refreshes_only_with_its_DPoP_key_and_its_reuse_revokes_the_family", func(t *testing.T) {
