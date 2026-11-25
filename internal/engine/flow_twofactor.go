@@ -472,10 +472,7 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope st
 				return "", err
 			}
 		} else {
-			// In production, require email to be configured for email 2FA
-			if !s.cfg.Registration.AllowMissingSenders {
-				return "", errEmailNotConfigured
-			}
+			return "", errEmailNotConfigured
 		}
 	} else { // sms
 		if s.sms != nil {
@@ -483,10 +480,7 @@ func (s *Engine) send2FACodeForUser(ctx context.Context, user *db.User, scope st
 				return "", err
 			}
 		} else {
-			// In production, require SMS to be configured for SMS 2FA
-			if !s.cfg.Registration.AllowMissingSenders {
-				return "", errSMSNotConfigured
-			}
+			return "", errSMSNotConfigured
 		}
 	}
 	return destination, nil

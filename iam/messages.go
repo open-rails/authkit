@@ -83,7 +83,7 @@ type SMSMessage struct {
 	ContactChange *ContactChange
 	// UserID is the account the message is for; empty before one exists.
 	UserID string
-	// Domain is the host a Code is entered on (Frontend.BaseURL's). A body
+	// Domain is the host a Code is entered on (FrontendURL's). A body
 	// whose last line is "@<Domain> #<Code>" lets browsers autofill the code
 	// on that origin only (WICG origin-bound one-time codes); the built-in
 	// templates end with it, and OriginBoundLine renders it.

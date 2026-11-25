@@ -552,7 +552,7 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 	}
 
 	if d.Email == nil && d.SMS == nil {
-		if c.Registration.Verification == iam.RegistrationVerificationRequired && !c.Registration.AllowMissingSenders {
+		if c.Registration.Verification == iam.RegistrationVerificationRequired {
 			degrade(fmt.Errorf("authkit: registration verification policy is %q but no email or SMS sender is configured; registration answers email_unavailable until one is", iam.RegistrationVerificationRequired))
 		} else {
 			d.Logger.Warn("authkit: no email or SMS sender configured; verification delivery is disabled")

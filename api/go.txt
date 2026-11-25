@@ -432,7 +432,6 @@ pkg authkit, type ProvisioningTarget struct, URL string `yaml:"url"`
 pkg authkit, type RegistrationConfig = config.RegistrationConfig
 pkg authkit, type RegistrationConfig struct
 pkg authkit, type RegistrationConfig struct, Agreements []string `yaml:"agreements"`
-pkg authkit, type RegistrationConfig struct, AllowMissingSenders bool `yaml:"allow_missing_senders"`
 pkg authkit, type RegistrationConfig struct, NativeUserMode iam.RegistrationMode `yaml:"native_user_mode"`
 pkg authkit, type RegistrationConfig struct, PasswordlessAutoRegistration bool `yaml:"passwordless_auto_registration"`
 pkg authkit, type RegistrationConfig struct, UnprovenPasswordSignIn bool `yaml:"unproven_password_sign_in"`
@@ -580,6 +579,14 @@ pkg authkit/adapters/gin, func Use(...func(http.Handler) http.Handler) gin.Handl
 pkg authkit/adapters/gin, type Surface interface
 pkg authkit/adapters/gin, type Surface interface, Handler() http.Handler
 pkg authkit/adapters/gin, type Surface interface, Routes() []iam.Route
+pkg authkit/adapters/logsender, method (Email) CheckHealth(context.Context) error
+pkg authkit/adapters/logsender, method (Email) Send(context.Context, iam.EmailMessage) error
+pkg authkit/adapters/logsender, method (SMS) CheckHealth(context.Context) error
+pkg authkit/adapters/logsender, method (SMS) Send(context.Context, iam.SMSMessage) error
+pkg authkit/adapters/logsender, type Email struct
+pkg authkit/adapters/logsender, type Email struct, Logger *slog.Logger
+pkg authkit/adapters/logsender, type SMS struct
+pkg authkit/adapters/logsender, type SMS struct, Logger *slog.Logger
 pkg authkit/adapters/smtp, func New(Config) (*Email, error)
 pkg authkit/adapters/smtp, method (*Email) CheckHealth(context.Context) error
 pkg authkit/adapters/smtp, method (*Email) Send(context.Context, iam.EmailMessage) error

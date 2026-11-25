@@ -229,11 +229,6 @@ type RegistrationConfig struct {
 	// PasswordlessAutoRegistration lets a verified unknown contact create a
 	// passwordless account during passwordless confirmation.
 	PasswordlessAutoRegistration bool `yaml:"passwordless_auto_registration"`
-	// AllowMissingSenders lets flows that deliver codes and links proceed with
-	// no email or SMS sender: nothing is delivered and the engine hands the
-	// code back to its caller (dev rigs read it there). By default a missing
-	// sender is an error.
-	AllowMissingSenders bool `yaml:"allow_missing_senders"`
 
 	// Agreements are the keys of Config.Agreements every self-registration
 	// accepts at their current version: a sign-up by password, code or
