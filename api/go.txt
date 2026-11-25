@@ -646,6 +646,7 @@ pkg authkit/authtest, method (*AuthorizationServer) Token(testing.TB, TokenReque
 pkg authkit/authtest, method (*AuthorizationServer) TokenEndpoint() string
 pkg authkit/authtest, method (*DPoPKey) Assertion(testing.TB, Assertion) string
 pkg authkit/authtest, method (*DPoPKey) Authorize(testing.TB, *http.Request, string, string)
+pkg authkit/authtest, method (*DPoPKey) Holds(...string)
 pkg authkit/authtest, method (*DPoPKey) Proof(testing.TB, string, string, string, string) string
 pkg authkit/authtest, method (*DPoPKey) Thumbprint() string
 pkg authkit/authtest, method (*GrantAuthorizer) Authorize(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error)

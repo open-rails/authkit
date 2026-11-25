@@ -326,6 +326,10 @@ func (f *fixture) signIn(t *testing.T, user authtest.User) iam.TokenSet {
 	if result.Status != "complete" || result.Tokens == nil || result.User == nil || result.User.ID != user.ID || result.Tokens.AccessToken == "" {
 		t.Fatalf("sign-in did not establish this user's session: %s", r.body)
 	}
+	// authtest's helpers present it with the fixture's proofs too.
+	if key, _ := boundKey(result.Tokens.AccessToken); key != nil {
+		key.Holds(result.Tokens.AccessToken)
+	}
 	return *result.Tokens
 }
 

@@ -356,7 +356,7 @@ func (as *AuthorizationServer) approve(t testing.TB, accessToken, id string, con
 		payload = strings.NewReader(`{"consent":true}`)
 	}
 	req, _ := http.NewRequest(http.MethodPost, as.URL+as.Client.APIBase()+"/oauth2/authorizations/"+url.PathEscape(id)+"/approve", payload)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	Authorize(t, as.Client, req, accessToken)
 	if consent {
 		req.Header.Set("Content-Type", "application/json")
 	}

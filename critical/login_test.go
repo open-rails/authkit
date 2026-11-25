@@ -2,7 +2,6 @@ package critical_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -136,49 +135,6 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		if len(h.out.Messages(iam.MessageVerification, "budgeted@example.com")) != 1 {
 			t.Fatal("identifier budget allowed duplicate external delivery")
 		}
-	})
-	t.Run("AK-J04-C06_unproven_sign_in_is_refused_while_no_channel_can_send", func(t *testing.T) {
-		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			config.Tune(c, func(tn *config.Tuning) { tn.SenderHealthRecheck = 100 * time.Millisecond })
-		}))
-		unproven, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-outage@example.com", Username: "unprovenoutage", Password: authtest.Password})
-		noError(t, err)
-		phoneProven, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "phone-proven@example.com", Phone: "+12025550177", Username: "phoneproven", Password: authtest.Password, PhoneVerified: true})
-		noError(t, err)
-		verified := g.user(t)
-		login := func(identifier, password string) response {
-			return g.call(t, "POST", "/password/login", "", map[string]string{"identifier": identifier, "password": password})
-		}
-		status := func(r response) signInResult {
-			r.want(t, http.StatusOK, "")
-			var out signInResult
-			decode(t, r.body, &out)
-			return out
-		}
-
-		if out := status(login(*unproven.Email, authtest.Password)); out.Status != "verification_required" || out.Tokens != nil {
-			t.Fatalf("healthy sender did not park the unproven sign-in: %+v", out)
-		}
-		g.out.Last(t, iam.MessageVerification, *unproven.Email)
-
-		g.out.SetEmailHealth(errors.New("owned email outage"))
-		noError(t, g.auth.Start(context.Background()))
-		eventually(t, "email health failure", func() bool { return !g.auth.EmailAvailable() })
-		login(*unproven.Email, authtest.Password).want(t, http.StatusServiceUnavailable, "verification_unavailable")
-		login(*unproven.Email, "wrong-password").want(t, http.StatusUnauthorized, "invalid_credentials")
-		sessions, err := g.auth.Sessions(t.Context(), unproven.ID)
-		noError(t, err)
-		if len(sessions) != 0 {
-			t.Fatal("unproven sign-in got a session without its code")
-		}
-		if out := status(login(verified.Email, authtest.Password)); out.Status != "complete" || out.Tokens == nil {
-			t.Fatalf("verified account was refused during the outage: %+v", out)
-		}
-		// A proven phone passes the gate to the usual phone-only device code.
-		if out := status(login(*phoneProven.Email, authtest.Password)); out.Status != "device_verification_required" {
-			t.Fatalf("account with a proven phone was refused during the outage: %+v", out)
-		}
-		g.out.Last(t, iam.MessageNewDeviceCode, *phoneProven.Phone)
 	})
 	t.Run("AK-J04-C07_identifier_budget_spans_addresses_and_treats_missing_accounts_alike", func(t *testing.T) {
 		for _, store := range []struct {

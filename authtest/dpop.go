@@ -139,6 +139,11 @@ func (k *DPoPKey) coordinates() (string, string) {
 	return base64.RawURLEncoding.EncodeToString(public[1:33]), base64.RawURLEncoding.EncodeToString(public[33:])
 }
 
+// Holds records that k binds tokens, which the host's own sign-ins
+// obtained with k's proofs: Authorize, Transport and the authorization
+// server's helpers then present them with k's proofs.
+func (k *DPoPKey) Holds(tokens ...string) { bindTokens(k, tokens...) }
+
 // boundKeys remembers the DPoP key SignIn bound each session's tokens to.
 var boundKeys sync.Map
 

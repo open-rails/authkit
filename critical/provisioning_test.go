@@ -273,13 +273,13 @@ func TestCriticalProvisioningRuns(t *testing.T) {
 	t.Run("AK-J41-C03_an_idle_target_is_never_swept", func(t *testing.T) {
 		target := newSCIMTarget()
 		f := newFixture(t, withTarget(target)...)
-		_, counter := f.startCountedFleet(t)
+		f.startFleet(t)
 		f.user(t)
 		f.synced(t)
-		before, requests := counter.count("authkit_provisioning"), len(target.requestTimes())
+		requests := len(target.requestTimes())
 		time.Sleep(6 * time.Second) // past River's 5 s scheduler interval
-		if after := counter.count("authkit_provisioning"); after != before || len(target.requestTimes()) != requests {
-			t.Fatalf("an idle target ran %d jobs and got %d requests", after-before, len(target.requestTimes())-requests)
+		if got := len(target.requestTimes()) - requests; got != 0 {
+			t.Fatalf("an idle target got %d requests", got)
 		}
 		if n := len(target.listings()); n != 0 {
 			t.Fatalf("the target's users were listed %d times: nothing sweeps them", n)

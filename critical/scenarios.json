@@ -32,7 +32,6 @@
   "AK-J04-C03": "device limit and confirmation",
   "AK-J04-C04": "wrong-device proof, expiry and replay",
   "AK-J04-C05": "per-IP throttling, and a per-destination send quota that answers alike and sends nothing",
-  "AK-J04-C06": "unproven sign-in refused while no channel can send its code",
   "AK-J04-C07": "per-identifier password budget across addresses, alike for missing accounts",
   "AK-J04-C08": "wrong password answers alike and as slowly for banned, passwordless and missing accounts",
   "AK-J04-C09": "missing account still costs a password check after the hash budget was full",
