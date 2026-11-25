@@ -16,6 +16,7 @@ import (
 // policy). The recovery window holds the name, and the account's former
 // names keep their own expiry.
 func TestCriticalDeletedNames(t *testing.T) {
+	t.Parallel()
 	// purge deletes u for good through the real purge worker.
 	purge := func(t *testing.T, f *fixture, u authtest.User) {
 		t.Helper()

@@ -13,6 +13,7 @@ import (
 // A host that holds the pool's only connection must be able to read its own
 // uncommitted membership/user changes, without an accidental second checkout.
 func TestCriticalGroupMembersHostTransaction(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	cfg := f.pool.Config().Copy()
 	cfg.MaxConns, cfg.MinConns = 1, 0

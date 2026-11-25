@@ -19,6 +19,7 @@ import (
 	"github.com/open-rails/authkit/internal/password"
 )
 
+// Serial: it shares Redis and times password checks against each other.
 func TestCriticalPasswordAdmission(t *testing.T) {
 	f := newFixture(t)
 	t.Run("AK-J04-C01_valid_and_invalid_password_admission", func(t *testing.T) {
@@ -348,6 +349,7 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 }
 
 func TestCriticalUnprovenPasswordSignIn(t *testing.T) {
+	t.Parallel()
 	t.Run("required_MFA_still_applies", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.TwoFactor = iam.TwoFactorRequired }))
 		u, err := f.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-mfa@example.com", Username: "unprovenmfa", Password: authtest.Password})

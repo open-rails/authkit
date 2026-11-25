@@ -163,6 +163,7 @@ func (f *fixture) purged(t *testing.T, id string) {
 }
 
 func TestCriticalAccountLifecycle(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J25-C01_ban_authority_and_last_owner_survive_adversarial_calls", func(t *testing.T) {
 		f := newFixture(t)
 		group, owner, who := f.ownedGroup(t)

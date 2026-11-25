@@ -2,7 +2,8 @@ import { test, open, seed, login } from "./browser"
 import { expect } from "@playwright/test"
 
 // This is the real authorization server. The only interception below changes
-// the authorization request nonce to prove a genuine signed mismatch is refused.
+// the authorization request nonce to prove a genuine signed mismatch is refused,
+// and holds one token exchange.
 test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only the current ID token", async ({
   page,
   request,
@@ -10,6 +11,29 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
 }) => {
   const alice = await seed(request)
   const bob = await seed(request)
+  // Both routes stay for the whole test and act only when armed. Removing the
+  // last route (a `times: 1` route expiring) turns interception off, and doing
+  // that while the popup's authorization redirect was paused stranded its
+  // navigation until the test timed out.
+  let issuedNonce: string | undefined
+  await context.route("**/oauth2/authorize?**", (route) => {
+    const nonce = issuedNonce
+    issuedNonce = undefined
+    if (nonce === undefined) return route.continue()
+    const url = new URL(route.request().url())
+    url.searchParams.set("nonce", nonce)
+    return route.continue({ url: url.toString() })
+  })
+  let hold: { arrived: () => void; released: Promise<void> } | undefined
+  await page.route("**/oauth2/token", async (route) => {
+    const held = hold
+    hold = undefined
+    if (held) {
+      held.arrived()
+      await held.released
+    }
+    await route.continue()
+  })
   await open(page)
   expect(
     await page.evaluate(
@@ -84,23 +108,13 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
     )
     await expect(popup.getByTestId("session-status")).not.toHaveText("loading")
     expect((await login(popup, who)).status).toBe("complete")
-    let release: (() => void) | undefined
-    let arrived: (() => void) | undefined
-    const pending = new Promise<void>((resolve) => {
-      arrived = resolve
+    let release = () => {}
+    const released = new Promise<void>((resolve) => {
+      release = resolve
     })
-    if (waitForExchange)
-      await page.route(
-        "**/oauth2/token",
-        async (route) => {
-          arrived?.()
-          await new Promise<void>((resolve) => {
-            release = resolve
-          })
-          await route.continue()
-        },
-        { times: 1 }
-      )
+    const arrived = new Promise<void>((resolve) => {
+      if (waitForExchange) hold = { arrived: resolve, released }
+    })
     await popup.evaluate(async () => {
       const id = new URLSearchParams(location.search).get("authorization")!
       await window.ak.client.getOAuthAuthorization(id)
@@ -110,9 +124,9 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
       location.assign(answer.redirect_to)
     })
     if (waitForExchange) {
-      await pending
+      await arrived
       expect(await idToken()).toBeNull()
-      release?.()
+      release()
     }
     await expect
       .poll(() => page.evaluate(() => window.ak.issuerResult))
@@ -136,15 +150,7 @@ test("AK-UI-16: AK-J29-C07: issuer proof binds a server nonce and retains only t
   expect(await signIn(alice, "current-proof-before-refusal")).toEqual({
     ok: true,
   })
-  await context.route(
-    "**/oauth2/authorize?**",
-    (route) => {
-      const url = new URL(route.request().url())
-      url.searchParams.set("nonce", "different-real-issued-nonce")
-      return route.continue({ url: url.toString() })
-    },
-    { times: 1 }
-  )
+  issuedNonce = "different-real-issued-nonce"
   expect(
     await signIn(
       bob,

@@ -23,6 +23,7 @@ func (f *fixture) personal(t *testing.T, permissions ...iam.Perm) (iam.PersonalA
 }
 
 func TestCriticalPersonalTokens(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J17-C01_create_list_use_revoke_and_expire", func(t *testing.T) {
 		f := newFixture(t)
 		token, group, who := f.personal(t, f.read)

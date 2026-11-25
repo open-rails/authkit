@@ -12,47 +12,11 @@ func tenancyConfig(tenancy Tenancy) Config {
 	return Config{Tenancy: tenancy, Issuer: "https://auth.example.com"}
 }
 
-func TestTenancyIsSingleUnlessMulti(t *testing.T) {
-	if (Config{}).Tenancy != TenancySingle || TenancySingle.String() != "single" || TenancyMulti.String() != "multi" {
-		t.Fatal("the zero Config is not single-tenant")
-	}
-	if _, _, err := Normalize(tenancyConfig(Tenancy(7)), Deps{}); err == nil || !strings.Contains(err.Error(), "invalid Tenancy") {
-		t.Fatalf("Normalize = %v, want an unknown Tenancy refused", err)
-	}
-}
-
-func TestBindDefaultTenant(t *testing.T) {
-	sole, other := iam.NewTenantID(), iam.NewTenantID()
-	bind := func(c Config, id iam.TenantID) (Config, error) {
-		t.Helper()
-		norm, _, err := Normalize(c, Deps{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		norm.Provisioning = []ProvisioningTarget{{Name: "billing"}}
-		norm.AuthorizationServer.Clients = []OAuthClientConfig{{ID: "scim"}}
-		return norm, BindDefaultTenant(&norm, id)
-	}
-
-	norm, err := bind(tenancyConfig(TenancySingle), sole)
-	if err != nil || norm.DefaultTenantID != sole ||
-		norm.Provisioning[0].TenantID != sole || norm.AuthorizationServer.Clients[0].TenantID != sole {
-		t.Fatalf("unnamed tenants not bound to the sole tenant: %v", err)
-	}
-
-	multi := tenancyConfig(TenancyMulti)
-	multi.DefaultTenantID = other
-	if _, err := bind(multi, sole); err == nil || !strings.Contains(err.Error(), "is not the database's tenant") {
-		t.Fatalf("a DefaultTenantID other than the bound tenant = %v", err)
-	}
-}
-
-// A single-tenant host names no tenant anywhere: every tenant ID is
-// multi-tenant only.
+// AK-J02-C08 to C11 prove DefaultTenantID single-tenant only; the per-object
+// tenant IDs and an unknown Tenancy are refused here.
 func TestSingleTenantNamesNoTenant(t *testing.T) {
 	id := iam.NewTenantID()
 	for name, edit := range map[string]func(*Config){
-		"DefaultTenantID":                         func(c *Config) { c.DefaultTenantID = id },
 		"AuthorizationServer.Clients[0].TenantID": func(c *Config) { c.AuthorizationServer.Clients = []OAuthClientConfig{{ID: "scim", TenantID: id}} },
 		"Provisioning[0].TenantID":                func(c *Config) { c.Provisioning = []ProvisioningTarget{{Name: "billing", TenantID: id}} },
 	} {
@@ -62,10 +26,8 @@ func TestSingleTenantNamesNoTenant(t *testing.T) {
 			t.Fatalf("single-tenant %s = %v, want refused", name, err)
 		}
 	}
-	multi := tenancyConfig(TenancyMulti)
-	multi.DefaultTenantID = id
-	if _, _, err := Normalize(multi, Deps{}); err != nil {
-		t.Fatalf("multi-tenant DefaultTenantID: %v", err)
+	if _, _, err := Normalize(tenancyConfig(Tenancy(7)), Deps{}); err == nil || !strings.Contains(err.Error(), "invalid Tenancy") {
+		t.Fatalf("Normalize = %v, want an unknown Tenancy refused", err)
 	}
 }
 

@@ -2,13 +2,15 @@ package critical_test
 
 import (
 	"context"
-	_ "embed"
-	"encoding/json"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -18,16 +20,10 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/provider"
 	"github.com/redis/go-redis/v9"
 )
-
-// One representative of each bucket used by the selected functional routes.
-// Independent fixed expectations: initial request reaches its auth/domain
-// boundary, the second is throttled, and unrelated capabilities remain usable.
-//
-//go:embed testdata/rate-buckets.json
-var rateBucketRows []byte
 
 func criticalDependencyBoundaries(t *testing.T) {
 	t.Helper()
@@ -72,34 +68,65 @@ func criticalDependencyBoundaries(t *testing.T) {
 			t.Fatal("configured Redis omitted its public probe")
 		}
 	})
-	t.Run("each_selected_route_bucket_limits_before_authentication", func(t *testing.T) {
+	t.Run("every_bucket_limits_at_its_own_boundary", func(t *testing.T) {
 		f := fullSurfaceFixture(t)
-		var rows []struct{ Bucket, Method, Path string }
-		noError(t, json.Unmarshal(rateBucketRows, &rows))
-		for _, row := range rows {
-			t.Run(row.Bucket, func(t *testing.T) {
-				limited := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) {
-					config.Tune(c, func(tn *config.Tuning) {
-						tn.RateLimits = map[string]config.RateLimit{row.Bucket: {Limit: 1, Window: time.Minute}}
-					})
-				}))
-				server := httptest.NewServer(limited.Handler())
-				t.Cleanup(server.Close)
-				path := strings.NewReplacer("{id}", iam.NewTenantID().String(), "{user_id}", iam.NewTenantID().String(), "{group_id}", iam.NewTenantID().String(), "{kind}", "users").Replace(row.Path)
+		mounted := map[string]iam.Route{}
+		for _, route := range f.auth.Routes() {
+			mounted[route.Pattern()] = route
+		}
+		// One mounted route per route bucket, from the catalog: a gated one
+		// when there is one, refused before its handler spends anything else.
+		routes := map[string]iam.Route{}
+		for _, spec := range httpapi.Catalog() {
+			path := spec.Path
+			switch spec.Surface {
+			case httpapi.SurfaceAPI:
+				path = f.auth.APIBase() + spec.Path
+			case httpapi.SurfaceOIDC:
+				path = httpapi.OIDCPath + spec.Path
+			}
+			route, ok := mounted[spec.Method+" "+path]
+			if !ok || spec.Method == http.MethodOptions {
+				continue
+			}
+			if have, ok := routes[spec.Bucket]; !ok || have.Auth == iam.AuthPublic && route.Auth != iam.AuthPublic {
+				routes[spec.Bucket] = route
+			}
+		}
+		client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		param := regexp.MustCompile(`\{[a-z_]+\}`)
+		for bucket := range httpapi.DefaultRateLimits() {
+			if bucket == "default" {
+				continue
+			}
+			route, routed := routes[bucket]
+			probe, inner := innerBuckets[bucket]
+			if routed == inner {
+				t.Errorf("bucket %s: a mounted route %v, an in-handler probe %v; want exactly one", bucket, routed, inner)
+				continue
+			}
+			t.Run(bucket, func(t *testing.T) {
+				g := f.limitedTo(t, bucket)
+				if inner {
+					probe(t, g)
+					return
+				}
+				path := param.ReplaceAllString(strings.ReplaceAll(route.Path, "{provider}", "unconfigured"), iam.NewTenantID().String())
 				for i := range 2 {
-					r := wire(t, server.Client(), row.Method, server.URL+path, "", "application/json", "{}", nil)
-					if i == 0 {
-						if r.status == 404 || r.status == 429 || r.status >= 500 {
-							t.Fatalf("initial request did not reach the expected mounted boundary:%d %s", r.status, r.body)
-						}
-					} else {
-						r.want(t, 429, "rate_limited")
-						if r.header.Get("Retry-After") == "" {
-							t.Fatal("throttle omitted retry guidance")
-						}
+					r := wire(t, client, route.Method, g.server.URL+path, "", "application/json", "{}", nil)
+					if i == 0 && (r.status == http.StatusTooManyRequests || r.status >= 500) {
+						t.Fatalf("%s %s: the first request was refused: %d %s", route.Method, path, r.status, r.body)
+					}
+					if i == 1 {
+						limitedBy(t, r)
 					}
 				}
 			})
+		}
+		for bucket := range innerBuckets {
+			if _, ok := httpapi.DefaultRateLimits()[bucket]; !ok {
+				t.Errorf("probe for unknown bucket %s", bucket)
+			}
 		}
 	})
 	t.Run("sender_health_and_real_provider_outage_do_not_issue_authority", func(t *testing.T) {
@@ -148,4 +175,150 @@ func criticalDependencyBoundaries(t *testing.T) {
 		}
 		f.signIn(t, u) // unaffected native password boundary remains available
 	})
+}
+
+// limitedTo is a replica of f whose bucket allows one request a minute and
+// every other bucket is lifted, so only bucket can refuse.
+func (f *fixture) limitedTo(t *testing.T, bucket string, opts ...authtest.Option) *fixture {
+	t.Helper()
+	opts = append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
+		config.Tune(c, func(tn *config.Tuning) {
+			tn.NoRateLimits = true
+			tn.RateLimits = map[string]config.RateLimit{bucket: {Limit: 1, Window: time.Minute}}
+		})
+	})}, opts...)
+	replica := authtest.Replica(t, f.auth, opts...)
+	g := &fixture{auth: replica, out: f.out, cfg: f.cfg, deps: f.deps, dpop: f.dpop, t: t, tenant: f.tenant, pool: f.pool, schema: f.schema, roles: f.roles}
+	g.server = httptest.NewServer(replica.Handler())
+	t.Cleanup(g.server.Close)
+	return g
+}
+
+// limitedBy checks r is the one-a-minute limit limitedTo set refusing.
+func limitedBy(t *testing.T, r response) {
+	t.Helper()
+	r.want(t, http.StatusTooManyRequests, "rate_limited")
+	var env iam.ErrorEnvelope
+	decode(t, r.body, &env)
+	if r.header.Get("Retry-After") == "" || env.Error.Metadata["limit"] != 1.0 || env.Error.Metadata["window_seconds"] != 60.0 {
+		t.Fatalf("refusal is not the bucket's own limit: Retry-After %q, %v", r.header.Get("Retry-After"), env.Error.Metadata)
+	}
+}
+
+// sendsOnce checks that two starts toward to answer alike and only the
+// first sends: a quota per destination never refuses.
+func sendsOnce(t *testing.T, g *fixture, to string, start func() response) {
+	t.Helper()
+	before := len(g.out.Messages("", to))
+	first, second := start(), start()
+	if first.status != second.status || first.status >= 400 {
+		t.Fatalf("starts answered %d then %d: %s", first.status, second.status, second.body)
+	}
+	if got := len(g.out.Messages("", to)) - before; got != 1 {
+		t.Fatalf("two starts to %s sent %d messages, want 1", to, got)
+	}
+}
+
+// innerBuckets probe the buckets a handler or sender spends, beside its
+// route's: each request names what the bucket counts.
+var innerBuckets = map[string]func(t *testing.T, g *fixture){
+	"password_login_identifier": func(t *testing.T, g *fixture) {
+		u := g.user(t)
+		login := map[string]string{"identifier": u.Email, "password": "not-" + authtest.Password}
+		g.call(t, "POST", "/password/login", "", login).want(t, http.StatusUnauthorized, "")
+		limitedBy(t, g.call(t, "POST", "/password/login", "", login))
+	},
+	"passwordless_start_identifier": func(t *testing.T, g *fixture) {
+		u := g.user(t)
+		sendsOnce(t, g, u.Email, func() response {
+			return g.call(t, "POST", "/passwordless/start", "", map[string]string{"identifier": u.Email, "mode": "code"})
+		})
+	},
+	"register_create_identifier": func(t *testing.T, g *fixture) {
+		const email = "bucket-register@example.com"
+		sendsOnce(t, g, email, func() response {
+			r := g.call(t, "POST", "/register", "", map[string]string{"identifier": email, "username": "bucket" + strings.ToLower(rand.Text()[:8]), "password": authtest.Password})
+			g.call(t, "POST", "/register/abandon", "", map[string]string{"identifier": email, "password": authtest.Password}).want(t, http.StatusNoContent, "")
+			return r
+		})
+	},
+	"verify_request_identifier": func(t *testing.T, g *fixture) {
+		const email = "bucket-verify@example.com"
+		challengeOf(t, g.call(t, "POST", "/register", "", map[string]string{"identifier": email, "username": "bucketverify", "password": authtest.Password}))
+		sendsOnce(t, g, email, func() response {
+			return g.call(t, "POST", "/verify/request", "", map[string]string{"identifier": email})
+		})
+	},
+	"password_reset_request_identifier": func(t *testing.T, g *fixture) {
+		u := g.user(t)
+		sendsOnce(t, g, u.Email, func() response {
+			return g.call(t, "POST", "/password/reset/request", "", map[string]string{"identifier": u.Email})
+		})
+	},
+	"device_key_enroll_begin_identifier": func(t *testing.T, g *fixture) {
+		u := g.user(t)
+		sendsOnce(t, g, u.Email, func() response {
+			pub, _, err := ed25519.GenerateKey(nil)
+			noError(t, err)
+			return g.call(t, "POST", "/device-keys/enroll/begin", "", map[string]string{"email": u.Email, "public_key": base64.RawURLEncoding.EncodeToString(pub), "label": "bucket"})
+		})
+	},
+	"2fa_setup_totp": func(t *testing.T, g *fixture) {
+		token := g.signIn(t, g.user(t)).AccessToken
+		g.call(t, "POST", "/me/2fa/setup", token, map[string]string{"method": "totp"}).want(t, http.StatusOK, "")
+		limitedBy(t, g.call(t, "POST", "/me/2fa/setup", token, map[string]string{"method": "totp"}))
+	},
+	"2fa_setup_email": func(t *testing.T, g *fixture) {
+		token := g.signIn(t, g.user(t)).AccessToken
+		// The bucket is spent before the method is weighed: a deployment may
+		// refuse email as a factor.
+		if r := g.call(t, "POST", "/me/2fa/setup", token, map[string]string{"method": "email"}); r.status == http.StatusTooManyRequests || r.status >= 500 {
+			t.Fatalf("first email setup refused: %d %s", r.status, r.body)
+		}
+		limitedBy(t, g.call(t, "POST", "/me/2fa/setup", token, map[string]string{"method": "email"}))
+	},
+	"2fa_setup_sms": func(t *testing.T, g *fixture) {
+		token := g.signIn(t, g.user(t)).AccessToken
+		setup := map[string]string{"method": "sms", "phone_number": "+12025550140"}
+		g.call(t, "POST", "/me/2fa/setup", token, setup).want(t, http.StatusOK, "")
+		limitedBy(t, g.call(t, "POST", "/me/2fa/setup", token, setup))
+	},
+	// Each text: per number and account the start answers alike and sends
+	// nothing; per address, country, block and client it is refused.
+	"sms_number": func(t *testing.T, g *fixture) {
+		sendsOnce(t, g, "+12025550141", func() response { return smsStart(t, g, "+12025550141", nil) })
+	},
+	"sms_account": func(t *testing.T, g *fixture) {
+		_, err := g.auth.CreateUser(t.Context(), iam.NewUser{Phone: "+12025550142", PhoneVerified: true, Username: "bucketsmsaccount"})
+		noError(t, err)
+		sendsOnce(t, g, "+12025550142", func() response { return smsStart(t, g, "+12025550142", nil) })
+	},
+	"sms_address": func(t *testing.T, g *fixture) {
+		challengeOf(t, smsStart(t, g, "+12025610143", nil))
+		limitedBy(t, smsStart(t, g, "+12025620143", nil))
+	},
+	"sms_country": func(t *testing.T, g *fixture) {
+		challengeOf(t, smsStart(t, g, "+12025630144", nil))
+		limitedBy(t, smsStart(t, g, "+12025640144", nil))
+	},
+	"sms_range": func(t *testing.T, g *fixture) {
+		challengeOf(t, smsStart(t, g, "+12025650145", nil))
+		limitedBy(t, smsStart(t, g, "+12025650146", nil))
+	},
+	"sms_client": func(t *testing.T, g *fixture) {
+		g = g.limitedTo(t, "sms_client", authtest.WithDeps(func(d *authkit.Deps) {
+			d.RequestClient = func(r *http.Request) string { return r.Header.Get("X-Bucket-Client") }
+		}))
+		client := http.Header{"X-Bucket-Client": {"bucket-client"}}
+		challengeOf(t, smsStart(t, g, "+12025660147", client))
+		limitedBy(t, smsStart(t, g, "+12025670147", client))
+	},
+}
+
+// smsStart starts a code sign-in by text to number.
+func smsStart(t *testing.T, g *fixture, number string, headers http.Header) response {
+	t.Helper()
+	r, err := g.requestHeaders(t.Context(), "POST", "/passwordless/start", "", map[string]string{"identifier": number, "mode": "code"}, headers)
+	noError(t, err)
+	return r
 }

@@ -17,6 +17,7 @@ import (
 // redeems one capability again, each time a whole grant the authorizer
 // decides, and the authorizer refuses the renewals it does not want.
 func TestCriticalWorkloads(t *testing.T) {
+	t.Parallel()
 	const resource = "https://hub.example"
 	grants := &authtest.GrantAuthorizer{}
 	jwtBearer := []authkit.OAuthGrantType{authkit.GrantJWTBearer}

@@ -31,6 +31,7 @@ func (f *fixture) ageTerminal(t *testing.T, table, id string) {
 }
 
 func TestCriticalMaintenance(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J32-C01_expired_authority_is_refused_before_cleanup_runs", func(t *testing.T) {
 		f := newFixture(t)
 		u := f.user(t)

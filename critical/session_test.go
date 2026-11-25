@@ -17,9 +17,11 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/verify"
 )
 
+// Serial: it shares Redis, whose keys every fixture's issuer prefixes alike.
 func TestCriticalSessionHistoryImport(t *testing.T) {
 	rdb := realRedis(t)
 	redisDep := authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb })
@@ -431,6 +433,7 @@ func TestCriticalSessionHistoryImport(t *testing.T) {
 }
 
 func TestCriticalSessions(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	t.Run("AK-J05-C01_concurrent_refresh_has_one_successor", func(t *testing.T) {
 		u := f.user(t)
@@ -819,6 +822,47 @@ func TestCriticalSessions(t *testing.T) {
 				t.Fatalf("another tenant's member gained Can %v: %v", ok, err)
 			}
 		})
+	})
+	t.Run("AK-J05-C15_a_refresh_token_reused_after_its_grace_window_ends_the_session", func(t *testing.T) {
+		g := newFixture(t)
+		clock := testclock.Wall()
+		testclock.Use(g.auth, clock.Now)
+		u := g.user(t)
+		first := g.signIn(t, u)
+		refresh := func(token string) response {
+			return g.call(t, "POST", "/token", "", map[string]string{"grant_type": "refresh_token", "refresh_token": token})
+		}
+		second := tokensFrom(t, refresh(*first.RefreshToken), u.ID)
+		// Inside the window the predecessor is handed its successor again.
+		if again := tokensFrom(t, refresh(*first.RefreshToken), u.ID); *again.RefreshToken != *second.RefreshToken {
+			t.Fatal("a retry inside the grace window forked the rotation")
+		}
+		clock.Advance(config.RefreshRotationGrace + time.Second)
+		refresh(*first.RefreshToken).want(t, http.StatusUnauthorized, "invalid_token")
+		// The reuse ended the session: its current tokens are dead too.
+		refresh(*second.RefreshToken).want(t, http.StatusUnauthorized, "invalid_token")
+		g.call(t, "PATCH", "/me", second.AccessToken, map[string]string{"preferred_language": "en"}).want(t, http.StatusUnauthorized, "session_revoked")
+		live, err := g.auth.Sessions(t.Context(), u.ID)
+		noError(t, err)
+		if len(live) != 0 {
+			t.Fatalf("a reused refresh token left %d sessions live", len(live))
+		}
+	})
+	t.Run("AK-J05-C16_a_refresh_token_refreshes_only_with_its_own_DPoP_key", func(t *testing.T) {
+		u := f.user(t)
+		session := f.signIn(t, u)
+		body := map[string]string{"grant_type": "refresh_token", "refresh_token": *session.RefreshToken}
+		other := authtest.NewDPoPKey(t)
+		r, err := f.requestHeaders(t.Context(), "POST", "/token", "", body,
+			http.Header{"DPoP": {other.Proof(t, http.MethodPost, origin(f.cfg.Issuer)+f.auth.APIBase()+"/token", "", "")}})
+		noError(t, err)
+		r.want(t, http.StatusUnauthorized, "sender_proof_required")
+		// The refusal rotated and revoked nothing: the key's own proof refreshes.
+		next := tokensFrom(t, f.call(t, "POST", "/token", "", body), u.ID)
+		if *next.RefreshToken == *session.RefreshToken {
+			t.Fatal("refresh did not rotate")
+		}
+		f.call(t, "PATCH", "/me", next.AccessToken, map[string]string{"preferred_language": "en"}).want(t, http.StatusOK, "")
 	})
 	t.Run("AK-J05-C05_late_refresh_cannot_undo_logout", func(t *testing.T) {
 		u := f.user(t)

@@ -19,6 +19,7 @@ import (
 )
 
 func TestCriticalRetainedEvents(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J26-C01_commit_order_and_rollback_never_create_a_skip_window", func(t *testing.T) {
 		f := newFixture(t)
 		initial, err := f.auth.ListEvents(t.Context(), iam.EventQuery{Types: []string{"user.registered"}})

@@ -41,6 +41,8 @@ func (f *fixture) authenticate(t *testing.T, credential string) (auth.Verified, 
 	return f.auth.Authenticator().Authenticate(r)
 }
 
+// Serial: its dependency cases share Redis, whose keys every fixture's
+// issuer prefixes alike.
 func TestCriticalAPIKeyAuthority(t *testing.T) {
 	t.Run("AK-J16-C01_real_key_lifecycle_and_credential_error_classes", func(t *testing.T) {
 		f := newFixture(t)

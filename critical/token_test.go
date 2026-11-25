@@ -1,10 +1,14 @@
 package critical_test
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -39,13 +43,20 @@ func jwtParts(t *testing.T, raw string) (map[string]any, map[string]any) {
 	decode(t, p, &claims)
 	return header, claims
 }
-func signJWT(t *testing.T, signer keys.Signer, header, claims map[string]any) string {
+
+// encodeJWT is a JWT's signing input: its encoded header and claims.
+func encodeJWT(t *testing.T, header, claims map[string]any) string {
 	t.Helper()
 	h, err := json.Marshal(header)
 	noError(t, err)
 	p, err := json.Marshal(claims)
 	noError(t, err)
-	input := base64.RawURLEncoding.EncodeToString(h) + "." + base64.RawURLEncoding.EncodeToString(p)
+	return base64.RawURLEncoding.EncodeToString(h) + "." + base64.RawURLEncoding.EncodeToString(p)
+}
+
+func signJWT(t *testing.T, signer keys.Signer, header, claims map[string]any) string {
+	t.Helper()
+	input := encodeJWT(t, header, claims)
 	signature, err := signer.Sign(t.Context(), []byte(input))
 	noError(t, err)
 	return input + "." + base64.RawURLEncoding.EncodeToString(signature)
@@ -76,6 +87,7 @@ func fixtureIDToken(t *testing.T, f *fixture, raw string) string {
 	return signJWT(t, f.deps.KeySource.ActiveSigner(), h, c)
 }
 
+// Serial: it sets cachepolicy.IssuerKeys, which every verifier reads.
 func TestCriticalTokenProfiles(t *testing.T) {
 	f := jwtFixture(t)
 	t.Run("AK-J13-C01_access_resource_and_ID_profiles_have_distinct_contracts", func(t *testing.T) {
@@ -123,20 +135,37 @@ func TestCriticalTokenProfiles(t *testing.T) {
 	t.Run("AK-J13-C02_signature_algorithm_type_and_structure_confusion_fail", func(t *testing.T) {
 		u := f.user(t)
 		raw := f.signIn(t, u).AccessToken
-		for _, typ := range []string{"JWT", "refresh+jwt", ""} {
+		for typ, code := range map[string]string{"JWT": "unsupported_token_typ", "refresh+jwt": "unsupported_token_typ", "": "missing_token_typ", "absent": "missing_token_typ"} {
 			h, c := jwtParts(t, raw)
 			h["typ"] = typ
+			if typ == "absent" {
+				delete(h, "typ")
+			}
 			_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
-			if err == nil {
-				t.Fatalf("access verifier admitted token type%q", typ)
+			expectTokenError(t, err, code)
+		}
+		// RSA/HMAC key confusion: HS256 keyed with the public key as a
+		// verifier would hold it, PEM or JWK, and an unsigned "none".
+		signer := f.deps.KeySource.ActiveSigner()
+		der, err := x509.MarshalPKIXPublicKey(signer.Public())
+		noError(t, err)
+		jwk, err := json.Marshal(keys.PublicJWK(signer.Public(), signer.KID(), signer.Algorithm()))
+		noError(t, err)
+		for name, secret := range map[string][]byte{"pem": pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), "jwk": jwk} {
+			h, c := jwtParts(t, raw)
+			h["alg"] = "HS256"
+			input := encodeJWT(t, h, c)
+			mac := hmac.New(sha256.New, secret)
+			mac.Write([]byte(input))
+			_, err := verifyToken(t, f.auth, input+"."+base64.RawURLEncoding.EncodeToString(mac.Sum(nil)))
+			if e, ok := iam.AsError(err); !ok || e.Code() != "invalid_token" {
+				t.Fatalf("HS256 keyed with the %s public key = %v, want invalid_token", name, err)
 			}
 		}
-		for _, alg := range []string{"none", "HS256"} {
-			h, c := jwtParts(t, raw)
-			h["alg"] = alg
-			_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
-			expectTokenError(t, err, "invalid_token")
-		}
+		h, c := jwtParts(t, raw)
+		h["alg"] = "none"
+		_, err = verifyToken(t, f.auth, encodeJWT(t, h, c)+".")
+		expectTokenError(t, err, "invalid_token")
 		parts := strings.Split(raw, ".")
 		signature := parts[2]
 		replacement := "A"
@@ -148,9 +177,9 @@ func TestCriticalTokenProfiles(t *testing.T) {
 			_, err := verifyToken(t, f.auth, bad)
 			expectTokenError(t, err, "invalid_token")
 		}
-		h, c := jwtParts(t, raw)
+		h, c = jwtParts(t, raw)
 		delete(c, "sub")
-		_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+		_, err = verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 		expectTokenError(t, err, "missing_sub")
 	})
 	t.Run("AK-J13-C03_issuer_audience_and_lifetime_are_not_interchangeable", func(t *testing.T) {
@@ -303,7 +332,11 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		signer, err := keys.SignerFromKey("in-cluster", private)
 		noError(t, err)
 		mux := http.NewServeMux()
-		issuer := httptest.NewServer(mux)
+		var fetched atomic.Int64
+		issuer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fetched.Add(1)
+			mux.ServeHTTP(w, r)
+		}))
 		t.Cleanup(issuer.Close)
 		mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"issuer": issuer.URL, "jwks_uri": issuer.URL + "/jwks"})
@@ -328,14 +361,22 @@ func TestCriticalTokenProfiles(t *testing.T) {
 			c.RemoteApplications = []authkit.RemoteApplicationConfig{{Issuer: issuer.URL}}
 		}))
 		noError(t, authenticate(declared))
+		if fetched.Load() == 0 {
+			t.Fatal("the declared application's keys were not fetched from its private address")
+		}
 		// Registered at run time: the same issuer's private address is refused,
-		// whether discovered or named.
+		// whether discovered or named, and never dialed.
 		runtime := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.Resource = authkit.ResourceConfig{ID: resource} }))
 		group, _, _ := runtime.ownedGroup(t)
 		_, err = runtime.auth.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.RemoteApplication{Issuer: issuer.URL, Enabled: true, Mode: iam.RemoteApplicationModeJWKS})
 		noError(t, err)
-		if err := authenticate(runtime); err == nil {
-			t.Fatal("an application registered at run time fetched its keys from a private network")
+		before := fetched.Load()
+		err = authenticate(runtime)
+		if e, ok := iam.AsError(err); !ok || e.Status() != http.StatusServiceUnavailable || e.Code() != "issuer_keys_unavailable" || !strings.Contains(err.Error(), "private/reserved") {
+			t.Fatalf("an application registered at run time on a private network = %v, want 503 issuer_keys_unavailable naming the private address", err)
+		}
+		if fetched.Load() != before {
+			t.Fatal("an application registered at run time made AuthKit dial a private address")
 		}
 		_, err = runtime.auth.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.RemoteApplication{Issuer: "https://named-private.example", JWKSURI: issuer.URL + "/jwks", Enabled: true, Mode: iam.RemoteApplicationModeJWKS})
 		if !errors.Is(err, iam.ErrInvalidRemoteApplication) {
