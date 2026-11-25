@@ -76,7 +76,7 @@ func (s *Engine) initProvisioning(ctx context.Context) error {
 		}
 		pt := &provisioningTarget{name: t.Name, tenant: t.TenantID, invalid: config.TargetInvalid(t)}
 		if pt.invalid == nil {
-			pt.client = provisioningClient(t)
+			pt.client = provisioningClient(t, s.scimHandlers[t.Name])
 		}
 		s.provisioning = append(s.provisioning, pt)
 		if _, err := s.q.ProvisioningTargetRegister(ctx, db.ProvisioningTargetRegisterParams{Issuer: s.cfg.Issuer, Name: t.Name, TenantID: t.TenantID.String()}); err != nil {
@@ -110,13 +110,13 @@ func (s *Engine) provisioningTarget(name string) *provisioningTarget {
 	return nil
 }
 
-// provisioningClient calls t over HTTP, or its Handler in process, with its
+// provisioningClient calls t over HTTP, or handler in process, with its
 // credential.
-func provisioningClient(t config.ProvisioningTarget) *scim.Client {
+func provisioningClient(t config.ProvisioningTarget, handler http.Handler) *scim.Client {
 	base, transport := t.URL, http.DefaultTransport.(*http.Transport).Clone()
 	var rt http.RoundTripper = transport
-	if t.Handler != nil {
-		base, rt = inProcessBase, handlerTransport{t.Handler}
+	if handler != nil {
+		base, rt = inProcessBase, handlerTransport{handler}
 	}
 	switch {
 	case t.BearerToken != "":

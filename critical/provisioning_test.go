@@ -133,10 +133,10 @@ func (s *scimTarget) await(t *testing.T, userID string) time.Time {
 // fetch poll and scheduler run every second and five seconds.
 const riverLatency = 5 * time.Second
 
-func withTarget(target *scimTarget, reconcile time.Duration) authtest.Option {
-	return authtest.WithConfig(func(c *authkit.Config) {
-		c.Provisioning = authkit.ProvisioningConfig{Targets: []authkit.ProvisioningTarget{{Name: "directory", Handler: target}}, ReconcileInterval: reconcile}
-	})
+func withTarget(target *scimTarget, reconcile time.Duration) []authtest.Option {
+	return []authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
+		c.Provisioning = authkit.ProvisioningConfig{Targets: []authkit.ProvisioningTarget{{Name: "directory"}}, ReconcileInterval: reconcile}
+	}), authtest.WithDeps(func(d *authkit.Deps) { d.SCIMHandlers = map[string]http.Handler{"directory": target} })}
 }
 
 // synced waits for the target's initial sync and empty backlog.
@@ -216,7 +216,7 @@ func (f *fixture) startCountedFleet(t *testing.T) (*river.Client[pgx.Tx], *runCo
 func TestCriticalProvisioningRuns(t *testing.T) {
 	t.Run("AK-J41-C01_a_change_reaches_the_target_within_seconds_and_an_idle_target_runs_nothing", func(t *testing.T) {
 		target := newSCIMTarget()
-		f := newFixture(t, withTarget(target, 0))
+		f := newFixture(t, withTarget(target, 0)...)
 		fleet, counter := f.startCountedFleet(t)
 		f.synced(t)
 		for range 3 {
@@ -251,7 +251,7 @@ func TestCriticalProvisioningRuns(t *testing.T) {
 	})
 	t.Run("AK-J41-C02_an_unreachable_target_is_retried_at_its_retry_at_and_no_sooner", func(t *testing.T) {
 		target := newSCIMTarget()
-		f := newFixture(t, withTarget(target, 0))
+		f := newFixture(t, withTarget(target, 0)...)
 		f.startFleet(t)
 		f.synced(t)
 		sent := len(target.requestTimes())
@@ -284,7 +284,7 @@ func TestCriticalProvisioningRuns(t *testing.T) {
 	t.Run("AK-J41-C03_reconciliation_runs_at_its_interval", func(t *testing.T) {
 		target := newSCIMTarget()
 		const interval = 2 * time.Second
-		f := newFixture(t, withTarget(target, interval))
+		f := newFixture(t, withTarget(target, interval)...)
 		_, counter := f.startCountedFleet(t)
 		f.user(t)
 		f.synced(t)
@@ -323,7 +323,7 @@ func TestCriticalProvisioningRuns(t *testing.T) {
 	})
 	t.Run("AK-J41-C04_a_listener_down_at_the_write_catches_up_on_reconnect", func(t *testing.T) {
 		target := newSCIMTarget()
-		f := newFixture(t, withTarget(target, 0))
+		f := newFixture(t, withTarget(target, 0)...)
 		f.startFleet(t)
 		f.synced(t)
 		listening := "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND query='LISTEN authkit_provisioning'"

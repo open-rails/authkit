@@ -116,6 +116,11 @@ type Deps struct {
 	// may name https://<host> when it reports true for the request's Host.
 	// No header is trusted otherwise.
 	ResourceHosts func(ctx context.Context, host string) (bool, error)
+	// SCIMHandlers serve in-process SCIM service providers, keyed by the
+	// name of the Config.Provisioning target they serve (one without a URL),
+	// so an embedded service provider is called with no network. Requests
+	// reach a handler with paths relative to its base ("/Users", "/Bulk").
+	SCIMHandlers map[string]http.Handler
 	// ClientIP extracts the client address. It is the host's own client-IP
 	// posture: New refuses it beside HTTPConfig's proxies or DirectPeerIP.
 	ClientIP func(*http.Request) string

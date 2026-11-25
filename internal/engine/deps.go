@@ -40,6 +40,7 @@ func (s *Engine) applyDeps(d config.Deps) error {
 	s.replays = dpop.NewReplays(d.Redis, d.Replays, s.log)
 	s.replayStore = d.Replays
 	s.resourceHosts = d.ResourceHosts
+	s.scimHandlers = d.SCIMHandlers
 	s.applyProviders(d.Providers)
 	s.email, s.sms = d.Email, d.SMS
 	if d.Email == nil && s.cfg.HTTP != nil {

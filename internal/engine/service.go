@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,6 +55,8 @@ type Engine struct {
 	// a live keys.Source (e.g. the reloadable file source) hot-swaps keys
 	// behind an atomic pointer, and the engine must observe every swap (#238).
 	keys keys.Source
+	// scimHandlers are the in-process SCIM targets (Deps.SCIMHandlers).
+	scimHandlers map[string]http.Handler
 	// totpKey encrypts stored authenticator-app secrets (keys.TOTPSource).
 	totpKey []byte
 

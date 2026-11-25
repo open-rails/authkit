@@ -303,6 +303,7 @@ pkg authkit, type Deps struct, Replays verify.ReplayStore
 pkg authkit, type Deps struct, RequestClient func(*http.Request) string
 pkg authkit, type Deps struct, RequestTenant func(*http.Request) (iam.TenantID, error)
 pkg authkit, type Deps struct, ResourceHosts func(context.Context, string) (bool, error)
+pkg authkit, type Deps struct, SCIMHandlers map[string]http.Handler
 pkg authkit, type Deps struct, SMS config.SMSSender
 pkg authkit, type Deps struct, Wrap func(iam.Route, http.Handler) http.Handler
 pkg authkit, type DirectoryPerms = config.DirectoryPerms
@@ -425,7 +426,6 @@ pkg authkit, type ProvisioningTarget struct
 pkg authkit, type ProvisioningTarget struct, BearerToken string `yaml:"bearer_token"`
 pkg authkit, type ProvisioningTarget struct, ClientID string `yaml:"client_id"`
 pkg authkit, type ProvisioningTarget struct, ClientSecret string `yaml:"client_secret"`
-pkg authkit, type ProvisioningTarget struct, Handler http.Handler `yaml:"-"`
 pkg authkit, type ProvisioningTarget struct, Name string `yaml:"name"`
 pkg authkit, type ProvisioningTarget struct, TenantID iam.TenantID `yaml:"tenant_id"`
 pkg authkit, type ProvisioningTarget struct, URL string `yaml:"url"`

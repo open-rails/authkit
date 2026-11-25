@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -42,12 +41,9 @@ type ProvisioningTarget struct {
 	// which gets a full initial sync.
 	Name string `yaml:"name"`
 	// URL is the SCIM base URL, beneath which /Users and /Bulk are served
-	// ("https://billing.example.com/billing/v1/app/scim/v2").
+	// ("https://billing.example.com/billing/v1/app/scim/v2"). Empty is an
+	// in-process service provider: Deps.SCIMHandlers[Name].
 	URL string `yaml:"url"`
-	// Handler serves the SCIM endpoints in process instead of URL, so an
-	// embedded service provider is called with no network. Requests reach it
-	// with paths relative to the base ("/Users", "/Bulk").
-	Handler http.Handler `yaml:"-"`
 	// BearerToken is a static credential sent as Authorization: Bearer.
 	BearerToken string `yaml:"bearer_token"`
 	// ClientID and ClientSecret get the access token with the OAuth 2.0
@@ -103,7 +99,7 @@ func normalizeProvisioning(p *ProvisioningConfig, d Deps, degrade func(error)) e
 			continue
 		}
 		if t.invalid == nil {
-			if t.invalid = validProvisioningTarget(&t); t.invalid != nil {
+			if t.invalid = validProvisioningTarget(&t, d.SCIMHandlers[t.Name] != nil); t.invalid != nil {
 				t.invalid = fmt.Errorf("authkit: Provisioning.Targets[%d] (%s): %w; its changes wait until it is fixed", i, t.Name, t.invalid)
 				degrade(t.invalid)
 			}
@@ -116,11 +112,11 @@ func normalizeProvisioning(p *ProvisioningConfig, d Deps, degrade func(error)) e
 
 var errDeclaredTwice = errors.New("declared twice; its changes wait until it is declared once")
 
-func validProvisioningTarget(t *ProvisioningTarget) error {
+func validProvisioningTarget(t *ProvisioningTarget, inProcess bool) error {
 	t.URL = strings.TrimSuffix(strings.TrimSpace(t.URL), "/")
 	switch {
-	case (t.URL == "") == (t.Handler == nil):
-		return errors.New("set exactly one of URL and Handler")
+	case (t.URL == "") != inProcess:
+		return errors.New("set exactly one of URL and Deps.SCIMHandlers[Name]")
 	case t.URL != "" && !httpURL(t.URL):
 		return fmt.Errorf("URL %q must be an absolute http or https URL", t.URL)
 	}
