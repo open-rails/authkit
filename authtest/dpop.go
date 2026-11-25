@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -145,12 +146,18 @@ func (k *DPoPKey) coordinates() (string, string) {
 // server's helpers then present them with k's proofs.
 func (k *DPoPKey) Holds(tokens ...string) { bindTokens(k, tokens...) }
 
-// boundKeys remembers the DPoP key SignIn bound each session's tokens to.
-var boundKeys sync.Map
+// boundKeys remembers the DPoP key SignIn bound each session's tokens to;
+// keysByThumbprint finds it for any other token bound to the same key (its
+// cnf.jkt), such as StaleSession's.
+var boundKeys, keysByThumbprint sync.Map
 
 func bindTokens(key *DPoPKey, tokens ...string) {
+	if key == nil {
+		return
+	}
+	keysByThumbprint.Store(key.Thumbprint(), key)
 	for _, token := range tokens {
-		if key != nil && token != "" {
+		if token != "" {
 			boundKeys.Store(token, key)
 		}
 	}
@@ -158,6 +165,25 @@ func bindTokens(key *DPoPKey, tokens ...string) {
 
 func keyFor(token string) *DPoPKey {
 	if k, ok := boundKeys.Load(token); ok {
+		return k.(*DPoPKey)
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+	var claims struct {
+		Cnf struct {
+			JKT string `json:"jkt"`
+		} `json:"cnf"`
+	}
+	if json.Unmarshal(payload, &claims) != nil || claims.Cnf.JKT == "" {
+		return nil
+	}
+	if k, ok := keysByThumbprint.Load(claims.Cnf.JKT); ok {
 		return k.(*DPoPKey)
 	}
 	return nil

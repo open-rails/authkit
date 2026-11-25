@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -46,6 +47,12 @@ func TestCriticalFreshAuthority(t *testing.T) {
 		r.want(t, http.StatusUnauthorized, "step_up_required")
 		if !strings.Contains(r.header.Get("WWW-Authenticate"), "insufficient_user_authentication") {
 			t.Fatal("freshness refusal omitted its challenge")
+		}
+		// A host's tests present the re-minted token with its session's key.
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/protected", nil)
+		authtest.Authorize(t, f.auth, req, stale)
+		if _, err := f.auth.Authenticator().Authenticate(req); err != nil {
+			t.Fatalf("authtest did not present a stale session's token with its DPoP key: %v", err)
 		}
 		f.signIn(t, u)
 	})
