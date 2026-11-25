@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- AuthKit requires Helpers v1.22.1: concurrent requests to an issuer whose discovery or keys fail share one fetch per backoff. Before, a request racing a failed fetch could start a second one inside the five-second backoff.
 - An authorization code presented again within its 60-second lifetime revokes the refresh tokens issued from it (RFC 6749 §4.1.2), so whoever redeemed it first loses the grant; the access token it issued expires on its own. Before, the second redemption was only refused.
 - **Breaking:** `authkit.Config` keeps only what differs between hosts: 150 fields to 57. No aliases; every removed key fails to compile. Migration per area:
   - **One URL.** `Issuer` (was `Token.Issuer`) derives the rest. `FrontendURL` (was `Frontend.BaseURL`; may carry a path; empty is the issuer's origin); AuthKit's links land at fixed routes beneath it: `/verify`, `/reset`, `/passwordless`, `/invite` (was `/accept-invite`), `/authorize`, `/login/callback` (the `Frontend.*Path` settings are gone). Tokens' `aud` is the issuer (`IssuedAudiences`, `ExpectedAudiences` gone; remote verifiers expect the issuer). The surface lives at the issuer's path: the JSON API at `/auth/v1` for a root issuer (was `/api/v1`), at `/v1` beneath an issuer with a path (`HTTP.BasePath`, `APIPath`, `PublicURL` gone; auth-ui's default `baseUrl` is `/auth/v1`). Passkeys, the TOTP label and the Redis key prefix derive (`Passkeys`, `TwoFactor.TOTPIssuer`, `HTTP.RedisKeyPrefix` gone); a resource's DPoP origin is `Resource.ID`'s (`Resource.PublicURL` gone).
