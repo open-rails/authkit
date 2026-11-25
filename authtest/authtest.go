@@ -24,9 +24,12 @@ package authtest
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -181,9 +184,19 @@ func StaleSession(t testing.TB, auth *authkit.Client, accessToken string) string
 		t.Fatalf("authtest: stale session: no database (%v)", err)
 	}
 	ctx := context.Background()
-	claims, err := auth.Verify(ctx, accessToken)
-	if err != nil || claims.SessionID == "" {
-		t.Fatalf("authtest: stale session: no session behind the token (%v)", err)
+	// The token's own claims name its session: whoever holds its DPoP key,
+	// the session row below must exist.
+	var claims struct {
+		UserID    string `json:"sub"`
+		SessionID string `json:"sid"`
+	}
+	if parts := strings.Split(accessToken, "."); len(parts) == 3 {
+		if payload, err := base64.RawURLEncoding.DecodeString(parts[1]); err == nil {
+			_ = json.Unmarshal(payload, &claims)
+		}
+	}
+	if claims.SessionID == "" {
+		t.Fatal("authtest: stale session: no session behind the token")
 	}
 	tag, err := deps.Postgres.Exec(ctx, `UPDATE `+pgx.Identifier{schema, "refresh_sessions"}.Sanitize()+`
 		SET last_authenticated_at = now() - interval '1 day',

@@ -40,12 +40,17 @@ func (s *Service) guardJSONAPI(next http.Handler) http.Handler {
 // signInKey verifies the DPoP proof of a request that presents no
 // DPoP-bound token (a sign-in, a refresh), and records its key for the
 // session the request issues or rotates (RFC 9449 §5). A proof for a bound
-// token is the route's to verify. A proof that fails is refused.
+// token is the route's to verify; a session such a request issues (an
+// enrollment finishing a sign-in) is bound to the token's key, useless to
+// anyone without it. A proof that fails is refused.
 func (s *Service) signInKey(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
-	if len(r.Header.Values("DPoP")) == 0 {
+	if token, bound := jose.RequestToken(r); bound {
+		if _, jkt, err := jose.Confirmation(token); err == nil && jkt != "" {
+			return r.WithContext(authflow.WithDPoPKey(r.Context(), jkt)), true
+		}
 		return r, true
 	}
-	if _, bound := jose.RequestToken(r); bound {
+	if len(r.Header.Values("DPoP")) == 0 {
 		return r, true
 	}
 	jkt, err := dpop.Verify(r, dpop.Check{URL: s.requestURL(r), Replay: s.replays.Claim})

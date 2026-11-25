@@ -99,7 +99,7 @@ func TestCriticalTransport(t *testing.T) {
 				clock.Advance(16 * time.Minute)
 				call("DELETE", "/me", session.AccessToken, "").want(t, 401, "step_up_required")
 				call("PATCH", "/me", session.AccessToken, `{"preferred_language":"en"}`).want(t, 200, "")
-				cl, err := f.auth.Verify(t.Context(), session.AccessToken)
+				cl, err := verifyToken(t, f.auth, session.AccessToken)
 				noError(t, err)
 				noError(t, f.auth.RevokeSession(t.Context(), iam.SystemIdentity(), u.ID, cl.SessionID))
 				call("PATCH", "/me", session.AccessToken, `{"preferred_language":"fr"}`).want(t, 401, "session_revoked")

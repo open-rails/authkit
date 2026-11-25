@@ -1,6 +1,7 @@
 package critical_test
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -9,7 +10,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
+	"github.com/open-rails/authkit/verify"
 )
 
 // Every sign-in session is DPoP-bound. Each fixture holds one key: its
@@ -70,7 +73,20 @@ func authorize(t testing.TB, r *http.Request, credential string) {
 		r.Header.Set("DPoP", key.Proof(t, r.Method, iss+r.URL.EscapedPath(), credential, ""))
 		return
 	}
-	authorize(t, r, credential)
+	r.Header.Set("Authorization", "Bearer "+credential)
+}
+
+// verifyToken is c's verification of token as a request presents it: a
+// DPoP-bound token with its proof, as Client.Verify, which takes no request,
+// cannot check.
+func verifyToken(t testing.TB, c *authkit.Client, token string) (verify.Claims, error) {
+	t.Helper()
+	r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://verify.invalid/verify", nil)
+	if err != nil {
+		return verify.Claims{}, err
+	}
+	authorize(t, r, token)
+	return c.VerifyRequest(r)
 }
 
 // prove adds a proof of f's key to a request presenting no bound token: a

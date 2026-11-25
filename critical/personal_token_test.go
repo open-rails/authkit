@@ -116,7 +116,7 @@ func TestCriticalPersonalTokens(t *testing.T) {
 				f.call(t, op.method, op.path, token.Secret, op.body).want(t, http.StatusForbidden, "forbidden")
 			})
 		}
-		claims, err := f.auth.Verify(t.Context(), token.Secret)
+		claims, err := verifyToken(t, f.auth, token.Secret)
 		noError(t, err)
 		if err := f.auth.CheckRecentSignIn(t.Context(), claims); err == nil {
 			t.Fatal("PAT acquired interactive freshness")

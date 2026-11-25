@@ -112,7 +112,7 @@ func TestCriticalRuntime(t *testing.T) {
 		if got.ID != u.ID {
 			t.Fatal("restart lost committed account")
 		}
-		claims, err := restarted.Verify(t.Context(), session.AccessToken)
+		claims, err := verifyToken(t, restarted, session.AccessToken)
 		noError(t, err)
 		noError(t, restarted.CheckSession(t.Context(), claims))
 		if err := restarted.Ready(t.Context()); err == nil {
@@ -322,7 +322,7 @@ func TestCriticalRuntime(t *testing.T) {
 			noError(t, err)
 			token, err := client.MintAccessToken(t.Context(), authtest.NewUser(t, client).ID, iam.AccessTokenOptions{})
 			noError(t, err)
-			_, err = client.Verify(t.Context(), token.Value)
+			_, err = verifyToken(t, client, token.Value)
 			noError(t, err)
 			noError(t, client.Close(context.Background()))
 			keyFile, err := os.ReadFile(filepath.Join(dir, "keys.json"))

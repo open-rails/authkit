@@ -27,9 +27,9 @@ import {
 
 const params = new URLSearchParams(location.search)
 const baseUrl = params.has("limited")
-  ? "/limited/auth/v1"
+  ? "/limited/v1"
   : params.has("unproved")
-    ? "/unproved/auth/v1"
+    ? "/unproved/v1"
     : "/auth/v1"
 // Transparent public-boundary coverage only: real methods and results are
 // unchanged. No arguments, credentials or response data are recorded.

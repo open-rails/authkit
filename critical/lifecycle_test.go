@@ -181,7 +181,7 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 		noError(t, f.auth.Ban(t.Context(), iam.SystemIdentity(), u.ID, iam.Ban{}))
 		noError(t, f.auth.Unban(t.Context(), iam.SystemIdentity(), u.ID))
 		f.signIn(t, u)
-		cl, err := f.auth.Verify(t.Context(), token.AccessToken)
+		cl, err := verifyToken(t, f.auth, token.AccessToken)
 		noError(t, err)
 		if !errors.Is(f.auth.CheckSession(t.Context(), cl), iam.ErrSessionRevoked) {
 			t.Fatal("unban revived a retired session")
@@ -227,7 +227,7 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 		if restored.DeletedAt != nil {
 			t.Fatal("authorized restoration did not reopen the account")
 		}
-		cl, err := f.auth.Verify(t.Context(), token.AccessToken)
+		cl, err := verifyToken(t, f.auth, token.AccessToken)
 		noError(t, err)
 		if !errors.Is(f.auth.CheckSession(t.Context(), cl), iam.ErrSessionRevoked) {
 			t.Fatal("restore revived old credentials")

@@ -52,7 +52,7 @@ func TestCriticalHTTPAdmission(t *testing.T) {
 		cl["iat"] = time.Now().Add(-time.Hour).Unix()
 		expired := signJWT(t, f.deps.KeySource.ActiveSigner(), h, cl)
 		revoked := f.signIn(t, outsider)
-		claims, err := f.auth.Verify(t.Context(), revoked.AccessToken)
+		claims, err := verifyToken(t, f.auth, revoked.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.RevokeSession(t.Context(), iam.SystemIdentity(), outsider.ID, claims.SessionID))
 		var rows []struct{ ID, Method, Path, Gate, Coverage, Owner string }

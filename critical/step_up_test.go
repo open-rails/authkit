@@ -28,7 +28,7 @@ func TestCriticalFreshAuthority(t *testing.T) {
 		})
 		u := f.user(t)
 		session := f.signIn(t, u)
-		claims, err := f.auth.Verify(t.Context(), session.AccessToken)
+		claims, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.CheckRecentSignIn(t.Context(), claims))
 		boundary := claims.AuthTime.Add(15 * time.Minute)
@@ -55,7 +55,7 @@ func TestCriticalFreshAuthority(t *testing.T) {
 		stale := authtest.StaleSession(t, f.auth, session.AccessToken)
 		f.call(t, "POST", "/me/step-up/password", stale, map[string]string{"password": "wrong-password"}).want(t, http.StatusUnauthorized, "invalid_password")
 		fresh := tokensFrom(t, f.call(t, "POST", "/me/step-up/password", stale, map[string]string{"password": u.Password}), u.ID)
-		claims, err := f.auth.Verify(t.Context(), fresh.AccessToken)
+		claims, err := verifyToken(t, f.auth, fresh.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.CheckRecentSignIn(t.Context(), claims))
 		stale = authtest.StaleSession(t, f.auth, fresh.AccessToken)
@@ -116,7 +116,7 @@ func TestCriticalFreshAuthority(t *testing.T) {
 	t.Run("AK-J08-C05_machine_or_host_minted_identity_is_not_recent_sign_in", func(t *testing.T) {
 		f := newFixture(t)
 		key, _, who := f.key(t)
-		claims, err := f.auth.Verify(t.Context(), key.Secret)
+		claims, err := verifyToken(t, f.auth, key.Secret)
 		noError(t, err)
 		if e, ok := iam.AsError(f.auth.CheckRecentSignIn(t.Context(), claims)); !ok || e.Status() != http.StatusForbidden {
 			t.Fatalf("machine acquired freshness: %v", e)
@@ -124,7 +124,7 @@ func TestCriticalFreshAuthority(t *testing.T) {
 		f.call(t, "POST", "/me/step-up/password", key.Secret, map[string]string{"password": authtest.Password}).want(t, http.StatusForbidden, "forbidden")
 		token, err := f.auth.MintAccessToken(t.Context(), who.Subject, iam.AccessTokenOptions{})
 		noError(t, err)
-		cl, err := f.auth.Verify(t.Context(), token.Value)
+		cl, err := verifyToken(t, f.auth, token.Value)
 		noError(t, err)
 		if err := f.auth.CheckRecentSignIn(t.Context(), cl); err == nil {
 			t.Fatal("host-minted identity fabricated an interactive sign-in")

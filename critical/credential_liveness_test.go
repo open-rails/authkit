@@ -124,7 +124,7 @@ func TestCriticalCredentialLiveness(t *testing.T) {
 			if err := v.(auth.RecentSignInChecker).CheckRecentSignIn(t.Context()); !errors.Is(err, auth.ErrStepUpRequired) {
 				t.Fatalf("valid older sign-in did not exercise the no-step-up contract: %v", err)
 			}
-			claims, err := f.auth.Verify(t.Context(), stale)
+			claims, err := verifyToken(t, f.auth, stale)
 			noError(t, err)
 			noError(t, f.auth.CheckCredential(t.Context(), claims))
 			group, _, owner := f.ownedGroup(t)

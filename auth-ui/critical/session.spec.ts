@@ -250,7 +250,7 @@ test("AK-UI-05: AK-J29-C06: real auth errors, rate limits and abort preserve the
       // Capabilities are legitimately cacheable; force real network I/O to
       // exercise the actual service limiter rather than a cached200.
       const response = await window.ak.client.authFetch(
-        "/limited/auth/v1/capabilities",
+        "/limited/v1/capabilities",
         { cache: "no-store" }
       )
       if (response.status === 429) {

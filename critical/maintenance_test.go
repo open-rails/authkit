@@ -35,7 +35,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		f := newFixture(t)
 		u := f.user(t)
 		session := f.signIn(t, u)
-		claims, err := f.auth.Verify(t.Context(), session.AccessToken)
+		claims, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		_, err = f.pool.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, "refresh_sessions"}.Sanitize()+" SET expires_at=statement_timestamp()-interval '1 second' WHERE id=$1", claims.SessionID)
 		noError(t, err)
@@ -106,7 +106,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		noError(t, err)
 		_, err = f.auth.ResolvePersonalAccessToken(t.Context(), pat.Secret)
 		noError(t, err)
-		cl, err := f.auth.Verify(t.Context(), session.AccessToken)
+		cl, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.CheckSession(t.Context(), cl))
 		kept, err := f.auth.User(t.Context(), iam.UserByID(recoverable.ID), authkit.IncludeDeleted())
@@ -211,7 +211,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		if len(events.Events) != 0 {
 			t.Fatal("expired retained-log history became visible")
 		}
-		cl, err := f.auth.Verify(t.Context(), session.AccessToken)
+		cl, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.CheckSession(t.Context(), cl))
 	})

@@ -81,7 +81,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 	t.Run("AK-J13-C01_access_resource_and_ID_profiles_have_distinct_contracts", func(t *testing.T) {
 		u := f.user(t)
 		session := f.signIn(t, u)
-		native, err := f.auth.Verify(t.Context(), session.AccessToken)
+		native, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		if native.UserID != u.ID || native.SessionID == "" {
 			t.Fatal("native access profile lost its real sign-in")
@@ -106,6 +106,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		}
 		h, c := jwtParts(t, session.AccessToken)
 		h["typ"] = "at+jwt"
+		delete(c, "cnf") // a bearer resource token
 		c["aud"] = []string{"orders-api"}
 		c["client_id"] = "registered-resource-client"
 		c["scope"] = "orders:read"
@@ -124,7 +125,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		for _, typ := range []string{"JWT", "refresh+jwt", ""} {
 			h, c := jwtParts(t, raw)
 			h["typ"] = typ
-			_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+			_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 			if err == nil {
 				t.Fatalf("access verifier admitted token type%q", typ)
 			}
@@ -132,7 +133,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		for _, alg := range []string{"none", "HS256"} {
 			h, c := jwtParts(t, raw)
 			h["alg"] = alg
-			_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+			_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 			expectTokenError(t, err, "invalid_token")
 		}
 		parts := strings.Split(raw, ".")
@@ -143,12 +144,12 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		}
 		parts[2] = replacement + signature[1:]
 		for _, bad := range []string{"not-a-token", "a.b.c", strings.Join(parts, ".")} {
-			_, err := f.auth.Verify(t.Context(), bad)
+			_, err := verifyToken(t, f.auth, bad)
 			expectTokenError(t, err, "invalid_token")
 		}
 		h, c := jwtParts(t, raw)
 		delete(c, "sub")
-		_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+		_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 		expectTokenError(t, err, "missing_sub")
 	})
 	t.Run("AK-J13-C03_issuer_audience_and_lifetime_are_not_interchangeable", func(t *testing.T) {
@@ -162,13 +163,13 @@ func TestCriticalTokenProfiles(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				h, c := jwtParts(t, raw)
 				c[tc.key] = tc.value
-				_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+				_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 				expectTokenError(t, err, tc.code)
 			})
 		}
 		h, c := jwtParts(t, raw)
 		delete(c, "exp")
-		_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+		_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 		expectTokenError(t, err, "missing_exp")
 	})
 	t.Run("AK-J13-C04_JWKS_rotation_and_outage_have_bounded_trust", func(t *testing.T) {
@@ -200,7 +201,10 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		options := verify.IssuerOptions{JWKSURI: peer.URL, IsLocal: true}
 		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Issuer}, options))
 		u := f.user(t)
-		original := f.signIn(t, u).AccessToken
+		// A bearer token: this verifier checks keys, not proofs.
+		minted, err := f.auth.MintAccessToken(t.Context(), u.ID, iam.AccessTokenOptions{})
+		noError(t, err)
+		original := minted.Value
 		_, err = v.Verify(t.Context(), original)
 		noError(t, err)
 		h, c := jwtParts(t, original)
@@ -250,7 +254,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		if !errors.Is(err, iam.ErrInvalidIDToken) {
 			t.Fatalf("unregistered ID-token client accepted: %v", err)
 		}
-		claims, err := f.auth.Verify(t.Context(), session.AccessToken)
+		claims, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.RevokeSession(t.Context(), iam.SystemIdentity(), u.ID, claims.SessionID))
 		_, err = f.auth.VerifyIDToken(t.Context(), raw)
@@ -261,7 +265,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 	t.Run("AK-J13-C06_host_mints_cannot_override_reserved_authority", func(t *testing.T) {
 		u := f.user(t)
 		session := f.signIn(t, u)
-		cl, err := f.auth.Verify(t.Context(), session.AccessToken)
+		cl, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		for _, field := range []string{"sub", "sid", "auth_time", "permissions", "tenant_id"} {
 			_, err := f.auth.MintAccessToken(t.Context(), u.ID, iam.AccessTokenOptions{SessionID: cl.SessionID, Claims: map[string]any{field: "forged"}})
