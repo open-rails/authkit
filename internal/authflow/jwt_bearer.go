@@ -45,15 +45,14 @@ const (
 
 // Reasons a jwt-bearer refusal carries (OAuthError.Reason).
 const (
-	ReasonAssertionInvalid   = "assertion_invalid"
-	ReasonAssertionReplayed  = "assertion_replayed"
-	ReasonCapabilityInvalid  = "capability_invalid"
-	ReasonCapabilityExpired  = "capability_expired"
-	ReasonCapabilityReplayed = "capability_replayed"
-	ReasonDeviceKeyRevoked   = "device_key_revoked"
-	ReasonKeyMismatch        = "key_mismatch"
-	ReasonUserUnavailable    = "user_unavailable"
-	ReasonRefused            = "refused"
+	ReasonAssertionInvalid  = "assertion_invalid"
+	ReasonAssertionReplayed = "assertion_replayed"
+	ReasonCapabilityInvalid = "capability_invalid"
+	ReasonCapabilityExpired = "capability_expired"
+	ReasonDeviceKeyRevoked  = "device_key_revoked"
+	ReasonKeyMismatch       = "key_mismatch"
+	ReasonUserUnavailable   = "user_unavailable"
+	ReasonRefused           = "refused"
 )
 
 // JWTBearerRefusal is invalid_grant with reason.

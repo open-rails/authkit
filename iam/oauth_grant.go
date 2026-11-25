@@ -72,6 +72,11 @@ type OAuthCapability struct {
 	// Claims are its claims AuthKit does not define (a run id, say), raw
 	// JSON by name; nil when there are none.
 	Claims map[string]json.RawMessage
+	// Renewal reports a capability redeemed before: its key redeems it
+	// again, with a fresh assertion and DPoP proof, until it expires (RFC
+	// 7523 §2.1's repeated assertions). Refuse (ErrOAuthGrantRefused) for
+	// a capability that redeems once.
+	Renewal bool
 }
 
 // OAuthGrantDecision is what AuthKit mints for one grant. Its zero value
