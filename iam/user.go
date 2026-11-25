@@ -249,7 +249,7 @@ const (
 )
 
 // SessionEvent is one entry of an account's sign-in and session history, kept
-// for Config.SessionEventRetention. Method is how a session was created;
+// for the session-event retention (365 days). Method is how a session was created;
 // Reason why one was revoked or a sign-in failed.
 type SessionEvent struct {
 	Kind       SessionEventKind `json:"kind"`

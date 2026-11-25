@@ -1,27 +1,20 @@
 pkg authkit, const APIKeys config.PersonaOption = 1
 pkg authkit, const CustomRoles config.PersonaOption = 3
-pkg authkit, const DPoPOptional config.DPoPMode = "optional"
-pkg authkit, const DPoPRequired config.DPoPMode = "required"
 pkg authkit, const GrantAuthorizationCode config.OAuthGrantType = "authorization_code"
 pkg authkit, const GrantClientCredentials config.OAuthGrantType = "client_credentials"
 pkg authkit, const GrantJWTBearer config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 pkg authkit, const GrantRefreshToken config.OAuthGrantType = "refresh_token"
 pkg authkit, const GrantTokenExchange config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
-pkg authkit, const NameRetentionFinite config.NameRetentionMode = "finite"
-pkg authkit, const NameRetentionForever config.NameRetentionMode = "forever"
-pkg authkit, const NameRetentionImmediate config.NameRetentionMode = "immediate"
 pkg authkit, const NotificationDeliveryQueue untyped string = "authkit_notifications"
 pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
 pkg authkit, const TenancyMulti config.Tenancy = 1
 pkg authkit, const TenancySingle config.Tenancy = 0
-pkg authkit, func DefaultRateLimits() map[string]RateLimit
 pkg authkit, func EnsureGroups(context.Context, *pgxpool.Pool, Config, []iam.NewGroup, *slog.Logger) ([]iam.Group, error)
 pkg authkit, func IfRole(iam.Role) Option
 pkg authkit, func InTx(pgx.Tx) Option
 pkg authkit, func IncludeDeleted() Option
 pkg authkit, func Migrate(context.Context, *pgxpool.Pool, DatabaseConfig, ...MigrationOptions) error
-pkg authkit, func MigrateNotifications(context.Context, *pgxpool.Pool, Config, *slog.Logger) error
 pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
 pkg authkit, func NewNotificationDelivery(*pgxpool.Pool, string, map[string]RemoteNotificationConfig, *slog.Logger) (*NotificationDelivery, error)
 pkg authkit, func NewRemoteEventReader(RemoteEventConfig) (eventlog.Reader, error)
@@ -101,7 +94,7 @@ pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.Acces
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
 pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*Verifier, error)
 pkg authkit, method (*Client) NotificationScope() (string, error)
-pkg authkit, method (*Client) Notifications(string) (notify.Publisher, error)
+pkg authkit, method (*Client) Notifications(NotificationProducer) (notify.Publisher, error)
 pkg authkit, method (*Client) OAuthConsents(context.Context, string) ([]iam.OAuthConsent, error)
 pkg authkit, method (*Client) PatchPublicMetadata(context.Context, auth.Identity, string, map[string]any, ...Option) error
 pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
@@ -210,10 +203,6 @@ pkg authkit, method (TenantDef) Resource(string) config.Resource
 pkg authkit, method (TenantDef) Role(string, ...iam.Grant) iam.Role
 pkg authkit, method (TenantPerms) All() iam.Perm
 pkg authkit, method (UserPerms) All() iam.Perm
-pkg authkit, type APIKeysConfig = config.APIKeysConfig
-pkg authkit, type APIKeysConfig struct
-pkg authkit, type APIKeysConfig struct, MaxTTL time.Duration `yaml:"max_ttl"`
-pkg authkit, type APIKeysConfig struct, Prefix string `yaml:"prefix"`
 pkg authkit, type AccountEventLoop struct
 pkg authkit, type AccountEventOptions struct
 pkg authkit, type AccountEventOptions struct, Handle func(context.Context, iam.Event) error
@@ -225,16 +214,15 @@ pkg authkit, type AccountEventOptions struct, Schema string
 pkg authkit, type AccountEventOptions struct, Sync func(context.Context, string) error
 pkg authkit, type AgreementConfig = config.AgreementConfig
 pkg authkit, type AgreementConfig struct
+pkg authkit, type AgreementConfig struct, GroupClients bool `yaml:"group_clients"`
 pkg authkit, type AgreementConfig struct, Key string `yaml:"key"`
-pkg authkit, type AgreementConfig struct, Reaccept bool `yaml:"reaccept"`
+pkg authkit, type AgreementConfig struct, SignUp bool `yaml:"sign_up"`
 pkg authkit, type AgreementConfig struct, URL string `yaml:"url"`
 pkg authkit, type AgreementConfig struct, Version string `yaml:"version"`
 pkg authkit, type AuthorizationServerConfig = config.AuthorizationServerConfig
 pkg authkit, type AuthorizationServerConfig struct
-pkg authkit, type AuthorizationServerConfig struct, AccessTokenTTL time.Duration `yaml:"access_token_ttl"`
 pkg authkit, type AuthorizationServerConfig struct, Clients []config.OAuthClientConfig `yaml:"clients"`
 pkg authkit, type AuthorizationServerConfig struct, GroupClients config.GroupClientsConfig `yaml:"group_clients"`
-pkg authkit, type AuthorizationServerConfig struct, RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl"`
 pkg authkit, type AuthorizationServerConfig struct, Resources []config.ResourceServerConfig `yaml:"resources"`
 pkg authkit, type CaptchaVerifier = config.CaptchaVerifier
 pkg authkit, type CaptchaVerifier interface
@@ -243,46 +231,32 @@ pkg authkit, type CaptchaVerifier interface, Widget() iam.CaptchaWidget
 pkg authkit, type Client struct
 pkg authkit, type Config = config.Config
 pkg authkit, type Config struct
-pkg authkit, type Config struct, APIKeys config.APIKeysConfig `yaml:"api_keys"`
+pkg authkit, type Config struct, APIKeyPrefix string `yaml:"api_key_prefix"`
+pkg authkit, type Config struct, AccountIssuers []string `yaml:"account_issuers"`
 pkg authkit, type Config struct, Agreements []config.AgreementConfig `yaml:"agreements"`
 pkg authkit, type Config struct, AuthorizationServer config.AuthorizationServerConfig `yaml:"authorization_server"`
-pkg authkit, type Config struct, CleanupInterval time.Duration `yaml:"cleanup_interval"`
 pkg authkit, type Config struct, Database config.DatabaseConfig `yaml:"database"`
 pkg authkit, type Config struct, DefaultTenantID iam.TenantID `yaml:"default_tenant_id"`
-pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig `yaml:"device_keys"`
-pkg authkit, type Config struct, EventRetention time.Duration `yaml:"event_retention"`
-pkg authkit, type Config struct, Frontend config.FrontendConfig `yaml:"frontend"`
+pkg authkit, type Config struct, EntitlementClaims []string `yaml:"entitlement_claims"`
+pkg authkit, type Config struct, FrontendURL string `yaml:"frontend_url"`
 pkg authkit, type Config struct, HTTP *config.HTTPConfig `yaml:"http"`
-pkg authkit, type Config struct, Invitations config.InvitationsConfig `yaml:"invitations"`
-pkg authkit, type Config struct, Keys config.KeysConfig `yaml:"keys"`
-pkg authkit, type Config struct, Languages config.LanguageConfig `yaml:"languages"`
-pkg authkit, type Config struct, Notifications *config.NotificationsConfig `yaml:"notifications"`
-pkg authkit, type Config struct, Passkeys config.PasskeyConfig `yaml:"passkeys"`
-pkg authkit, type Config struct, Password config.PasswordPolicy `yaml:"password"`
-pkg authkit, type Config struct, PersonalAccessTokens config.PersonalAccessTokensConfig `yaml:"personal_access_tokens"`
-pkg authkit, type Config struct, Provisioning config.ProvisioningConfig `yaml:"provisioning"`
-pkg authkit, type Config struct, Registration config.RegistrationConfig `yaml:"registration"`
+pkg authkit, type Config struct, Issuer string `yaml:"issuer"`
+pkg authkit, type Config struct, Languages []string `yaml:"languages"`
+pkg authkit, type Config struct, Provisioning []config.ProvisioningTarget `yaml:"provisioning"`
+pkg authkit, type Config struct, Registration iam.RegistrationMode `yaml:"registration"`
 pkg authkit, type Config struct, RemoteApplications []config.RemoteApplicationConfig `yaml:"remote_applications"`
 pkg authkit, type Config struct, Resource config.ResourceConfig `yaml:"resource"`
 pkg authkit, type Config struct, Roles *config.Roles `yaml:"-"`
-pkg authkit, type Config struct, SMS config.SMSConfig `yaml:"sms"`
-pkg authkit, type Config struct, SenderHealthInterval time.Duration `yaml:"sender_health_interval"`
-pkg authkit, type Config struct, SenderHealthRecheck time.Duration `yaml:"sender_health_recheck"`
-pkg authkit, type Config struct, SessionEventRetention time.Duration `yaml:"session_event_retention"`
-pkg authkit, type Config struct, SignIn config.SignInConfig `yaml:"sign_in"`
+pkg authkit, type Config struct, SMSCountries []string `yaml:"sms_countries"`
 pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork `yaml:"solana_network"`
 pkg authkit, type Config struct, Tenancy config.Tenancy `yaml:"-"`
-pkg authkit, type Config struct, Tenants config.TenantsConfig `yaml:"tenants"`
-pkg authkit, type Config struct, Token config.TokenConfig `yaml:"token"`
-pkg authkit, type Config struct, TwoFactor config.TwoFactorConfig `yaml:"two_factor"`
-pkg authkit, type Config struct, Username config.UsernameConfig `yaml:"username"`
+pkg authkit, type Config struct, TwoFactor iam.TwoFactorMode `yaml:"two_factor"`
+pkg authkit, type Config struct, Usernames []string `yaml:"usernames"`
 pkg authkit, type CredentialPerms = config.CredentialPerms
 pkg authkit, type CredentialPerms struct
 pkg authkit, type CredentialPerms struct, Manage iam.Perm
 pkg authkit, type CredentialPerms struct, Read iam.Perm
 pkg authkit, type CredentialPerms struct, embedded config.Resource
-pkg authkit, type DPoPMode = config.DPoPMode
-pkg authkit, type DPoPMode string
 pkg authkit, type DatabaseConfig = config.DatabaseConfig
 pkg authkit, type DatabaseConfig struct
 pkg authkit, type DatabaseConfig struct, RiverSchema string `yaml:"river_schema"`
@@ -311,11 +285,9 @@ pkg authkit, type Deps struct, Replays verify.ReplayStore
 pkg authkit, type Deps struct, RequestClient func(*http.Request) string
 pkg authkit, type Deps struct, RequestTenant func(*http.Request) (iam.TenantID, error)
 pkg authkit, type Deps struct, ResourceHosts func(context.Context, string) (bool, error)
+pkg authkit, type Deps struct, SCIMHandlers map[string]http.Handler
 pkg authkit, type Deps struct, SMS config.SMSSender
 pkg authkit, type Deps struct, Wrap func(iam.Route, http.Handler) http.Handler
-pkg authkit, type DeviceKeysConfig = config.DeviceKeysConfig
-pkg authkit, type DeviceKeysConfig struct
-pkg authkit, type DeviceKeysConfig struct, Enabled bool `yaml:"enabled"`
 pkg authkit, type DirectoryPerms = config.DirectoryPerms
 pkg authkit, type DirectoryPerms struct
 pkg authkit, type DirectoryPerms struct, Manage iam.Perm
@@ -325,15 +297,6 @@ pkg authkit, type EmailSender = config.EmailSender
 pkg authkit, type EmailSender interface
 pkg authkit, type EmailSender interface, CheckHealth(context.Context) error
 pkg authkit, type EmailSender interface, Send(context.Context, iam.EmailMessage) error
-pkg authkit, type FrontendConfig = config.FrontendConfig
-pkg authkit, type FrontendConfig struct
-pkg authkit, type FrontendConfig struct, AuthorizePath string `yaml:"authorize_path"`
-pkg authkit, type FrontendConfig struct, BaseURL string `yaml:"base_url"`
-pkg authkit, type FrontendConfig struct, InvitePath string `yaml:"invite_path"`
-pkg authkit, type FrontendConfig struct, OIDCReturnPath string `yaml:"oidc_return_path"`
-pkg authkit, type FrontendConfig struct, PasswordResetPath string `yaml:"password_reset_path"`
-pkg authkit, type FrontendConfig struct, PasswordlessPath string `yaml:"passwordless_path"`
-pkg authkit, type FrontendConfig struct, VerifyPath string `yaml:"verify_path"`
 pkg authkit, type GroupClientScope = config.GroupClientScope
 pkg authkit, type GroupClientScope struct
 pkg authkit, type GroupClientScope struct, Description string `yaml:"description"`
@@ -341,34 +304,14 @@ pkg authkit, type GroupClientScope struct, Name string `yaml:"name"`
 pkg authkit, type GroupClientScope struct, Resource string `yaml:"resource"`
 pkg authkit, type GroupClientsConfig = config.GroupClientsConfig
 pkg authkit, type GroupClientsConfig struct
-pkg authkit, type GroupClientsConfig struct, Agreements []string `yaml:"agreements"`
 pkg authkit, type GroupClientsConfig struct, PairwiseSubjects bool `yaml:"pairwise_subjects"`
 pkg authkit, type GroupClientsConfig struct, Scopes []config.GroupClientScope `yaml:"scopes"`
 pkg authkit, type HTTPConfig = config.HTTPConfig
 pkg authkit, type HTTPConfig struct
-pkg authkit, type HTTPConfig struct, APIPath string `yaml:"api_path"`
-pkg authkit, type HTTPConfig struct, BasePath string `yaml:"base_path"`
 pkg authkit, type HTTPConfig struct, CloudflareProxies []string `yaml:"cloudflare_proxies"`
 pkg authkit, type HTTPConfig struct, DirectPeerIP bool `yaml:"direct_peer_ip"`
-pkg authkit, type HTTPConfig struct, Exclude []string `yaml:"exclude"`
 pkg authkit, type HTTPConfig struct, Groups []iam.RouteGroup `yaml:"groups"`
-pkg authkit, type HTTPConfig struct, PublicURL string `yaml:"public_url"`
-pkg authkit, type HTTPConfig struct, RateLimits map[string]config.RateLimit `yaml:"rate_limits"`
-pkg authkit, type HTTPConfig struct, RedisKeyPrefix string `yaml:"redis_key_prefix"`
-pkg authkit, type HTTPConfig struct, RefreshCookie bool `yaml:"refresh_cookie"`
-pkg authkit, type HTTPConfig struct, RefreshCookieName string `yaml:"refresh_cookie_name"`
 pkg authkit, type HTTPConfig struct, TrustedProxies []string `yaml:"trusted_proxies"`
-pkg authkit, type InvitationsConfig = config.InvitationsConfig
-pkg authkit, type InvitationsConfig struct
-pkg authkit, type InvitationsConfig struct, Disabled bool `yaml:"disabled"`
-pkg authkit, type KeysConfig = config.KeysConfig
-pkg authkit, type KeysConfig struct
-pkg authkit, type KeysConfig struct, Path string `yaml:"path"`
-pkg authkit, type KeysConfig struct, VerifyOnly bool `yaml:"verify_only"`
-pkg authkit, type LanguageConfig = config.LanguageConfig
-pkg authkit, type LanguageConfig struct
-pkg authkit, type LanguageConfig struct, Default string `yaml:"default"`
-pkg authkit, type LanguageConfig struct, Supported []string `yaml:"supported"`
 pkg authkit, type MemberPerms = config.MemberPerms
 pkg authkit, type MemberPerms struct
 pkg authkit, type MemberPerms struct, Manage iam.Perm
@@ -379,30 +322,15 @@ pkg authkit, type MigrationOptions struct
 pkg authkit, type MigrationOptions struct, LegacyTenantID iam.TenantID
 pkg authkit, type MigrationOptions struct, Logger *slog.Logger
 pkg authkit, type MigrationOptions struct, Tenancy config.Tenancy
-pkg authkit, type NameRetention = config.NameRetention
-pkg authkit, type NameRetention struct
-pkg authkit, type NameRetention struct, Duration time.Duration `yaml:"duration"`
-pkg authkit, type NameRetention struct, Mode config.NameRetentionMode `yaml:"mode"`
-pkg authkit, type NameRetentionMode = config.NameRetentionMode
-pkg authkit, type NameRetentionMode string
 pkg authkit, type NotificationAdoption = notify.Adoption
 pkg authkit, type NotificationDelivery struct
 pkg authkit, type NotificationProducer = config.NotificationProducer
 pkg authkit, type NotificationProducer struct
-pkg authkit, type NotificationProducer struct, AppID string `yaml:"app_id"`
-pkg authkit, type NotificationProducer struct, Name string `yaml:"name"`
-pkg authkit, type NotificationProducer struct, Origin notify.OriginScope `yaml:"origin"`
-pkg authkit, type NotificationProducer struct, Permission string `yaml:"permission"`
-pkg authkit, type NotificationProducer struct, PermissionGroupID string `yaml:"permission_group_id"`
-pkg authkit, type NotificationProducer struct, TenantID iam.TenantID `yaml:"tenant_id"`
-pkg authkit, type NotificationProducer struct, Visibility notify.Visibility `yaml:"visibility"`
-pkg authkit, type NotificationsConfig = config.NotificationsConfig
-pkg authkit, type NotificationsConfig struct
-pkg authkit, type NotificationsConfig struct, AppID string `yaml:"app_id"`
-pkg authkit, type NotificationsConfig struct, LegacyOrigins []notify.OriginScope `yaml:"legacy_origins"`
-pkg authkit, type NotificationsConfig struct, Producers []config.NotificationProducer `yaml:"producers"`
-pkg authkit, type NotificationsConfig struct, Schema string `yaml:"schema"`
-pkg authkit, type NotificationsConfig struct, Scopes map[string]string `yaml:"scopes"`
+pkg authkit, type NotificationProducer struct, Name string
+pkg authkit, type NotificationProducer struct, Origin notify.OriginScope
+pkg authkit, type NotificationProducer struct, Permission string
+pkg authkit, type NotificationProducer struct, PermissionGroupID string
+pkg authkit, type NotificationProducer struct, Visibility notify.Visibility
 pkg authkit, type OAuthClientConfig = config.OAuthClientConfig
 pkg authkit, type OAuthClientConfig struct
 pkg authkit, type OAuthClientConfig struct, Agreements []string `yaml:"agreements"`
@@ -414,7 +342,6 @@ pkg authkit, type OAuthClientConfig struct, Origins []string `yaml:"origins"`
 pkg authkit, type OAuthClientConfig struct, Permissions []string `yaml:"permissions"`
 pkg authkit, type OAuthClientConfig struct, PostLogoutRedirectURIs []string `yaml:"post_logout_redirect_uris"`
 pkg authkit, type OAuthClientConfig struct, RedirectURIs []string `yaml:"redirect_uris"`
-pkg authkit, type OAuthClientConfig struct, RenewableCapabilities bool `yaml:"renewable_capabilities"`
 pkg authkit, type OAuthClientConfig struct, Resources []string `yaml:"resources"`
 pkg authkit, type OAuthClientConfig struct, SecretSHA256 string `yaml:"secret_sha256"`
 pkg authkit, type OAuthClientConfig struct, TenantID iam.TenantID `yaml:"tenant_id"`
@@ -422,21 +349,6 @@ pkg authkit, type OAuthGrantType = config.OAuthGrantType
 pkg authkit, type OAuthGrantType string
 pkg authkit, type Option = ops.Option
 pkg authkit, type Option struct
-pkg authkit, type PasskeyConfig = config.PasskeyConfig
-pkg authkit, type PasskeyConfig struct
-pkg authkit, type PasskeyConfig struct, Origins []string `yaml:"origins"`
-pkg authkit, type PasskeyConfig struct, RPDisplayName string `yaml:"rp_display_name"`
-pkg authkit, type PasskeyConfig struct, RPID string `yaml:"rp_id"`
-pkg authkit, type PasskeyConfig struct, UserVerification string `yaml:"user_verification"`
-pkg authkit, type PasswordPolicy = config.PasswordPolicy
-pkg authkit, type PasswordPolicy struct
-pkg authkit, type PasswordPolicy struct, AllowCommon bool `yaml:"allow_common"`
-pkg authkit, type PasswordPolicy struct, MaxLength int `yaml:"max_length"`
-pkg authkit, type PasswordPolicy struct, MinLength int `yaml:"min_length"`
-pkg authkit, type PasswordPolicy struct, RequireDigit bool `yaml:"require_digit"`
-pkg authkit, type PasswordPolicy struct, RequireLowercase bool `yaml:"require_lowercase"`
-pkg authkit, type PasswordPolicy struct, RequireSymbol bool `yaml:"require_symbol"`
-pkg authkit, type PasswordPolicy struct, RequireUppercase bool `yaml:"require_uppercase"`
 pkg authkit, type PersonaDef = config.PersonaDef
 pkg authkit, type PersonaDef struct
 pkg authkit, type PersonaDef struct, Credentials config.CredentialPerms
@@ -447,54 +359,21 @@ pkg authkit, type PersonaDef struct, Persona iam.Persona
 pkg authkit, type PersonaDef struct, Roles config.RolePerms
 pkg authkit, type PersonaOption = config.PersonaOption
 pkg authkit, type PersonaOption uint8
-pkg authkit, type PersonalAccessTokensConfig = config.PersonalAccessTokensConfig
-pkg authkit, type PersonalAccessTokensConfig struct
-pkg authkit, type PersonalAccessTokensConfig struct, DefaultTTL time.Duration `yaml:"default_ttl"`
-pkg authkit, type PersonalAccessTokensConfig struct, Enabled bool `yaml:"enabled"`
-pkg authkit, type PersonalAccessTokensConfig struct, MaxTTL time.Duration `yaml:"max_ttl"`
 pkg authkit, type Probe = engine.Probe
 pkg authkit, type Probe struct
 pkg authkit, type Probe struct, Check func(context.Context) error
 pkg authkit, type Probe struct, Name string
-pkg authkit, type ProvisioningClientCredentials = config.ProvisioningClientCredentials
-pkg authkit, type ProvisioningClientCredentials struct
-pkg authkit, type ProvisioningClientCredentials struct, ClientID string `yaml:"client_id"`
-pkg authkit, type ProvisioningClientCredentials struct, ClientSecret string `yaml:"client_secret"`
-pkg authkit, type ProvisioningClientCredentials struct, Resource string `yaml:"resource"`
-pkg authkit, type ProvisioningClientCredentials struct, Scopes []string `yaml:"scopes"`
-pkg authkit, type ProvisioningClientCredentials struct, TokenURL string `yaml:"token_url"`
-pkg authkit, type ProvisioningConfig = config.ProvisioningConfig
-pkg authkit, type ProvisioningConfig struct
-pkg authkit, type ProvisioningConfig struct, ReconcileInterval time.Duration `yaml:"reconcile_interval"`
-pkg authkit, type ProvisioningConfig struct, Targets []config.ProvisioningTarget `yaml:"targets"`
 pkg authkit, type ProvisioningTarget = config.ProvisioningTarget
 pkg authkit, type ProvisioningTarget struct
 pkg authkit, type ProvisioningTarget struct, BearerToken string `yaml:"bearer_token"`
-pkg authkit, type ProvisioningTarget struct, ClientCredentials *config.ProvisioningClientCredentials `yaml:"client_credentials"`
-pkg authkit, type ProvisioningTarget struct, Handler http.Handler `yaml:"-"`
+pkg authkit, type ProvisioningTarget struct, ClientID string `yaml:"client_id"`
+pkg authkit, type ProvisioningTarget struct, ClientSecret string `yaml:"client_secret"`
 pkg authkit, type ProvisioningTarget struct, Name string `yaml:"name"`
 pkg authkit, type ProvisioningTarget struct, TenantID iam.TenantID `yaml:"tenant_id"`
 pkg authkit, type ProvisioningTarget struct, URL string `yaml:"url"`
-pkg authkit, type RateLimit = config.RateLimit
-pkg authkit, type RateLimit struct
-pkg authkit, type RateLimit struct, Cooldown time.Duration `yaml:"cooldown"`
-pkg authkit, type RateLimit struct, Limit int `yaml:"limit"`
-pkg authkit, type RateLimit struct, Window time.Duration `yaml:"window"`
-pkg authkit, type RegistrationConfig = config.RegistrationConfig
-pkg authkit, type RegistrationConfig struct
-pkg authkit, type RegistrationConfig struct, Agreements []string `yaml:"agreements"`
-pkg authkit, type RegistrationConfig struct, AllowMissingSenders bool `yaml:"allow_missing_senders"`
-pkg authkit, type RegistrationConfig struct, NativeUserMode iam.RegistrationMode `yaml:"native_user_mode"`
-pkg authkit, type RegistrationConfig struct, PasswordlessAutoRegistration bool `yaml:"passwordless_auto_registration"`
-pkg authkit, type RegistrationConfig struct, PasswordlessLogin bool `yaml:"passwordless_login"`
-pkg authkit, type RegistrationConfig struct, UnprovenPasswordSignIn bool `yaml:"unproven_password_sign_in"`
-pkg authkit, type RegistrationConfig struct, Verification iam.RegistrationVerificationPolicy `yaml:"verification"`
-pkg authkit, type RegistrationConfig struct, VerificationSendTimeout time.Duration `yaml:"verification_send_timeout"`
 pkg authkit, type RemoteApplicationConfig = config.RemoteApplicationConfig
 pkg authkit, type RemoteApplicationConfig struct
-pkg authkit, type RemoteApplicationConfig struct, Disabled bool `yaml:"disabled"`
 pkg authkit, type RemoteApplicationConfig struct, Issuer string `yaml:"issuer"`
-pkg authkit, type RemoteApplicationConfig struct, JWKSURI string `yaml:"jwks_uri"`
 pkg authkit, type RemoteApplicationConfig struct, PublicKeys []iam.RemoteApplicationKey `yaml:"public_keys"`
 pkg authkit, type RemoteApplicationConfig struct, Role iam.Role `yaml:"role"`
 pkg authkit, type RemoteApplicationConfig struct, RoleMap map[string]iam.Role `yaml:"role_map"`
@@ -513,11 +392,9 @@ pkg authkit, type Resource struct
 pkg authkit, type ResourceConfig = config.ResourceConfig
 pkg authkit, type ResourceConfig struct
 pkg authkit, type ResourceConfig struct, ID string `yaml:"id"`
-pkg authkit, type ResourceConfig struct, PublicURL string `yaml:"public_url"`
 pkg authkit, type ResourceConfig struct, Scopes map[string][]string `yaml:"scopes"`
 pkg authkit, type ResourceServerConfig = config.ResourceServerConfig
 pkg authkit, type ResourceServerConfig struct
-pkg authkit, type ResourceServerConfig struct, ContactClaims bool `yaml:"contact_claims"`
 pkg authkit, type ResourceServerConfig struct, ID string `yaml:"id"`
 pkg authkit, type ResourceServerConfig struct, Permissions []string `yaml:"permissions"`
 pkg authkit, type ResourceServerConfig struct, Scopes []string `yaml:"scopes"`
@@ -535,19 +412,10 @@ pkg authkit, type RootDef struct
 pkg authkit, type RootDef struct, Tenants config.TenantPerms
 pkg authkit, type RootDef struct, Users config.UserPerms
 pkg authkit, type RootDef struct, embedded *config.PersonaDef
-pkg authkit, type SMSConfig = config.SMSConfig
-pkg authkit, type SMSConfig struct
-pkg authkit, type SMSConfig struct, AllowedCountries []string `yaml:"allowed_countries"`
 pkg authkit, type SMSSender = config.SMSSender
 pkg authkit, type SMSSender interface
 pkg authkit, type SMSSender interface, CheckHealth(context.Context) error
 pkg authkit, type SMSSender interface, Send(context.Context, iam.SMSMessage) error
-pkg authkit, type SignInConfig = config.SignInConfig
-pkg authkit, type SignInConfig struct
-pkg authkit, type SignInConfig struct, AccountsPerAddress int `yaml:"accounts_per_address"`
-pkg authkit, type SignInConfig struct, AccountsPerDevice int `yaml:"accounts_per_device"`
-pkg authkit, type SignInConfig struct, DPoP config.DPoPMode `yaml:"dpop"`
-pkg authkit, type SignInConfig struct, NewDevicesPerAccount int `yaml:"new_devices_per_account"`
 pkg authkit, type StartOption func(*startOptions)
 pkg authkit, type Tenancy = config.Tenancy
 pkg authkit, type Tenancy uint8
@@ -560,31 +428,10 @@ pkg authkit, type TenantPerms struct
 pkg authkit, type TenantPerms struct, Manage iam.Perm
 pkg authkit, type TenantPerms struct, Read iam.Perm
 pkg authkit, type TenantPerms struct, embedded config.Resource
-pkg authkit, type TenantsConfig = config.TenantsConfig
-pkg authkit, type TenantsConfig struct
-pkg authkit, type TenantsConfig struct, FormerNames config.NameRetention `yaml:"former_names"`
-pkg authkit, type TokenConfig = config.TokenConfig
-pkg authkit, type TokenConfig struct
-pkg authkit, type TokenConfig struct, AccessTokenDuration time.Duration `yaml:"access_token_duration"`
-pkg authkit, type TokenConfig struct, AccountIssuers []string `yaml:"account_issuers"`
-pkg authkit, type TokenConfig struct, AllowPrivateNetworkJWKS bool `yaml:"allow_private_network_jwks"`
-pkg authkit, type TokenConfig struct, EntitlementAllowlist []string `yaml:"entitlement_allowlist"`
-pkg authkit, type TokenConfig struct, ExpectedAudiences []string `yaml:"expected_audiences"`
-pkg authkit, type TokenConfig struct, IssuedAudiences []string `yaml:"issued_audiences"`
-pkg authkit, type TokenConfig struct, Issuer string `yaml:"issuer"`
-pkg authkit, type TokenConfig struct, RefreshRotationGrace time.Duration `yaml:"refresh_rotation_grace"`
-pkg authkit, type TokenConfig struct, RefreshTokenDuration time.Duration `yaml:"refresh_token_duration"`
-pkg authkit, type TokenConfig struct, SessionMaxPerUser int `yaml:"session_max_per_user"`
 pkg authkit, type TransactionalUserInfo interface
 pkg authkit, type TransactionalUserInfo interface, Get(context.Context, []string) (map[string]userinfo.User, error)
 pkg authkit, type TransactionalUserInfo interface, GetTx(context.Context, pgx.Tx, []string) (map[string]userinfo.User, error)
 pkg authkit, type TransactionalUserInfo interface, Search(context.Context, string, int) ([]userinfo.User, error)
-pkg authkit, type TwoFactorConfig = config.TwoFactorConfig
-pkg authkit, type TwoFactorConfig struct
-pkg authkit, type TwoFactorConfig struct, Methods []iam.TwoFactorMethod `yaml:"methods"`
-pkg authkit, type TwoFactorConfig struct, Mode iam.TwoFactorMode `yaml:"mode"`
-pkg authkit, type TwoFactorConfig struct, TOTPIssuer string `yaml:"totp_issuer"`
-pkg authkit, type TwoFactorConfig struct, TOTPSecretKey []byte `yaml:"totp_secret_key"`
 pkg authkit, type UserPerms = config.UserPerms
 pkg authkit, type UserPerms struct
 pkg authkit, type UserPerms struct, Ban iam.Perm
@@ -593,19 +440,8 @@ pkg authkit, type UserPerms struct, Invite iam.Perm
 pkg authkit, type UserPerms struct, Manage iam.Perm
 pkg authkit, type UserPerms struct, Read iam.Perm
 pkg authkit, type UserPerms struct, embedded config.Resource
-pkg authkit, type UsernameConfig = config.UsernameConfig
-pkg authkit, type UsernameConfig struct
-pkg authkit, type UsernameConfig struct, DeletedNames config.NameRetention `yaml:"deleted_names"`
-pkg authkit, type UsernameConfig struct, FormerNames config.NameRetention `yaml:"former_names"`
-pkg authkit, type UsernameConfig struct, MaxLength int `yaml:"max_length"`
-pkg authkit, type UsernameConfig struct, MinLength int `yaml:"min_length"`
-pkg authkit, type UsernameConfig struct, RandomNames []string `yaml:"random_names"`
-pkg authkit, type UsernameConfig struct, RenameInterval time.Duration `yaml:"rename_interval"`
-pkg authkit, type UsernameConfig struct, Renames bool `yaml:"renames"`
 pkg authkit, type Verifier struct
 pkg authkit, var ErrMigrationsRequired error
-pkg authkit, var ErrNotificationScopeConflict error
-pkg authkit, var ErrNotificationsDisabled error
 pkg authkit/adapters/captcha, const HCaptcha Provider = "hcaptcha"
 pkg authkit/adapters/captcha, const Turnstile Provider = "turnstile"
 pkg authkit/adapters/captcha, func New(Config) (*Verifier, error)
@@ -645,6 +481,14 @@ pkg authkit/adapters/gin, func Use(...func(http.Handler) http.Handler) gin.Handl
 pkg authkit/adapters/gin, type Surface interface
 pkg authkit/adapters/gin, type Surface interface, Handler() http.Handler
 pkg authkit/adapters/gin, type Surface interface, Routes() []iam.Route
+pkg authkit/adapters/logsender, method (Email) CheckHealth(context.Context) error
+pkg authkit/adapters/logsender, method (Email) Send(context.Context, iam.EmailMessage) error
+pkg authkit/adapters/logsender, method (SMS) CheckHealth(context.Context) error
+pkg authkit/adapters/logsender, method (SMS) Send(context.Context, iam.SMSMessage) error
+pkg authkit/adapters/logsender, type Email struct
+pkg authkit/adapters/logsender, type Email struct, Logger *slog.Logger
+pkg authkit/adapters/logsender, type SMS struct
+pkg authkit/adapters/logsender, type SMS struct, Logger *slog.Logger
 pkg authkit/adapters/smtp, func New(Config) (*Email, error)
 pkg authkit/adapters/smtp, method (*Email) CheckHealth(context.Context) error
 pkg authkit/adapters/smtp, method (*Email) Send(context.Context, iam.EmailMessage) error
@@ -760,7 +604,6 @@ pkg authkit/auth/authtest, type Cases struct, Scope auth.Scope
 pkg authkit/auth/authtest, type Cases struct, Staff func() *http.Request
 pkg authkit/auth/authtest, type Cases struct, Stale func() *http.Request
 pkg authkit/auth/authtest, type Cases struct, User func() *http.Request
-pkg authkit/authtest, const Audience untyped string = "authtest"
 pkg authkit/authtest, const Issuer untyped string = "https://example.com"
 pkg authkit/authtest, const Password untyped string = "Authtest-password-1"
 pkg authkit/authtest, func Attach(testing.TB, *authkit.Client, *httptest.Server) *AuthorizationServer
@@ -770,6 +613,7 @@ pkg authkit/authtest, func EnrollDeviceKey(testing.TB, *authkit.Client, *Outbox,
 pkg authkit/authtest, func EnrollTOTP(testing.TB, *authkit.Client, User) *TOTP
 pkg authkit/authtest, func GrantRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
 pkg authkit/authtest, func Identity(testing.TB, *authkit.Client, string) auth.Identity
+pkg authkit/authtest, func LiftLimits(*authkit.Config)
 pkg authkit/authtest, func New(testing.TB, ...Option) (*authkit.Client, *Outbox)
 pkg authkit/authtest, func NewAuthorizationServer(testing.TB, ...Option) *AuthorizationServer
 pkg authkit/authtest, func NewDPoPKey(testing.TB) *DPoPKey
@@ -783,6 +627,7 @@ pkg authkit/authtest, func SignIn(testing.TB, *authkit.Client, User) iam.TokenSe
 pkg authkit/authtest, func StaleSession(testing.TB, *authkit.Client, string) string
 pkg authkit/authtest, func TOTPCode(testing.TB, string, time.Time) string
 pkg authkit/authtest, func TOTPOf(string) *TOTP
+pkg authkit/authtest, func Transport(testing.TB, *authkit.Client, string, http.RoundTripper) http.RoundTripper
 pkg authkit/authtest, func WithConfig(func(*authkit.Config)) Option
 pkg authkit/authtest, func WithDeps(func(*authkit.Deps)) Option
 pkg authkit/authtest, method (*AuthorizationServer) Approve(testing.TB, string, string) string
@@ -801,8 +646,10 @@ pkg authkit/authtest, method (*AuthorizationServer) Token(testing.TB, TokenReque
 pkg authkit/authtest, method (*AuthorizationServer) TokenEndpoint() string
 pkg authkit/authtest, method (*DPoPKey) Assertion(testing.TB, Assertion) string
 pkg authkit/authtest, method (*DPoPKey) Authorize(testing.TB, *http.Request, string, string)
+pkg authkit/authtest, method (*DPoPKey) Holds(...string)
 pkg authkit/authtest, method (*DPoPKey) Proof(testing.TB, string, string, string, string) string
 pkg authkit/authtest, method (*DPoPKey) Thumbprint() string
+pkg authkit/authtest, method (*DPoPKey) Transport(testing.TB, *authkit.Client, http.RoundTripper) http.RoundTripper
 pkg authkit/authtest, method (*GrantAuthorizer) Authorize(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error)
 pkg authkit/authtest, method (*GrantAuthorizer) Last(iam.OAuthGrantKind) (iam.OAuthGrantRequest, bool)
 pkg authkit/authtest, method (*GrantAuthorizer) Requests() []iam.OAuthGrantRequest
@@ -1080,7 +927,10 @@ pkg authkit/iam, const RouteAuth RouteGroup = "auth"
 pkg authkit/iam, const RouteAuthorizationServer RouteGroup = "authorization_server"
 pkg authkit/iam, const RouteBrowserOIDC RouteGroup = "browser_oidc"
 pkg authkit/iam, const RouteDeviceKeys RouteGroup = "device_keys"
+pkg authkit/iam, const RouteInvitations RouteGroup = "invitations"
+pkg authkit/iam, const RoutePasswordless RouteGroup = "passwordless"
 pkg authkit/iam, const RoutePermissionGroups RouteGroup = "groups"
+pkg authkit/iam, const RoutePersonalAccessTokens RouteGroup = "personal_access_tokens"
 pkg authkit/iam, const RouteRegistration RouteGroup = "registration"
 pkg authkit/iam, const RouteSCIM RouteGroup = "scim"
 pkg authkit/iam, const SessionEventAccountSessionsRevoked SessionEventKind = "account_sessions_revoked"
@@ -1128,6 +978,7 @@ pkg authkit/iam, func AppByIssuer(string) AppRef
 pkg authkit/iam, func ApplicationIdentity(string) auth.Identity
 pkg authkit/iam, func AsError(error) (Error, bool)
 pkg authkit/iam, func DecodeError(*http.Response) error
+pkg authkit/iam, func DefaultRouteGroups() []RouteGroup
 pkg authkit/iam, func ErrorResponse(error) (int, ErrorEnvelope)
 pkg authkit/iam, func GroupByID(string) GroupRef
 pkg authkit/iam, func InSession(auth.Identity, SessionRef) auth.Identity
@@ -1621,6 +1472,7 @@ pkg authkit/iam, type OAuthCapability struct, Claims map[string]json.RawMessage
 pkg authkit/iam, type OAuthCapability struct, ExpiresAt time.Time
 pkg authkit/iam, type OAuthCapability struct, ID string
 pkg authkit/iam, type OAuthCapability struct, IssuedAt time.Time
+pkg authkit/iam, type OAuthCapability struct, Renewal bool
 pkg authkit/iam, type OAuthClient struct
 pkg authkit/iam, type OAuthClient struct, BackchannelLogoutURI *string `json:"backchannel_logout_uri"`
 pkg authkit/iam, type OAuthClient struct, ClientID string `json:"client_id"`
@@ -1726,7 +1578,6 @@ pkg authkit/iam, type ProvisioningTarget struct, FailingSince *time.Time `json:"
 pkg authkit/iam, type ProvisioningTarget struct, LastError *string `json:"last_error"`
 pkg authkit/iam, type ProvisioningTarget struct, LastSuccessAt *time.Time `json:"last_success_at"`
 pkg authkit/iam, type ProvisioningTarget struct, Name string `json:"name"`
-pkg authkit/iam, type ProvisioningTarget struct, ReconciledAt *time.Time `json:"reconciled_at"`
 pkg authkit/iam, type ProvisioningTarget struct, SyncedAt *time.Time `json:"synced_at"`
 pkg authkit/iam, type ProvisioningTarget struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type PublicUser struct
@@ -1746,6 +1597,7 @@ pkg authkit/iam, type RemoteApplication struct, Issuer string `json:"issuer"`
 pkg authkit/iam, type RemoteApplication struct, JWKSURI string `json:"jwks_uri"`
 pkg authkit/iam, type RemoteApplication struct, Mode RemoteApplicationMode `json:"mode"`
 pkg authkit/iam, type RemoteApplication struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type RemoteApplication struct, PrivateNetwork bool `json:"-"`
 pkg authkit/iam, type RemoteApplication struct, PublicKeys []RemoteApplicationKey `json:"public_keys"`
 pkg authkit/iam, type RemoteApplication struct, Role Role `json:"role"`
 pkg authkit/iam, type RemoteApplication struct, RoleMap map[string]Role `json:"role_map,omitempty"`
@@ -1982,8 +1834,10 @@ pkg authkit/keys, method (*FileSource) Close()
 pkg authkit/keys, method (*FileSource) Development() bool
 pkg authkit/keys, method (*FileSource) PublicKeys() map[string]crypto.PublicKey
 pkg authkit/keys, method (*FileSource) Reload() error
+pkg authkit/keys, method (*FileSource) TOTPKey() []byte
 pkg authkit/keys, method (Static) ActiveSigner() Signer
 pkg authkit/keys, method (Static) PublicKeys() map[string]crypto.PublicKey
+pkg authkit/keys, method (Static) TOTPKey() []byte
 pkg authkit/keys, type FileSource struct
 pkg authkit/keys, type JWK = iam.JWK
 pkg authkit/keys, type JWKS struct
@@ -1999,6 +1853,15 @@ pkg authkit/keys, type Source interface, PublicKeys() map[string]crypto.PublicKe
 pkg authkit/keys, type Static struct
 pkg authkit/keys, type Static struct, Active Signer
 pkg authkit/keys, type Static struct, Public map[string]crypto.PublicKey
+pkg authkit/keys, type Static struct, TOTP []byte
+pkg authkit/keys, type TOTPSource interface
+pkg authkit/keys, type TOTPSource interface, ActiveSigner() Signer
+pkg authkit/keys, type TOTPSource interface, PublicKeys() map[string]crypto.PublicKey
+pkg authkit/keys, type TOTPSource interface, TOTPKey() []byte
+pkg authkit/naming, const FormerNameReservation time.Duration = 7776000000000000
+pkg authkit/naming, const RenameCooldown time.Duration = 259200000000000
+pkg authkit/naming, func FormerNameExpiry(time.Time) time.Time
+pkg authkit/naming, func NextRename(time.Time) time.Time
 pkg authkit/notify, const AudienceOperator Audience = "operator"
 pkg authkit/notify, const AudienceUser Audience = "user"
 pkg authkit/notify, const MaxMutations untyped int = 100
@@ -2275,6 +2138,7 @@ pkg authkit/verify, type IssuerKeyStatus struct, Keys int
 pkg authkit/verify, type IssuerKeyStatus struct, LastError string
 pkg authkit/verify, type IssuerKeyStatus struct, MaxStale time.Duration
 pkg authkit/verify, type IssuerOptions struct
+pkg authkit/verify, type IssuerOptions struct, HTTPClient *http.Client
 pkg authkit/verify, type IssuerOptions struct, IsLocal bool
 pkg authkit/verify, type IssuerOptions struct, JWKSURI string
 pkg authkit/verify, type IssuerOptions struct, KeySource keys.Source

@@ -119,7 +119,6 @@ var (
 	CodePasskeyRequired                 = def("passkey_required", 403, "This account signs in with a passkey. Use your passkey to continue.")
 	CodePasskeyUserVerificationRequired = def("passkey_user_verification_required", 401, "The passkey must verify the user.")
 	CodePasswordContainsIdentifier      = defParam("password_contains_identifier", 400, "password", "Password can't contain your username or email.")
-	CodePasswordRequirementsUnmet       = defParam("password_requirements_unmet", 400, "password", "Password doesn't meet the requirements.")
 	CodePasswordResetRequired           = def("password_reset_required", 401, "A password reset is required before you can sign in.")
 	CodePasswordTooCommon               = defParam("password_too_common", 400, "password", "This password is too common. Choose a less predictable one.")
 	CodePasswordTooLong                 = defParam("password_too_long", 400, "password", "Password is too long.")

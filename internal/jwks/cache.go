@@ -31,6 +31,8 @@ import (
 type Issuer struct {
 	Issuer string
 	URL    string
+	// Client fetches URL in place of the Cache's; nil uses the Cache's.
+	Client *http.Client
 }
 
 // Cache holds fetched keys per issuer. Every count in it is bounded by the
@@ -199,7 +201,7 @@ func (c *Cache) load(ctx context.Context, issuers []Issuer) (map[Issuer]map[stri
 	out := make(map[Issuer]map[string]crypto.PublicKey, len(issuers))
 	var errs []error
 	for _, is := range issuers {
-		set, authoritative, err := c.get(ctx, is.URL)
+		set, authoritative, err := c.get(ctx, is)
 		c.record(is, len(set), authoritative, err)
 		switch {
 		case err == nil:
@@ -238,12 +240,16 @@ func (c *Cache) now() time.Time { return cachepolicy.Now(c.opts) }
 // is authoritative; transport errors, other statuses and bodies are
 // transient. Malformed, weak or unsupported keys are skipped; an
 // authoritative answer without usable keys is an error.
-func (c *Cache) get(ctx context.Context, url string) (map[string]crypto.PublicKey, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (c *Cache) get(ctx context.Context, is Issuer) (map[string]crypto.PublicKey, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, is.URL, nil)
 	if err != nil {
 		return nil, false, err
 	}
-	resp, err := c.client.Do(req)
+	client := c.client
+	if is.Client != nil {
+		client = is.Client
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, false, err
 	}

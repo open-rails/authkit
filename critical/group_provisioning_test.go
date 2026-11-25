@@ -3,8 +3,6 @@ package critical_test
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -44,7 +42,6 @@ func TestCriticalConfiguredGroups(t *testing.T) {
 
 	t.Run("AK-J36-C01_keyless_one_connection_preserves_members_and_events", func(t *testing.T) {
 		before := pool.Config().ConnConfig.RuntimeParams["search_path"]
-		cfg.Keys.Path = filepath.Join(t.TempDir(), "must-not-be-created")
 		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 		defer cancel()
 		input := newGroup()
@@ -69,9 +66,6 @@ func TestCriticalConfiguredGroups(t *testing.T) {
 		noError(t, err)
 		if roles[iam.UserSubject(u.ID)] != f.writer {
 			t.Fatal("replay changed the editor's grant")
-		}
-		if _, err := os.Stat(cfg.Keys.Path); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("provisioning touched signing key storage: %v", err)
 		}
 		if pool.Config().ConnConfig.RuntimeParams["search_path"] != before {
 			t.Fatal("provisioning mutated the caller's pool")

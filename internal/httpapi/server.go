@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/open-rails/authkit/internal/config"
@@ -40,6 +41,7 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 		svc:       client,
 		cfg:       cfg,
 		http:      h,
+		surface:   config.HTTPSurface(cfg.Issuer),
 		clientIP:  DefaultClientIP(), // DirectPeerIP
 		wrap:      deps.Wrap,
 		replays:   dpop.NewReplays(deps.Redis, deps.Replays, deps.Logger),
@@ -60,8 +62,14 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 
 	s.providers = providerRegistry(deps.Providers)
 
+	tuning := config.Tuned(cfg)
 	limits := DefaultRateLimits()
-	for bucket, lim := range h.RateLimits {
+	if tuning.NoRateLimits {
+		for bucket := range limits {
+			limits[bucket] = ratelimit.Limit{Limit: math.MaxInt32, Window: time.Hour}
+		}
+	}
+	for bucket, lim := range tuning.RateLimits {
 		if _, ok := limits[bucket]; !ok {
 			return nil, fmt.Errorf("authkit: RateLimits names unknown bucket %q", bucket)
 		}
@@ -73,7 +81,7 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 	}
 	var err error
 	if deps.Redis != nil {
-		rl, err = redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:", s.log)
+		rl, err = redislimiter.New(deps.Redis, limits, config.RedisKeyPrefix(cfg.Issuer)+"ratelimit:", s.log)
 	} else {
 		rl, err = memorylimiter.New(limits)
 		s.log.Warn("authkit: Redis not configured; rate limits are per-process, so each replica counts separately")

@@ -44,14 +44,10 @@ import (
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 	cfg := authkit.Config{
 		Database: authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
-		// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
-		Token: authkit.TokenConfig{
-			Issuer:          "https://myapp.com", // who issued this; that's you!
-			IssuedAudiences: []string{"myapp"},   // who this JWT is intended for (doesn't have to be yourself, but usually is)
-		},
-		Keys: authkit.KeysConfig{
-			Path: "/vault/auth", // where your signing keys are stored; a keys.json file
-		},
+		// Who issues the JWTs users send back to prove who they are: that's you!
+		// Every other URL derives from it (the API at https://myapp.com/auth/v1).
+		Issuer: "https://myapp.com",
+
 		HTTP: &authkit.HTTPConfig{
 			DirectPeerIP: true, // no proxy in front; otherwise set TrustedProxies
 			// Rate limits live in memory; set Deps.Redis when you run more than one copy of your server.
@@ -87,9 +83,11 @@ func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
 
 	// 2. Build the auth engine. It creates or upgrades its tables first; safe on every boot.
 	return authkit.New(ctx, cfg, authkit.Deps{
-		Postgres: db,    // required: users, sessions and short-lived auth state
-		Email:    email, // sends verification codes, login codes and password resets
-		SMS:      sms,   // same, for phone numbers
+		Postgres: db, // required: users, sessions and short-lived auth state
+		// Signing keys come from /vault/auth/keys.json (and totp.key) unless
+		// KeySource names another source, such as keys.Watch(dir, logger).
+		Email: email, // sends verification codes, login codes and password resets
+		SMS:   sms,   // same, for phone numbers
 		// Both also report when they can't deliver, pausing that channel's sign-in until they can.
 	})
 }
@@ -233,32 +231,32 @@ func run(ctx context.Context) error {
 }
 ```
 
-Mounting gives your users the routes below under `/api/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
+Mounting gives your users the routes below under `/auth/v1`, plus the public keys that let anyone verify AuthKit's tokens. Every request and response shape is in [`api/openapi.json`](api/openapi.json), generated from the route catalog.
 
 **Signing up and signing in** (every sign-in answers an `AuthResult`: signed in, or the one next step, such as a second factor)
 
 | Route | What it does |
 |---|---|
-| `POST /api/v1/register` | create an account |
-| `GET /api/v1/register/availability` | validate a registration username and its availability; never answers for an email or phone number |
-| `GET /api/v1/usernames/availability` | validate username syntax and availability, including on sites with closed registration |
-| `GET /api/v1/usernames/generate` | one available generated username; not a reservation |
-| `POST /api/v1/register/abandon` | cancel a sign-up that was never confirmed |
-| `POST /api/v1/verify/request` | send a code or link to prove an email or phone |
-| `POST /api/v1/verify/confirm` | prove it |
-| `POST /api/v1/password/login` | sign in with a password |
-| `POST /api/v1/password/reset/request` | send a "forgot password" link |
-| `POST /api/v1/password/reset/confirm` | set a new password with that link |
-| `POST /api/v1/passkeys/login/begin`, `/finish` | sign in with a passkey |
-| `POST /api/v1/2fa/challenge` | send the second-factor code to another of your factors |
-| `POST /api/v1/2fa/verify` | finish signing in with it |
-| `POST /api/v1/device-verification/confirm`, `/send` | finish signing in on a new device with the code sent to the account's owner, or send it again |
-| `POST /api/v1/account/recovery/confirm` | undo deleting your own account, within 30 days, and go on signing in |
-| `POST /api/v1/invitations/redeem` | accept an invitation |
+| `POST /auth/v1/register` | create an account |
+| `GET /auth/v1/register/availability` | validate a registration username and its availability; never answers for an email or phone number |
+| `GET /auth/v1/usernames/availability` | validate username syntax and availability, including on sites with closed registration |
+| `GET /auth/v1/usernames/generate` | one available generated username; not a reservation |
+| `POST /auth/v1/register/abandon` | cancel a sign-up that was never confirmed |
+| `POST /auth/v1/verify/request` | send a code or link to prove an email or phone |
+| `POST /auth/v1/verify/confirm` | prove it |
+| `POST /auth/v1/password/login` | sign in with a password |
+| `POST /auth/v1/password/reset/request` | send a "forgot password" link |
+| `POST /auth/v1/password/reset/confirm` | set a new password with that link |
+| `POST /auth/v1/passkeys/login/begin`, `/finish` | sign in with a passkey |
+| `POST /auth/v1/2fa/challenge` | send the second-factor code to another of your factors |
+| `POST /auth/v1/2fa/verify` | finish signing in with it |
+| `POST /auth/v1/device-verification/confirm`, `/send` | finish signing in on a new device with the code sent to the account's owner, or send it again |
+| `POST /auth/v1/account/recovery/confirm` | undo deleting your own account, within 30 days, and go on signing in |
+| `POST /auth/v1/invitations/redeem` | accept an invitation |
 
-Sign-ins are limited per device over 24 hours (`Config.SignIn`): 5 accounts per browser (20 per address for a client without AuthKit's device cookie), and 10 new devices per account. Signing back into a counted account, or from a device the account used in the last 30 days, is never limited by these counts. Failed passwords are also limited per identifier (`password_login_identifier`, see [HTTP](docs/http.md#client-addresses-and-rate-limits)). Past the device limit, a new device enters a code sent to the owner's email or phone, which a posted password doesn't get you.
+Sign-ins are limited per device over 24 hours: 5 accounts per browser (20 per address for a client without AuthKit's device cookie), and 10 new devices per account. Signing back into a counted account, or from a device the account used in the last 30 days, is never limited by these counts. Failed passwords are also limited per identifier (`password_login_identifier`, see [HTTP](docs/http.md#client-addresses-and-rate-limits)). Past the device limit, a new device enters a code sent to the owner's email or phone, which a posted password doesn't get you.
 
-With `Registration.PasswordlessLogin`, people sign in contact-first: an email or phone, then the 6-digit code sent there, confirmed with the challenge its start answered, or a passkey (the routes `/passwordless/start` and `/confirm`). Nobody else's starts or wrong guesses spend that code ([HTTP](docs/http.md#client-addresses-and-rate-limits)). `PasswordlessAutoRegistration` signs up whoever proves a new contact; with `Registration.Agreements` set, that sign-up, like every other, first accepts your terms (`agreement_required` names them, and the code stays good for the retry). An account whose only proof is a phone proves it again on every new device. Text messages go only to `SMS.AllowedCountries` and numbers a person texts from, and pass send limits per number, account, address, country, number range and client; with `Deps.Captcha` (Turnstile or hCaptcha) a code start needs a solved challenge. Each code ends with an origin-bound line (`@example.com #123456`) so browsers autofill it only on your site. See [identity](docs/identity.md#network-accounts).
+With `iam.RoutePasswordless` in `HTTP.Groups`, people sign in contact-first: an email or phone, then the 6-digit code sent there, confirmed with the challenge its start answered, or a passkey (the routes `/passwordless/start` and `/confirm`). Nobody else's starts or wrong guesses spend that code ([HTTP](docs/http.md#client-addresses-and-rate-limits)). Unless `Registration` is `closed`, proving a new contact there signs it up (`invite_only` needs an invitation); with a `SignUp` agreement, that sign-up, like every other, first accepts your terms (`agreement_required` names them, and the code stays good for the retry). An account whose only proof is a phone proves it again on every new device. Text messages go only to `SMSCountries` and numbers a person texts from, and pass send limits per number, account, address, country, number range and client; with `Deps.Captcha` (Turnstile or hCaptcha) a code start needs a solved challenge. Each code ends with an origin-bound line (`@example.com #123456`) so browsers autofill it only on your site. See [identity](docs/identity.md#network-accounts).
 
 **MFA upgrades after promotion**
 
@@ -266,7 +264,7 @@ Granting an MFA-protected role succeeds before its recipient enrolls. AuthKit
 requires setup on the next sign-in or authenticated visit, and blocks protected
 access until it is complete. Administrators can also set an individual
 requirement with `UpdateUser(..., iam.UserUpdate{MFARequired: &required})` or
-`PATCH /api/v1/admin/users/{user_id}` with `{"mfa_required":true}`. Clearing that
+`PATCH /auth/v1/admin/users/{user_id}` with `{"mfa_required":true}`. Clearing that
 flag does not bypass role or deployment policy. The shared user editor and
 sign-in UI support this flow, including fresh sign-in when an old session cannot
 safely enroll a new factor. See [the MFA policy guide](docs/rbac.md#requiring-mfa-after-a-promotion).
@@ -275,54 +273,54 @@ safely enroll a new factor. See [the MFA policy guide](docs/rbac.md#requiring-mf
 
 | Route | What it does |
 |---|---|
-| `POST /api/v1/token` | trade a refresh token for fresh tokens |
-| `DELETE /api/v1/logout` | sign out |
-| `POST /api/v1/me/step-up/password`, `/2fa`, `/code`, `/passkey` | prove it's really you before a sensitive change: your password, second factor, a code to your email or phone, or a passkey |
-| `POST /api/v1/me/step-up/2fa/send` | send that second-factor code |
-| `POST /api/v1/me/step-up/code/send` | send a code to your proven email or phone |
-| `POST /api/v1/me/step-up/passkey/begin` | start a passkey step-up |
-| `GET /api/v1/me/sessions` | your signed-in devices |
-| `DELETE /api/v1/me/sessions` | sign out everywhere else |
-| `DELETE /api/v1/me/sessions/{id}` | sign out one device |
-| `GET /api/v1/me/session-events` | your sign-in history |
+| `POST /auth/v1/token` | trade a refresh token for fresh tokens |
+| `DELETE /auth/v1/logout` | sign out |
+| `POST /auth/v1/me/step-up/password`, `/2fa`, `/code`, `/passkey` | prove it's really you before a sensitive change: your password, second factor, a code to your email or phone, or a passkey |
+| `POST /auth/v1/me/step-up/2fa/send` | send that second-factor code |
+| `POST /auth/v1/me/step-up/code/send` | send a code to your proven email or phone |
+| `POST /auth/v1/me/step-up/passkey/begin` | start a passkey step-up |
+| `GET /auth/v1/me/sessions` | your signed-in devices |
+| `DELETE /auth/v1/me/sessions` | sign out everywhere else |
+| `DELETE /auth/v1/me/sessions/{id}` | sign out one device |
+| `GET /auth/v1/me/session-events` | your sign-in history |
 | `GET /.well-known/jwks.json` | public keys for checking AuthKit's tokens |
 
 **Your own account**
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/me` | who you are |
-| `PATCH /api/v1/me` | change your username or language |
-| `DELETE /api/v1/me` | delete your account (30 days to change your mind) |
-| `GET /api/v1/me/security` | whether you need to step up and how, and your second factors |
-| `GET /api/v1/me/agreements` | the terms and policies you accepted, and any due now |
-| `POST /api/v1/me/agreements` | accept them |
-| `PUT /api/v1/me/password` | change your password |
-| `PUT /api/v1/me/email` | change your email (a code goes to the new one) |
-| `PUT /api/v1/me/phone` | change your phone number |
-| `DELETE /api/v1/me/phone` | remove it |
-| `DELETE /api/v1/me/providers/{provider}` | unlink a sign-in provider |
-| `GET /api/v1/me/groups` | the groups you hold a role in |
-| `GET /api/v1/me/permissions` | your role and permissions in one group (`?group_id=`) |
-| `GET /api/v1/users` | anyone's public profile (`?ids=` or `?username=`), no sign-in needed |
-| `GET /api/v1/capabilities` | what this server offers, for your UI |
-| `GET /api/v1/events` | retained events in an authorized tenant or authority scope; readers keep their own cursor |
+| `GET /auth/v1/me` | who you are |
+| `PATCH /auth/v1/me` | change your username or language |
+| `DELETE /auth/v1/me` | delete your account (30 days to change your mind) |
+| `GET /auth/v1/me/security` | whether you need to step up and how, and your second factors |
+| `GET /auth/v1/me/agreements` | the terms and policies you accepted, and any due now |
+| `POST /auth/v1/me/agreements` | accept them |
+| `PUT /auth/v1/me/password` | change your password |
+| `PUT /auth/v1/me/email` | change your email (a code goes to the new one) |
+| `PUT /auth/v1/me/phone` | change your phone number |
+| `DELETE /auth/v1/me/phone` | remove it |
+| `DELETE /auth/v1/me/providers/{provider}` | unlink a sign-in provider |
+| `GET /auth/v1/me/groups` | the groups you hold a role in |
+| `GET /auth/v1/me/permissions` | your role and permissions in one group (`?group_id=`) |
+| `GET /auth/v1/users` | anyone's public profile (`?ids=` or `?username=`), no sign-in needed |
+| `GET /auth/v1/capabilities` | what this server offers, for your UI |
+| `GET /auth/v1/events` | retained events in an authorized tenant or authority scope; readers keep their own cursor |
 
 **Two-factor, passkeys and device keys**
 
 | Route | What it does |
 |---|---|
-| `POST /api/v1/me/2fa/setup` | start adding one: a code to your email or phone, or an authenticator app's secret |
-| `POST /api/v1/me/2fa/factors` | add it with that code |
-| `PATCH /api/v1/me/2fa/factors/{id}` | make it your default |
-| `DELETE /api/v1/me/2fa/factors/{id}` | remove it |
-| `DELETE /api/v1/me/2fa` | turn two-factor off |
-| `POST /api/v1/me/2fa/backup-codes` | new backup codes |
-| `GET /api/v1/me/sign-in-keys` | your passkeys and device keys |
-| `PATCH /api/v1/me/sign-in-keys/{id}` | rename one |
-| `DELETE /api/v1/me/sign-in-keys/{id}` | revoke one |
-| `POST /api/v1/me/passkeys/register/begin`, `/finish` | add a passkey after step-up |
-| `POST /api/v1/me/passkeys/enroll/begin`, `/finish` | use a restricted enrollment token to create the first passkey and complete mandatory MFA sign-in |
+| `POST /auth/v1/me/2fa/setup` | start adding one: a code to your phone, or an authenticator app's secret |
+| `POST /auth/v1/me/2fa/factors` | add it with that code |
+| `PATCH /auth/v1/me/2fa/factors/{id}` | make it your default |
+| `DELETE /auth/v1/me/2fa/factors/{id}` | remove it |
+| `DELETE /auth/v1/me/2fa` | turn two-factor off |
+| `POST /auth/v1/me/2fa/backup-codes` | new backup codes |
+| `GET /auth/v1/me/sign-in-keys` | your passkeys and device keys |
+| `PATCH /auth/v1/me/sign-in-keys/{id}` | rename one |
+| `DELETE /auth/v1/me/sign-in-keys/{id}` | revoke one |
+| `POST /auth/v1/me/passkeys/register/begin`, `/finish` | add a passkey after step-up |
+| `POST /auth/v1/me/passkeys/enroll/begin`, `/finish` | use a restricted enrollment token to create the first passkey and complete mandatory MFA sign-in |
 
 Passkeys on a platform authenticator or FIDO2 security key require PIN/biometric
 user verification on every creation and assertion. A verified passkey sign-in
@@ -354,40 +352,38 @@ adding a verified replacement first permits removing the old factor.
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/groups/{group_id}/members` | who holds which role (`?expand=user` adds their public profiles) |
-| `PUT /api/v1/groups/{group_id}/members/{kind}/{id}` | give someone a role, or change it (`{kind}` is `users`) |
-| `DELETE /api/v1/groups/{group_id}/members/{kind}/{id}` | take their role away |
-| `GET /api/v1/groups/{group_id}/roles` | the roles this group has |
-| `GET /api/v1/groups/{group_id}/roles/{role}` | one of them, and what it grants |
-| `GET /api/v1/groups/{group_id}/invitations` | its invitations |
-| `POST /api/v1/groups/{group_id}/invitations` | invite someone with a link, or by email |
-| `DELETE /api/v1/groups/{group_id}/invitations/{id}` | revoke one |
+| `GET /auth/v1/groups/{group_id}/members` | who holds which role (`?expand=user` adds their public profiles) |
+| `PUT /auth/v1/groups/{group_id}/members/{kind}/{id}` | give someone a role, or change it (`{kind}` is `users`) |
+| `DELETE /auth/v1/groups/{group_id}/members/{kind}/{id}` | take their role away |
+| `GET /auth/v1/groups/{group_id}/roles` | the roles this group has |
+| `GET /auth/v1/groups/{group_id}/roles/{role}` | one of them, and what it grants |
+| `GET /auth/v1/groups/{group_id}/invitations` | its invitations |
+| `POST /auth/v1/groups/{group_id}/invitations` | invite someone with a link, or by email |
+| `DELETE /auth/v1/groups/{group_id}/invitations/{id}` | revoke one |
 
 **Site admins** (need the matching `root:` permission, and a recent sign-in for account changes; staff change only accounts they outrank, so demote a peer first. Bans, deletions, sign-outs and contact changes are recorded with who made them in `Client.ListEvents`, for your audit log.)
 
 | Route | What it does |
 |---|---|
-| `GET /api/v1/admin/users` | look through users |
-| `GET /api/v1/admin/users/{user_id}` | one user |
-| `PATCH /api/v1/admin/users/{user_id}` | edit their account |
-| `PUT /api/v1/admin/users/{user_id}/ban` | ban them, until a time or for good |
-| `DELETE /api/v1/admin/users/{user_id}/ban` | lift the ban |
-| `DELETE /api/v1/admin/users/{user_id}` | delete an account |
-| `POST /api/v1/admin/users/{user_id}/restore` | restore it within 30 days |
-| `GET /api/v1/admin/users/{user_id}/sessions` | their signed-in devices |
-| `DELETE /api/v1/admin/users/{user_id}/sessions` | sign them out everywhere |
-| `GET /api/v1/admin/users/{user_id}/session-events` | their sign-in history |
-| `GET /api/v1/admin/provisioning/targets` | how each [SCIM](docs/scim.md) target's sync is doing |
-| `POST /api/v1/admin/tenants` | create a tenant: its UUID and name (`root:tenants:manage`) |
-| `GET /api/v1/admin/tenants/{tenant_id}` | one tenant (`root:tenants:read`) |
-| `PATCH /api/v1/admin/tenants/{tenant_id}` | [rename](docs/tenant-directories.md#tenant-names) it (`root:tenants:manage`) |
-| `GET /api/v1/admin/tenants/by-slug/{slug}` | the tenant a current or former name belongs to (`root:tenants:read`) |
+| `GET /auth/v1/admin/users` | look through users |
+| `GET /auth/v1/admin/users/{user_id}` | one user |
+| `PATCH /auth/v1/admin/users/{user_id}` | edit their account |
+| `PUT /auth/v1/admin/users/{user_id}/ban` | ban them, until a time or for good |
+| `DELETE /auth/v1/admin/users/{user_id}/ban` | lift the ban |
+| `DELETE /auth/v1/admin/users/{user_id}` | delete an account |
+| `POST /auth/v1/admin/users/{user_id}/restore` | restore it within 30 days |
+| `GET /auth/v1/admin/users/{user_id}/sessions` | their signed-in devices |
+| `DELETE /auth/v1/admin/users/{user_id}/sessions` | sign them out everywhere |
+| `GET /auth/v1/admin/users/{user_id}/session-events` | their sign-in history |
+| `GET /auth/v1/admin/provisioning/targets` | how each [SCIM](docs/scim.md) target's sync is doing |
+| `POST /auth/v1/admin/tenants` | create a tenant: its UUID and name (`root:tenants:manage`) |
+| `GET /auth/v1/admin/tenants/{tenant_id}` | one tenant (`root:tenants:read`) |
+| `PATCH /auth/v1/admin/tenants/{tenant_id}` | [rename](docs/tenant-directories.md#tenant-names) it (`root:tenants:manage`) |
+| `GET /auth/v1/admin/tenants/by-slug/{slug}` | the tenant a current or former name belongs to (`root:tenants:read`) |
 
-Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Set `Invitations.Disabled`, and the invitation routes go.
+Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Passwordless sign-in, device keys and personal access tokens are opt-in route groups: add `iam.RoutePasswordless`, `iam.RouteDeviceKeys` or `iam.RoutePersonalAccessTokens` to `HTTP.Groups` (nil is `iam.DefaultRouteGroups()`). Leave `iam.RouteInvitations` out, and the invitation routes go.
 
-Group API keys belong to the organization; their creator is audit information.
-Optional [personal access tokens](docs/personal-access-tokens.md) are a separate,
-user-owned credential, disabled unless `PersonalAccessTokens.Enabled` is set.
+Group API keys belong to the organization; their creator is audit information. Optional [personal access tokens](docs/personal-access-tokens.md) are a separate, user-owned credential, on only with `iam.RoutePersonalAccessTokens`.
 
 Now for our application-specific routes, we can check user permissions using middleware, to enforce that certain actions are moderator or admin-only:
 
@@ -422,7 +418,7 @@ The rest is ordinary app code (our channel and post handlers), not AuthKit. The 
 
 For groups declared by application configuration, an explicit migration command
 can call `authkit.EnsureGroups(ctx, pool, cfg, groups, logger)` after `authkit.Migrate`.
-Supply the usual database, roles and default tenant in `cfg`, and stable IDs in
+Supply the usual database, roles and tenancy in `cfg`, and stable IDs in
 `[]iam.NewGroup`. It creates missing ownerless groups without an AuthKit runtime,
 signing keys, senders or workers. Existing live groups and their assignments stay
 unchanged; deleted groups and conflicting tenants/personas are refused. Each
@@ -432,11 +428,11 @@ channel provisioning uses this operation through its AuthKit migration adapter.
 
 Account deletion uses one `authkit_account_delete_due` batch job per issuer, scheduled at the earliest deletion's `purge_at`, rather than a future River job per account. The 30-day recovery deadline remains authoritative; issuer cleanup callbacks must finish before the account row is removed. See [account deletion](docs/identity.md) for timing.
 
-`Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `public`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running.
+`Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `Config.Database.Schema`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running.
 
 `New` fails only when AuthKit can't run safely: PostgreSQL still unreachable after 30 seconds (or `ctx`), migrations failing, no usable signing key, or configuration it can't read without weakening auth. A misconfigured or unreachable optional dependency switches off only what needs it: an identity provider is disabled (its sign-ins answer `provider_unavailable`), a remote application's tokens are refused, email flows answer `email_unavailable`, and limits stay per process while Redis is down. `auth.Ready(ctx)` is the readiness check (PostgreSQL, River, signing key); `auth.Probes()` lists the optional dependencies and degraded features for your dependency supervisor, none of which fails readiness.
 
-A service whose callers sign in elsewhere sets `Config.Resource`: `auth.Authenticator()` then also admits the access tokens its trusted issuers mint for it, bound to their group ([resource server](docs/resource-server.md)). `sign_in.dpop` sets how this instance issues tokens to its own users. It never changes how tokens are validated: a bound token needs its proof, an unbound token is a bearer token, whoever issued it.
+A service whose callers sign in elsewhere sets `Config.Resource`: `auth.Authenticator()` then also admits the access tokens its trusted issuers mint for it, bound to their group ([resource server](docs/resource-server.md)). Every session this instance issues its own users is DPoP-bound. That never changes how tokens are validated: a bound token needs its proof, an unbound token is a bearer token, whoever issued it.
 
 More: [resource server](docs/resource-server.md), [keys](docs/keys.md), [tokens](docs/tokens.md), [SCIM provisioning and user info](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
 

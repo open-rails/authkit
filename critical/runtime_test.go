@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	stdlog "log"
@@ -55,6 +57,15 @@ func keysJSON(t *testing.T, kid string) []byte {
 }
 
 // startRefused asserts New refuses cfg/deps, naming why.
+// watchKeys is keys.Watch of dir, closed with the test.
+func watchKeys(t *testing.T, dir string) keys.Source {
+	t.Helper()
+	src, err := keys.Watch(dir, nil)
+	noError(t, err)
+	t.Cleanup(src.Close)
+	return src
+}
+
 func startRefused(t *testing.T, cfg authkit.Config, deps authkit.Deps, reason string) {
 	t.Helper()
 	client, err := authkit.New(t.Context(), cfg, deps)
@@ -101,7 +112,7 @@ func TestCriticalRuntime(t *testing.T) {
 		if got.ID != u.ID {
 			t.Fatal("restart lost committed account")
 		}
-		claims, err := restarted.Verify(t.Context(), session.AccessToken)
+		claims, err := verifyToken(t, restarted, session.AccessToken)
 		noError(t, err)
 		noError(t, restarted.CheckSession(t.Context(), claims))
 		if err := restarted.Ready(t.Context()); err == nil {
@@ -113,9 +124,8 @@ func TestCriticalRuntime(t *testing.T) {
 	t.Run("AK-J01-C03_missing_signer_or_database_fails_closed", func(t *testing.T) {
 		f := newFixture(t)
 		cfg := f.cfg
-		cfg.Keys = authkit.KeysConfig{Path: t.TempDir()}
 		deps := f.deps
-		deps.KeySource = nil
+		deps.KeySource = nil // /vault/auth, which holds no keys
 		client, err := authkit.New(t.Context(), cfg, deps)
 		if err == nil || client != nil {
 			if client != nil {
@@ -171,19 +181,26 @@ func TestCriticalRuntime(t *testing.T) {
 		deps := f.deps
 		deps.KeySource = nil
 		cfg := f.cfg
+		watchRefused := func(dir string) {
+			t.Helper()
+			if src, err := keys.Watch(dir, nil); err == nil || !strings.Contains(err.Error(), "group/world-writable") {
+				if src != nil {
+					src.Close()
+				}
+				t.Fatalf("keys.Watch = %v, want a group/world-writable refusal", err)
+			}
+		}
 		for _, mode := range []os.FileMode{0o620, 0o602} {
 			dir := t.TempDir()
 			writeKeyFile(t, dir, "keys.json", keysJSON(t, "writable"), mode)
-			cfg.Keys = authkit.KeysConfig{Path: dir}
-			startRefused(t, cfg, deps, "group/world-writable")
+			watchRefused(dir)
 		}
 		dir := t.TempDir()
 		writeKeyFile(t, dir, "keys.json", keysJSON(t, "readonly"), 0o440)
 		writeKeyFile(t, dir, "totp.key", []byte(base64.StdEncoding.EncodeToString(make([]byte, 32))), 0o660)
-		cfg.Keys = authkit.KeysConfig{Path: dir}
-		cfg.TwoFactor.TOTPSecretKey = nil
-		startRefused(t, cfg, deps, "group/world-writable")
+		watchRefused(dir)
 		noError(t, os.Chmod(filepath.Join(dir, "totp.key"), 0o440))
+		deps.KeySource = watchKeys(t, dir)
 		client, err := authkit.New(t.Context(), cfg, deps)
 		noError(t, err)
 		noError(t, client.Close(context.Background()))
@@ -215,12 +232,12 @@ func TestCriticalRuntime(t *testing.T) {
 			{"https://myapp.example", "http://myapp.example"},
 		} {
 			cfg := f.cfg
-			cfg.Token.Issuer, cfg.Frontend.BaseURL = c.issuer, c.base
+			cfg.Issuer, cfg.FrontendURL = c.issuer, c.base
 			startRefused(t, cfg, f.deps, "must be")
 		}
 		for _, issuer := range []string{"http://localhost:8080", "http://127.0.0.1:4780/auth", "http://[::1]:9000"} {
 			cfg := f.cfg
-			cfg.Token.Issuer, cfg.Frontend.BaseURL = issuer, ""
+			cfg.Issuer, cfg.FrontendURL = issuer, ""
 			client, err := authkit.New(t.Context(), cfg, f.deps)
 			noError(t, err)
 			noError(t, client.Close(context.Background()))
@@ -249,8 +266,10 @@ func TestCriticalRuntime(t *testing.T) {
 
 		// A fresh schema: AuthKit's and River's migrators run, the signing
 		// keys are world-readable, and AuthKit starts its own River fleet.
-		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.Keys = authkit.KeysConfig{Path: keyDir} }),
-			authtest.WithDeps(func(d *authkit.Deps) { d.Logger, d.KeySource, d.Redis = logger, nil, rdb }))
+		keySource, err := keys.Watch(keyDir, logger)
+		noError(t, err)
+		t.Cleanup(keySource.Close)
+		f := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) { d.Logger, d.KeySource, d.Redis = logger, keySource, rdb }))
 		noError(t, f.auth.Start(context.Background()))
 		session := f.signIn(t, f.user(t))
 		// A permission gate over the Client with no group on the request.
@@ -289,20 +308,21 @@ func TestCriticalRuntime(t *testing.T) {
 		deps := f.deps
 		deps.KeySource = nil
 		local := f.cfg
-		local.Token.Issuer, local.Frontend.BaseURL = "http://localhost:4780", ""
-		local.TwoFactor.TOTPSecretKey = nil
+		local.Issuer, local.FrontendURL = "http://localhost:4780", ""
 
-		// A loopback issuer generates its keys into the configured directory
-		// (a Compose volume) and signs with them across restarts.
-		dir := filepath.Join(t.TempDir(), "vault", "auth")
-		local.Keys = authkit.KeysConfig{Path: dir}
+		// A loopback issuer generates its keys into its development directory
+		// and signs with them across restarts.
+		state := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", state)
+		id := sha256.Sum256([]byte(local.Issuer))
+		dir := filepath.Join(state, "authkit", "development", hex.EncodeToString(id[:]))
 		var signed []byte
 		for range 2 {
 			client, err := authkit.New(t.Context(), local, deps)
 			noError(t, err)
 			token, err := client.MintAccessToken(t.Context(), authtest.NewUser(t, client).ID, iam.AccessTokenOptions{})
 			noError(t, err)
-			_, err = client.Verify(t.Context(), token.Value)
+			_, err = verifyToken(t, client, token.Value)
 			noError(t, err)
 			noError(t, client.Close(context.Background()))
 			keyFile, err := os.ReadFile(filepath.Join(dir, "keys.json"))
@@ -313,22 +333,21 @@ func TestCriticalRuntime(t *testing.T) {
 			signed = keyFile
 		}
 
-		// The same directory under a real issuer refuses to boot.
+		// The same keys under a real issuer refuse to boot.
 		production := f.cfg
-		production.Keys = authkit.KeysConfig{Path: dir}
-		production.TwoFactor.TOTPSecretKey = nil
-		startRefused(t, production, deps, "development keys cannot sign for "+production.Token.Issuer+": provision real keys")
+		deps.KeySource = watchKeys(t, dir)
+		startRefused(t, production, deps, "development keys cannot sign for "+production.Issuer+": provision real keys")
 
 		// A real issuer never generates, and provisioned keys serve any issuer.
-		empty := t.TempDir()
-		production.Keys = authkit.KeysConfig{Path: empty}
+		deps.KeySource = nil
 		startRefused(t, production, deps, "keys.json not found")
-		if entries, err := os.ReadDir(empty); err != nil || len(entries) != 0 {
+		if entries, err := os.ReadDir(filepath.Join(state, "authkit", "development")); err != nil || len(entries) != 1 {
 			t.Fatalf("a real issuer wrote keys: %v", err)
 		}
-		writeKeyFile(t, empty, "keys.json", keysJSON(t, "provisioned"), 0o600)
+		provisioned := t.TempDir()
+		writeKeyFile(t, provisioned, "keys.json", keysJSON(t, "provisioned"), 0o600)
+		deps.KeySource = watchKeys(t, provisioned)
 		for _, cfg := range []authkit.Config{production, local} {
-			cfg.Keys = authkit.KeysConfig{Path: empty}
 			client, err := authkit.New(t.Context(), cfg, deps)
 			noError(t, err)
 			noError(t, client.Close(context.Background()))

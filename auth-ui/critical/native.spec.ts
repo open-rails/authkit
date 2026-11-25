@@ -87,21 +87,44 @@ test("AK-UI-07: AK-J29-C05: native signup, contact change, MFA login and confirm
       )
     )
     .toBe(1)
-  // This read is deliberately stateless and exposes the caller's tombstone;
-  // mutation routes require the current live session.
-  const tombstone = await request.get("/api/v1/me", {
+  // The token is DPoP-bound: without its key's proof it is refused.
+  const asBearer = await request.get("/auth/v1/me", {
     headers: { Authorization: `Bearer ${token}` },
   })
-  expect(tombstone.status()).toBe(200)
-  expect(await tombstone.json()).toMatchObject({
+  expect(asBearer.status()).toBe(401)
+  // With a proof of the key (deletion keeps it), this read is deliberately
+  // stateless and exposes the caller's tombstone; mutation routes require the
+  // current live session.
+  const tombstone = await page.evaluate(
+    (token) =>
+      window.ak.client.request<{ id: string; deleted_at: string | null }>(
+        "GET",
+        "/me",
+        { bearer: token }
+      ),
+    token!
+  )
+  expect(tombstone).toMatchObject({
     id: userId,
     deleted_at: expect.any(String),
   })
-  const rejected = await request.patch("/api/v1/me", {
-    headers: { Authorization: `Bearer ${token}` },
-    data: { preferred_language: "en" },
-  })
-  expect(rejected.status()).toBe(401)
+  const rejected = await page.evaluate(
+    (token) =>
+      window.ak.client
+        .request("PATCH", "/me", {
+          bearer: token,
+          body: { preferred_language: "en" },
+        })
+        .then(
+          () => null,
+          (err: { status?: number; code?: string }) => ({
+            status: err.status,
+            code: err.code,
+          })
+        ),
+    token!
+  )
+  expect(rejected).toEqual({ status: 401, code: "session_revoked" })
   expect(
     await page.evaluate(() => window.ak.client.getAccessToken())
   ).toBeNull()

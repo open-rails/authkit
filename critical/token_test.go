@@ -18,6 +18,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/cachepolicy"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
@@ -49,9 +50,13 @@ func signJWT(t *testing.T, signer keys.Signer, header, claims map[string]any) st
 	noError(t, err)
 	return input + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
+
+// idTokenClient is the OAuth client ID tokens are minted for.
+const idTokenClient = "authtest-client"
+
 func jwtFixture(t *testing.T) *fixture {
 	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-		c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: authtest.Audience, RedirectURIs: []string{"https://client.example/callback"}}}
+		c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: idTokenClient, RedirectURIs: []string{"https://client.example/callback"}}}
 	}))
 }
 func expectTokenError(t *testing.T, err error, code string) {
@@ -65,8 +70,8 @@ func fixtureIDToken(t *testing.T, f *fixture, raw string) string {
 	t.Helper()
 	h, c := jwtParts(t, raw)
 	h["typ"] = "JWT"
-	c["azp"] = authtest.Audience
-	c["aud"] = []string{authtest.Audience}
+	c["azp"] = idTokenClient
+	c["aud"] = []string{idTokenClient}
 	c["nonce"] = "critical-expected-nonce"
 	return signJWT(t, f.deps.KeySource.ActiveSigner(), h, c)
 }
@@ -76,19 +81,20 @@ func TestCriticalTokenProfiles(t *testing.T) {
 	t.Run("AK-J13-C01_access_resource_and_ID_profiles_have_distinct_contracts", func(t *testing.T) {
 		u := f.user(t)
 		session := f.signIn(t, u)
-		native, err := f.auth.Verify(t.Context(), session.AccessToken)
+		native, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		if native.UserID != u.ID || native.SessionID == "" {
 			t.Fatal("native access profile lost its real sign-in")
 		}
 		request, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/resource", nil)
 		noError(t, err)
-		request.Header.Set("Authorization", "Bearer "+session.AccessToken)
+		authorize(t, request, session.AccessToken)
 		fromRequest, err := f.auth.VerifyRequest(request)
 		noError(t, err)
 		if fromRequest.UserID != u.ID || fromRequest.SessionID != native.SessionID {
 			t.Fatal("request verifier changed the signed subject or session")
 		}
+		authorize(t, request, session.AccessToken) // a fresh proof: the first is spent
 		verified, err := f.auth.AuthenticateRequest(t.Context(), request)
 		noError(t, err)
 		if verified.Identity().Subject != u.ID {
@@ -96,11 +102,12 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		}
 		id, err := f.auth.VerifyIDToken(t.Context(), fixtureIDToken(t, f, session.AccessToken))
 		noError(t, err)
-		if id.Subject != u.ID || id.ClientID != authtest.Audience || id.SessionID != native.SessionID || id.Nonce != "critical-expected-nonce" {
+		if id.Subject != u.ID || id.ClientID != idTokenClient || id.SessionID != native.SessionID || id.Nonce != "critical-expected-nonce" {
 			t.Fatal("ID-token profile lost its client/session/nonce")
 		}
 		h, c := jwtParts(t, session.AccessToken)
 		h["typ"] = "at+jwt"
+		delete(c, "cnf") // a bearer resource token
 		c["aud"] = []string{"orders-api"}
 		c["client_id"] = "registered-resource-client"
 		c["scope"] = "orders:read"
@@ -119,7 +126,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		for _, typ := range []string{"JWT", "refresh+jwt", ""} {
 			h, c := jwtParts(t, raw)
 			h["typ"] = typ
-			_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+			_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 			if err == nil {
 				t.Fatalf("access verifier admitted token type%q", typ)
 			}
@@ -127,7 +134,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		for _, alg := range []string{"none", "HS256"} {
 			h, c := jwtParts(t, raw)
 			h["alg"] = alg
-			_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+			_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 			expectTokenError(t, err, "invalid_token")
 		}
 		parts := strings.Split(raw, ".")
@@ -138,12 +145,12 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		}
 		parts[2] = replacement + signature[1:]
 		for _, bad := range []string{"not-a-token", "a.b.c", strings.Join(parts, ".")} {
-			_, err := f.auth.Verify(t.Context(), bad)
+			_, err := verifyToken(t, f.auth, bad)
 			expectTokenError(t, err, "invalid_token")
 		}
 		h, c := jwtParts(t, raw)
 		delete(c, "sub")
-		_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+		_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 		expectTokenError(t, err, "missing_sub")
 	})
 	t.Run("AK-J13-C03_issuer_audience_and_lifetime_are_not_interchangeable", func(t *testing.T) {
@@ -157,13 +164,13 @@ func TestCriticalTokenProfiles(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				h, c := jwtParts(t, raw)
 				c[tc.key] = tc.value
-				_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+				_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 				expectTokenError(t, err, tc.code)
 			})
 		}
 		h, c := jwtParts(t, raw)
 		delete(c, "exp")
-		_, err := f.auth.Verify(t.Context(), signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
+		_, err := verifyToken(t, f.auth, signJWT(t, f.deps.KeySource.ActiveSigner(), h, c))
 		expectTokenError(t, err, "missing_exp")
 	})
 	t.Run("AK-J13-C04_JWKS_rotation_and_outage_have_bounded_trust", func(t *testing.T) {
@@ -193,9 +200,12 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		v := verify.NewVerifier(verify.WithHTTPClient(peer.Client()))
 		defer v.Close()
 		options := verify.IssuerOptions{JWKSURI: peer.URL, IsLocal: true}
-		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Audience}, options))
+		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Issuer}, options))
 		u := f.user(t)
-		original := f.signIn(t, u).AccessToken
+		// A bearer token: this verifier checks keys, not proofs.
+		minted, err := f.auth.MintAccessToken(t.Context(), u.ID, iam.AccessTokenOptions{})
+		noError(t, err)
+		original := minted.Value
 		_, err = v.Verify(t.Context(), original)
 		noError(t, err)
 		h, c := jwtParts(t, original)
@@ -215,7 +225,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		if err == nil {
 			t.Fatal("removed issuer remained trusted")
 		}
-		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Audience}, options))
+		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Issuer}, options))
 		_, err = v.Verify(t.Context(), rotated)
 		noError(t, err)
 		mu.Lock()
@@ -245,7 +255,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		if !errors.Is(err, iam.ErrInvalidIDToken) {
 			t.Fatalf("unregistered ID-token client accepted: %v", err)
 		}
-		claims, err := f.auth.Verify(t.Context(), session.AccessToken)
+		claims, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.RevokeSession(t.Context(), iam.SystemIdentity(), u.ID, claims.SessionID))
 		_, err = f.auth.VerifyIDToken(t.Context(), raw)
@@ -256,7 +266,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 	t.Run("AK-J13-C06_host_mints_cannot_override_reserved_authority", func(t *testing.T) {
 		u := f.user(t)
 		session := f.signIn(t, u)
-		cl, err := f.auth.Verify(t.Context(), session.AccessToken)
+		cl, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		for _, field := range []string{"sub", "sid", "auth_time", "permissions", "tenant_id"} {
 			_, err := f.auth.MintAccessToken(t.Context(), u.ID, iam.AccessTokenOptions{SessionID: cl.SessionID, Claims: map[string]any{field: "forged"}})
@@ -269,7 +279,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		noError(t, err)
 		v := verify.NewVerifier()
 		defer v.Close()
-		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Audience}, verify.IssuerOptions{KeySource: f.deps.KeySource}))
+		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Issuer}, verify.IssuerOptions{KeySource: f.deps.KeySource}))
 		data, err := v.VerifyClaims(t.Context(), mint.Value)
 		noError(t, err)
 		if data["critical_trace"] != "known-host-value" || data["sub"] != u.ID {
@@ -287,6 +297,51 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		}
 		f.call(t, "GET", "/me", bound.Value, nil).want(t, http.StatusForbidden, "forbidden")
 	})
+	t.Run("AK-J13-C11_only_host_declared_applications_fetch_from_a_private_network", func(t *testing.T) {
+		private, err := rsa.GenerateKey(rand.Reader, 2048)
+		noError(t, err)
+		signer, err := keys.SignerFromKey("in-cluster", private)
+		noError(t, err)
+		mux := http.NewServeMux()
+		issuer := httptest.NewServer(mux)
+		t.Cleanup(issuer.Close)
+		mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]string{"issuer": issuer.URL, "jwks_uri": issuer.URL + "/jwks"})
+		})
+		mux.HandleFunc("GET /jwks", func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(keys.JWKS{Keys: []keys.JWK{keys.PublicJWK(signer.Public(), signer.KID(), signer.Algorithm())}})
+		})
+		const resource = "https://private-resource.example"
+		now := time.Now()
+		token := signJWT(t, signer, map[string]any{"alg": signer.Algorithm(), "kid": signer.KID(), "typ": "at+jwt"},
+			map[string]any{"iss": issuer.URL, "sub": "customer", "aud": resource, "client_id": "in-cluster-ui", "iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix(), "jti": "private-network-token"})
+		authenticate := func(f *fixture) error {
+			r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, resource+"/data", nil)
+			noError(t, err)
+			authorize(t, r, token)
+			_, err = f.auth.Authenticator().Authenticate(r)
+			return err
+		}
+		// Declared by the host: its keys are fetched from the private address.
+		declared := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.Resource = authkit.ResourceConfig{ID: resource}
+			c.RemoteApplications = []authkit.RemoteApplicationConfig{{Issuer: issuer.URL}}
+		}))
+		noError(t, authenticate(declared))
+		// Registered at run time: the same issuer's private address is refused,
+		// whether discovered or named.
+		runtime := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.Resource = authkit.ResourceConfig{ID: resource} }))
+		group, _, _ := runtime.ownedGroup(t)
+		_, err = runtime.auth.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.RemoteApplication{Issuer: issuer.URL, Enabled: true, Mode: iam.RemoteApplicationModeJWKS})
+		noError(t, err)
+		if err := authenticate(runtime); err == nil {
+			t.Fatal("an application registered at run time fetched its keys from a private network")
+		}
+		_, err = runtime.auth.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.RemoteApplication{Issuer: "https://named-private.example", JWKSURI: issuer.URL + "/jwks", Enabled: true, Mode: iam.RemoteApplicationModeJWKS})
+		if !errors.Is(err, iam.ErrInvalidRemoteApplication) {
+			t.Fatalf("a private jwks_uri registered at run time = %v, want refused", err)
+		}
+	})
 	t.Run("AK-J13-C10_failed_issuer_discovery_is_fetched_once_per_backoff", func(t *testing.T) {
 		clock := testclock.Wall()
 		oldPolicy := cachepolicy.IssuerKeys
@@ -301,7 +356,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		const resource = "https://discovery-resource.example"
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.Resource = authkit.ResourceConfig{ID: resource}
-			c.Token.AllowPrivateNetworkJWKS = true
+			config.Tune(c, func(tn *config.Tuning) { tn.PrivateNetworkJWKS = true })
 		}))
 		group, _, _ := g.ownedGroup(t)
 		_, err := g.auth.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.RemoteApplication{Issuer: issuer.URL, Enabled: true, Mode: iam.RemoteApplicationModeJWKS})
@@ -320,7 +375,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			r.Header.Set("Authorization", "Bearer "+token)
+			authorize(t, r, token)
 			if _, err := g.auth.Authenticator().Authenticate(r); err == nil {
 				t.Error("token of an issuer without keys was accepted")
 			}

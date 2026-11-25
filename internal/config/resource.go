@@ -12,14 +12,10 @@ import (
 // applications. The zero value admits none.
 type ResourceConfig struct {
 	// ID is the resource identifier (RFC 8707): an accepted access token's
-	// aud must contain it. An absolute URI without a fragment, usually the
-	// API's base URL.
+	// aud must contain it. The API's base URL, https (http only on a
+	// loopback host): its origin is the one a DPoP proof's htu names (RFC
+	// 9449 §4.3). Deps.ResourceHosts admits more hosts.
 	ID string `yaml:"id"`
-	// PublicURL is where clients reach the API, the origin a DPoP proof's
-	// htu names (RFC 9449 §4.3): "https://api.example.com", or with the path
-	// a proxy strips. Empty is ID's origin. Deps.ResourceHosts admits more
-	// hosts.
-	PublicURL string `yaml:"public_url"`
 	// Scopes are the resource's scopes and the permission ceiling each one
 	// grants (RFC 6749 §3.3), as grant patterns: an access token's
 	// permissions count only within the ceilings of the scopes it was
@@ -32,27 +28,25 @@ type ResourceConfig struct {
 // resource server.
 func (r ResourceConfig) Enabled() bool { return r.ID != "" }
 
+// ResourceOrigin is where clients reach the resource: its ID's origin.
+func ResourceOrigin(r ResourceConfig) string {
+	u, _ := url.Parse(r.ID)
+	return u.Scheme + "://" + u.Host
+}
+
 func normalizeResource(r *ResourceConfig) error {
 	r.ID = strings.TrimSpace(r.ID)
-	r.PublicURL = strings.TrimRight(strings.TrimSpace(r.PublicURL), "/")
 	if r.ID == "" {
-		if r.PublicURL != "" || len(r.Scopes) > 0 {
-			return fmt.Errorf("authkit: Resource has a PublicURL or Scopes but no ID")
+		if len(r.Scopes) > 0 {
+			return fmt.Errorf("authkit: Resource has Scopes but no ID")
 		}
 		return nil
 	}
 	if err := validResourceID(r.ID); err != nil {
 		return fmt.Errorf("authkit: Resource.ID: %w", err)
 	}
-	if r.PublicURL == "" {
-		u, _ := url.Parse(r.ID)
-		if u.Scheme != "https" && u.Scheme != "http" || u.Host == "" {
-			return fmt.Errorf("authkit: Resource.PublicURL is required when Resource.ID %q is not an http(s) URL", r.ID)
-		}
-		r.PublicURL = u.Scheme + "://" + u.Host
-	}
-	if u, err := url.Parse(r.PublicURL); err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(u.Scheme == "http" && loopbackHost(u.Hostname()))) {
-		return fmt.Errorf("authkit: Resource.PublicURL %q must be an https URL (http only on a loopback host) without query or fragment", r.PublicURL)
+	if u, _ := url.Parse(r.ID); u.Host == "" || u.User != nil || u.RawQuery != "" || (u.Scheme != "https" && !(u.Scheme == "http" && loopbackHost(u.Hostname()))) {
+		return fmt.Errorf("authkit: Resource.ID %q must be an https URL (http only on a loopback host) without user info or query", r.ID)
 	}
 	scopes := make(map[string][]string, len(r.Scopes))
 	for name, perms := range r.Scopes {

@@ -4,6 +4,8 @@
 
 Both packages depend only on the standard library. They do not import the AuthKit root package, its engine, database clients or initialization. A library can accept these contracts from a custom host authenticator or directory without running AuthKit. Importing the contracts adds the AuthKit module to the Go module graph; it does not link the AuthKit service implementation.
 
+`github.com/open-rails/authkit/naming` is a third standard-library-only package: the naming policy AuthKit applies to usernames and tenant names (`RenameCooldown`, `FormerNameReservation`, `NextRename`, `FormerNameExpiry`), for a host to apply to its own names.
+
 `auth/authtest.Check` tests a host authenticator's permissions, credential bounds, assertions and refusals. `userinfo/userinfotest.Check` tests current user lookup and search. They depend on their contract package and the standard library. AuthKit's existing root `authtest` package remains the separate integration harness that runs a real AuthKit client.
 
 ## Migration

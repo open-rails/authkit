@@ -133,7 +133,7 @@ func (s *Engine) createUser(ctx context.Context, email, username string) (*db.Us
 		return nil, nil
 	}
 	username = naming.Canonical(username)
-	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
+	if err := naming.ValidateImport(username); err != nil {
 		return nil, err
 	}
 	userID, err := newUUIDV7String()
@@ -177,7 +177,7 @@ func (s *Engine) normalizeImportUserInput(input newAccount) (email *string, phon
 		phone = &v
 	}
 	username = naming.Canonical(input.Username)
-	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
+	if err := naming.ValidateImport(username); err != nil {
 		return nil, nil, "", nil, "", time.Time{}, time.Time{}, err
 	}
 	if input.BannedBy != nil && strings.TrimSpace(*input.BannedBy) != "" {
@@ -291,16 +291,15 @@ func (s *Engine) renameUsernameTx(ctx context.Context, tx pgx.Tx, id, username s
 		}
 	}
 	now := s.namingNow()
-	policy := s.cfg.Username
 	if authority == normalRename {
-		if err := naming.CheckRename(policy, current.LastRenamedAt, now); err != nil {
+		if err := naming.CheckRename(current.LastRenamedAt, now); err != nil {
 			return err
 		}
 	}
 	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: id, SubjectID: id, CurrentName: oldName, RequestedName: username, Operation: iam.NameRename}); err != nil {
 		return err
 	}
-	if err := s.renameNameClaim(ctx, tx, id, oldName, username, now, policy); err != nil {
+	if err := s.renameNameClaim(ctx, tx, id, oldName, username, now); err != nil {
 		return err
 	}
 	return q.UserRename(ctx, db.UserRenameParams{ID: id, Username: &username, AtTime: now})

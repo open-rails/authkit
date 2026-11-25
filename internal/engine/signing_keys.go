@@ -37,11 +37,16 @@ func signingKeys(dev *developmentKeys, log *slog.Logger) (*keys.FileSource, erro
 	} else if err != nil {
 		return nil, fmt.Errorf("authkit: read signing key directory %s: %w", dev.dir, err)
 	}
+	if dev.local {
+		if err := generateTOTPKey(dev); err != nil {
+			return nil, err
+		}
+	}
 	src, err := keys.Watch(dev.dir, log)
 	if err != nil {
 		return nil, fmt.Errorf("authkit: load JWT signing keys from %s: %w", dev.dir, err)
 	}
-	if err := dev.admit("keys.json", src.Development()); err != nil {
+	if err := dev.admit("keys.json or totp.key", src.Development()); err != nil {
 		src.Close()
 		return nil, err
 	}

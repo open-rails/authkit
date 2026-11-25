@@ -7,7 +7,7 @@ import (
 	"github.com/open-rails/authkit/internal/ratelimit"
 )
 
-// Bucket names key HTTPConfig.RateLimits and name the action a rate_limited
+// Bucket names key the rate limits and name the action a rate_limited
 // error reports. Each is <area>_<action>: the route family as its path spells
 // it (me, session, 2fa, step_up, device_key, …), then what the route does.
 const (
@@ -234,7 +234,7 @@ var buckets = map[string]ratelimit.Limit{
 
 // DefaultRateLimits returns AuthKit's built-in per-endpoint rate limits, per
 // client IP: every route has a bucket, and "default" applies to any bucket
-// not listed. Hosts overlay them with HTTPConfig.RateLimits.
+// not listed.
 func DefaultRateLimits() map[string]ratelimit.Limit {
 	out := map[string]ratelimit.Limit{"default": {Limit: 120, Window: time.Minute}}
 	maps.Copy(out, buckets)

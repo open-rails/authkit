@@ -162,7 +162,7 @@ func (s *Engine) Sessions(ctx context.Context, userID string) ([]iam.Session, er
 	if s.pg == nil {
 		return nil, nil
 	}
-	rows, err := s.q.SessionsListByUser(ctx, db.SessionsListByUserParams{UserID: strings.TrimSpace(userID), Issuer: s.cfg.Token.Issuer})
+	rows, err := s.q.SessionsListByUser(ctx, db.SessionsListByUserParams{UserID: strings.TrimSpace(userID), Issuer: s.cfg.Issuer})
 	if err != nil {
 		return nil, err
 	}

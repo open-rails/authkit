@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/netguard"
 	"github.com/open-rails/authkit/verify"
@@ -26,7 +27,7 @@ type clientAssertionVerifier struct {
 func (s *Engine) clientAssertionVerifier() *clientAssertionVerifier {
 	s.clientAssertionsOnce.Do(func() {
 		s.clientAssertions = &clientAssertionVerifier{
-			v:          verify.NewVerifier(verify.WithHTTPClient(netguard.Client(netguard.DefaultTimeout, s.cfg.Token.AllowPrivateNetworkJWKS)), verify.WithLogger(s.log)),
+			v:          verify.NewVerifier(verify.WithHTTPClient(netguard.Client(netguard.DefaultTimeout, config.Tuned(s.cfg).PrivateNetworkJWKS)), verify.WithLogger(s.log)),
 			registered: map[string]time.Time{},
 		}
 	})
@@ -44,7 +45,7 @@ func (s *Engine) AuthenticateClientAssertion(ctx context.Context, client authflo
 	cv := s.clientAssertionVerifier()
 	cv.mu.Lock()
 	if at, ok := cv.registered[client.ID]; !ok || !at.Equal(client.Group.UpdatedAt) {
-		audiences := []string{s.cfg.Token.Issuer}
+		audiences := []string{s.cfg.Issuer}
 		if endpoint := s.oauthTokenEndpoint(); endpoint != "" {
 			audiences = append(audiences, endpoint)
 		}

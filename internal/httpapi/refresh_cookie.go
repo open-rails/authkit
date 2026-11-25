@@ -3,9 +3,9 @@ package httpapi
 // ak#271: deliver the rotating refresh token as an HttpOnly cookie instead of
 // a JSON body field, so an injected script cannot read the durable credential.
 //
-// Opt-in per mount (HTTPConfig.RefreshCookie). A host that does not opt in
-// keeps refresh tokens in JSON bodies. The mount-resolved request policy selects
-// exactly one transport; there is no mixed-mode fallback.
+// Always on: a refresh token never travels in a JSON body. The
+// mount-resolved request policy selects exactly one transport; there is no
+// mixed-mode fallback.
 //
 // What this does NOT fix: script running in a live tab can still CALL the
 // refresh route and mint access tokens. The cookie removes theft-and-replay
@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 )
 
 // refreshCookiePolicy marks a mount that opted into the refresh cookie. It
@@ -37,7 +38,7 @@ func (s *Service) refreshCookieVariant(r *http.Request, secure bool) CookieVaria
 			tenant = id
 		}
 	}
-	v.Name = TenantRefreshCookieName(s.cfg.Token.Issuer, tenant, s.http.RefreshCookieName, secure)
+	v.Name = TenantRefreshCookieName(s.cfg.Issuer, tenant, "", secure)
 	return v
 }
 
@@ -48,20 +49,11 @@ func (s *Service) legacyRefreshVariants() []CookieVariant {
 			continue
 		}
 		if strings.Contains(v.Name, "{issuer}") {
-			v.Name = IssuerRefreshCookieName(s.cfg.Token.Issuer, v.Secure)
+			v.Name = IssuerRefreshCookieName(s.cfg.Issuer, v.Secure)
 		}
 		out = append(out, v)
 	}
-	if s.http.RefreshCookieName != "" {
-		for _, secure := range []bool{false, true} {
-			v := CurrentCookie(CookieRefresh, secure)
-			v.Name = s.http.RefreshCookieName
-			if secure {
-				v.Name = "__Host-" + v.Name
-			}
-			out = append(out, v)
-		}
-	}
+
 	return out
 }
 
@@ -145,11 +137,8 @@ func (s *Service) setRefreshCookie(w http.ResponseWriter, r *http.Request, value
 		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	}
-	// A finite refresh TTL mirrors onto the jar; an indefinite session
-	// (RefreshTokenDuration <= 0) gets a session cookie, matching the server.
-	if d := s.cfg.Token.RefreshTokenDuration; d > 0 {
-		c.MaxAge = int(d.Seconds())
-	}
+	// The session's lifetime mirrors onto the jar.
+	c.MaxAge = int(config.SessionTTL.Seconds())
 	http.SetCookie(w, c)
 	s.setActiveTenantCookie(w, r)
 }
@@ -259,6 +248,6 @@ func (s *Service) cookieOriginAllowed(r *http.Request) bool {
 	if strings.EqualFold(origin, scheme+"://"+r.Host) {
 		return true
 	}
-	configured, ok := originFromBaseURL(s.cfg.Frontend.BaseURL)
+	configured, ok := originFromBaseURL(s.cfg.FrontendURL)
 	return ok && strings.EqualFold(origin, configured)
 }

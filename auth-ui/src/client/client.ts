@@ -103,7 +103,7 @@ export type ContactProofHandler = (
 ) => Promise<boolean>
 
 export type AuthClientOptions = {
-  // AuthKit JSON API mount. Default "/api/v1".
+  // AuthKit JSON API mount. Default "/auth/v1".
   baseUrl?: string
   // Browser OIDC mount (outside the API prefix). Default "/oidc".
   oidcBaseUrl?: string
@@ -120,8 +120,8 @@ export type AuthClientOptions = {
   resourceTokens?: ResourceTokenOptions
   // Bind this browser's sign-in sessions to a DPoP key (RFC 9449): their
   // access tokens then go with a proof of the key, never as bearer tokens.
-  // Default false. An AuthKit whose sign-ins require DPoP (capabilities
-  // dpop: required) refuses an unbound sign-in, and the client binds anyway.
+  // Default true: AuthKit refuses an unbound sign-in (capabilities dpop:
+  // required). False waits for that refusal before binding.
   dpop?: boolean
   // IndexedDB name for this native session's DPoP key. Default
   // "authkit:session-key:<baseUrl>". Hosts routing separate account directories
@@ -233,7 +233,7 @@ const segment = encodeURIComponent
 export type AuthClient = ReturnType<typeof createAuthClient>
 
 export function createAuthClient(options: AuthClientOptions = {}) {
-  const baseUrl = trimSlash(options.baseUrl ?? "/api/v1")
+  const baseUrl = trimSlash(options.baseUrl ?? "/auth/v1")
   const oidcBaseUrl = trimSlash(options.oidcBaseUrl ?? "/oidc")
   const doFetch: typeof fetch = (...args) =>
     (options.fetch ?? globalThis.fetch)(...args)
@@ -283,7 +283,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 
   const sessionKeyName =
     options.sessionKeyName ?? `authkit:session-key:${baseUrl}`
-  let bindSessions = options.dpop ?? false
+  let bindSessions = options.dpop ?? true
   const sessionKey = (): Promise<DPoPKey> => loadDPoPKey(sessionKeyName)
   // A token is bound when it names a key (cnf.jkt, RFC 9449 §6.1).
   const boundToken = (token: string | null): boolean => {

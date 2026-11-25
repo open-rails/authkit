@@ -90,25 +90,32 @@ type resourceServer struct {
 	// registered is when each trusted issuer's keys were last given to v:
 	// its application's UpdatedAt.
 	registered map[string]time.Time
+	// private fetches for the issuers the host declared (privateIssuers).
+	private        *http.Client
+	privateIssuers map[string]bool
 }
 
 func (s *Engine) newResourceServer() (*resourceServer, error) {
 	rc := s.cfg.Resource
-	client := netguard.Client(netguard.DefaultTimeout, s.cfg.Token.AllowPrivateNetworkJWKS)
+	// Fetches refuse private addresses but for the applications the host
+	// declared (iam.RemoteApplication.PrivateNetwork), and on a loopback
+	// issuer.
+	client := netguard.Client(netguard.DefaultTimeout, config.Tuned(s.cfg).PrivateNetworkJWKS)
+	private := netguard.Client(netguard.DefaultTimeout, true)
 	opts := []verify.VerifierOption{
 		verify.WithHTTPClient(client),
 		verify.WithDPoP(s.redis),
 		verify.WithReplayStore(s.replayStore),
 		verify.WithStoredDPoPNonces(),
-		verify.WithPublicURL(rc.PublicURL),
+		verify.WithPublicURL(config.ResourceOrigin(rc)),
 		verify.WithLogger(s.log),
 	}
 	if s.resourceHosts != nil {
 		opts = append(opts, verify.WithPublicHosts(s.resourceHosts))
 	}
-	rs := &resourceServer{s: s, v: verify.NewVerifier(opts...), assertions: verify.NewVerifier(verify.WithHTTPClient(client), verify.WithLogger(s.log)), metadata: client, registered: map[string]time.Time{}}
+	rs := &resourceServer{s: s, v: verify.NewVerifier(opts...), assertions: verify.NewVerifier(verify.WithHTTPClient(client), verify.WithLogger(s.log)), metadata: client, private: private, privateIssuers: map[string]bool{}, registered: map[string]time.Time{}}
 	rs.jwksURIs = cachepolicy.New(cachepolicy.IssuerMetadata(), s.log, rs.discoverAll)
-	if err := rs.v.AddIssuer(s.cfg.Token.Issuer, []string{rc.ID}, verify.IssuerOptions{KeySource: s.keys, IsLocal: true}); err != nil {
+	if err := rs.v.AddIssuer(s.cfg.Issuer, []string{rc.ID}, verify.IssuerOptions{KeySource: s.keys, IsLocal: true}); err != nil {
 		return nil, err
 	}
 	return rs, nil
@@ -137,7 +144,7 @@ func (rs *resourceServer) verify(r *http.Request) (ResourceAccess, error) {
 		return ResourceAccess{}, errmodel.E(errmodel.CodeUnsupportedTokenTyp)
 	}
 	var out ResourceAccess
-	if iss := jose.String(unverified, "iss"); iss != rs.s.cfg.Token.Issuer {
+	if iss := jose.String(unverified, "iss"); iss != rs.s.cfg.Issuer {
 		app, err := rs.trusted(ctx, iss)
 		if err != nil {
 			return ResourceAccess{}, err
@@ -221,6 +228,9 @@ func (rs *resourceServer) register(ctx context.Context, app iam.RemoteApplicatio
 		return nil
 	}
 	keys := verify.IssuerOptions{Keys: app.PublicKeys}
+	rs.mu.Lock()
+	rs.privateIssuers[app.Issuer] = app.PrivateNetwork
+	rs.mu.Unlock()
 	if app.Mode == iam.RemoteApplicationModeJWKS || len(app.PublicKeys) == 0 {
 		uri := app.JWKSURI
 		if uri == "" {
@@ -231,6 +241,9 @@ func (rs *resourceServer) register(ctx context.Context, app iam.RemoteApplicatio
 			}
 		}
 		keys = verify.IssuerOptions{JWKSURI: uri}
+		if app.PrivateNetwork {
+			keys.HTTPClient = rs.private
+		}
 	}
 	if err := rs.v.AddIssuer(app.Issuer, []string{rs.s.cfg.Resource.ID}, keys); err != nil {
 		return errmodel.Internal("resource_issuer_keys", err)
@@ -291,7 +304,13 @@ func (rs *resourceServer) jwksURI(ctx context.Context, issuer, metadata string) 
 	if err != nil {
 		return "", err
 	}
-	res, err := rs.metadata.Do(req)
+	client := rs.metadata
+	rs.mu.Lock()
+	if rs.privateIssuers[issuer] {
+		client = rs.private
+	}
+	rs.mu.Unlock()
+	res, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -309,7 +328,10 @@ func (rs *resourceServer) jwksURI(ctx context.Context, issuer, metadata string) 
 	if m.Issuer != issuer {
 		return "", fmt.Errorf("%s names issuer %q", metadata, m.Issuer)
 	}
-	if err := validateJWKSURI(m.JWKSURI, rs.s.cfg.Token.AllowPrivateNetworkJWKS); err != nil {
+	rs.mu.Lock()
+	private := rs.privateIssuers[issuer]
+	rs.mu.Unlock()
+	if err := validateJWKSURI(m.JWKSURI, private || config.Tuned(rs.s.cfg).PrivateNetworkJWKS); err != nil {
 		return "", fmt.Errorf("%s: %w", metadata, err)
 	}
 	return m.JWKSURI, nil

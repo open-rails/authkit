@@ -32,7 +32,7 @@ func selfDeleted(d db.AccountDeletion) bool {
 func (s *Engine) createAccountDeletion(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], userID string, deletedBy *string) error {
 	issuers := s.accountIssuers()
 	if len(issuers) == 0 {
-		return errors.New("authkit: account deletion requires Token.Issuer")
+		return errors.New("authkit: account deletion requires Issuer")
 	}
 	// Every recipient's OnPurge runs before the purge: refuse now, not 30
 	// days later, while an account issuer has never bound its fleet.

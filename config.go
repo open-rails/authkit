@@ -2,7 +2,6 @@ package authkit
 
 import (
 	"github.com/open-rails/authkit/internal/config"
-	"github.com/open-rails/authkit/internal/httpapi"
 )
 
 // The configuration is defined once, in internal/config; these names are how
@@ -12,30 +11,11 @@ import (
 type (
 	// Config is the host configuration: plain data. Everything that reaches
 	// outside the process is in Deps.
-	Config                     = config.Config
-	DatabaseConfig             = config.DatabaseConfig
-	NotificationsConfig        = config.NotificationsConfig
-	NotificationProducer       = config.NotificationProducer
-	TokenConfig                = config.TokenConfig
-	SignInConfig               = config.SignInConfig
-	DPoPMode                   = config.DPoPMode
-	Tenancy                    = config.Tenancy
-	KeysConfig                 = config.KeysConfig
-	FrontendConfig             = config.FrontendConfig
-	RegistrationConfig         = config.RegistrationConfig
-	AgreementConfig            = config.AgreementConfig
-	SMSConfig                  = config.SMSConfig
-	PasswordPolicy             = config.PasswordPolicy
-	UsernameConfig             = config.UsernameConfig
-	TenantsConfig              = config.TenantsConfig
-	NameRetention              = config.NameRetention
-	NameRetentionMode          = config.NameRetentionMode
-	TwoFactorConfig            = config.TwoFactorConfig
-	PasskeyConfig              = config.PasskeyConfig
-	DeviceKeysConfig           = config.DeviceKeysConfig
-	APIKeysConfig              = config.APIKeysConfig
-	PersonalAccessTokensConfig = config.PersonalAccessTokensConfig
-	InvitationsConfig          = config.InvitationsConfig
+	Config               = config.Config
+	DatabaseConfig       = config.DatabaseConfig
+	NotificationProducer = config.NotificationProducer
+	Tenancy              = config.Tenancy
+	AgreementConfig      = config.AgreementConfig
 	// AuthorizationServerConfig declares the OAuth clients and resource
 	// servers of the authorization server (Config.AuthorizationServer).
 	AuthorizationServerConfig = config.AuthorizationServerConfig
@@ -50,14 +30,8 @@ type (
 	// RemoteApplicationConfig declares one remote application
 	// (Config.RemoteApplications).
 	RemoteApplicationConfig = config.RemoteApplicationConfig
-	LanguageConfig          = config.LanguageConfig
-	// ProvisioningConfig pushes the accounts to SCIM 2.0 service providers
-	// (Config.Provisioning).
-	ProvisioningConfig            = config.ProvisioningConfig
-	ProvisioningTarget            = config.ProvisioningTarget
-	ProvisioningClientCredentials = config.ProvisioningClientCredentials
-	HTTPConfig                    = config.HTTPConfig
-	RateLimit                     = config.RateLimit
+	ProvisioningTarget      = config.ProvisioningTarget
+	HTTPConfig              = config.HTTPConfig
 )
 
 // OAuth grant types a client may use (OAuthClientConfig.GrantTypes).
@@ -74,20 +48,3 @@ const (
 	TenancySingle = config.TenancySingle
 	TenancyMulti  = config.TenancyMulti
 )
-
-// SignInConfig.DPoP modes.
-const (
-	DPoPOptional = config.DPoPOptional
-	DPoPRequired = config.DPoPRequired
-)
-
-// Name reservation modes (NameRetention.Mode).
-const (
-	NameRetentionFinite    = config.NameRetentionFinite
-	NameRetentionForever   = config.NameRetentionForever
-	NameRetentionImmediate = config.NameRetentionImmediate
-)
-
-// DefaultRateLimits returns AuthKit's built-in per-endpoint limits, keyed by
-// bucket name ("default" applies to unlisted buckets).
-func DefaultRateLimits() map[string]RateLimit { return httpapi.DefaultRateLimits() }

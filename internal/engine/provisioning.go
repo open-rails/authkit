@@ -6,20 +6,23 @@ package engine
 // queues the target's run (a due job), which sends its pending users' current
 // state in bulk requests and deletes the rows the target accepted. A refused
 // user is retried with backoff, an unreachable target as a whole, each run at
-// the instant it is due. A new target first queues every account, and a
-// reconciliation every ReconcileInterval lists the target's users and queues
-// what drifted.
+// the instant it is due: a failed push stays pending until it lands. A new
+// target first queues every account. Nothing sweeps a target's users: work
+// follows changes.
 
 import (
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -67,16 +70,16 @@ func (s *Engine) initProvisioning(ctx context.Context) error {
 	if s.pg == nil {
 		return nil
 	}
-	for _, t := range s.cfg.Provisioning.Targets {
+	for _, t := range s.cfg.Provisioning {
 		if _, err := s.Tenant(ctx, t.TenantID); err != nil {
 			return fmt.Errorf("authkit: provisioning target %s tenant: %w", t.Name, err)
 		}
 		pt := &provisioningTarget{name: t.Name, tenant: t.TenantID, invalid: config.TargetInvalid(t)}
 		if pt.invalid == nil {
-			pt.client = provisioningClient(t)
+			pt.client = provisioningClient(t, s.scimHandlers[t.Name])
 		}
 		s.provisioning = append(s.provisioning, pt)
-		if _, err := s.q.ProvisioningTargetRegister(ctx, db.ProvisioningTargetRegisterParams{Issuer: s.cfg.Token.Issuer, Name: t.Name, TenantID: t.TenantID.String()}); err != nil {
+		if _, err := s.q.ProvisioningTargetRegister(ctx, db.ProvisioningTargetRegisterParams{Issuer: s.cfg.Issuer, Name: t.Name, TenantID: t.TenantID.String()}); err != nil {
 			return fmt.Errorf("authkit: register provisioning target %s: %w", t.Name, err)
 		}
 	}
@@ -91,7 +94,7 @@ func (s *Engine) pruneProvisioningTargets(ctx context.Context) error {
 	for _, target := range s.provisioning {
 		names = append(names, target.name)
 	}
-	pruned, err := s.q.ProvisioningTargetsPrune(ctx, db.ProvisioningTargetsPruneParams{Issuer: s.cfg.Token.Issuer, Names: names})
+	pruned, err := s.q.ProvisioningTargetsPrune(ctx, db.ProvisioningTargetsPruneParams{Issuer: s.cfg.Issuer, Names: names})
 	for _, name := range pruned {
 		s.log.InfoContext(ctx, "authkit: provisioning target no longer configured; forgotten with its pending changes", "target", name)
 	}
@@ -107,26 +110,23 @@ func (s *Engine) provisioningTarget(name string) *provisioningTarget {
 	return nil
 }
 
-// provisioningClient calls t over HTTP, or its Handler in process, with its
+// provisioningClient calls t over HTTP, or handler in process, with its
 // credential.
-func provisioningClient(t config.ProvisioningTarget) *scim.Client {
+func provisioningClient(t config.ProvisioningTarget, handler http.Handler) *scim.Client {
 	base, transport := t.URL, http.DefaultTransport.(*http.Transport).Clone()
 	var rt http.RoundTripper = transport
-	if t.Handler != nil {
-		base, rt = inProcessBase, handlerTransport{t.Handler}
+	if handler != nil {
+		base, rt = inProcessBase, handlerTransport{handler}
 	}
 	switch {
 	case t.BearerToken != "":
 		rt = bearerTransport{token: t.BearerToken, base: rt}
-	case t.ClientCredentials != nil:
-		cc := t.ClientCredentials
-		creds := clientcredentials.Config{ClientID: cc.ClientID, ClientSecret: cc.ClientSecret, TokenURL: cc.TokenURL, Scopes: cc.Scopes}
-		if cc.Resource != "" {
-			creds.EndpointParams = url.Values{"resource": {cc.Resource}}
-		}
+	case t.ClientID != "":
 		tokenHTTP := &http.Client{Timeout: provisioningRequestTimeout, Transport: http.DefaultTransport.(*http.Transport).Clone()}
-		rt = &oauth2.Transport{Source: creds.TokenSource(context.WithValue(context.Background(), oauth2.HTTPClient, tokenHTTP)), Base: rt}
+		src := &discoveredTokenSource{resource: t.URL, id: t.ClientID, secret: t.ClientSecret, http: tokenHTTP}
+		rt = &oauth2.Transport{Source: oauth2.ReuseTokenSource(nil, src), Base: rt}
 	}
+
 	return &scim.Client{Base: base, HTTP: &http.Client{Transport: rt, Timeout: provisioningRequestTimeout}}
 }
 
@@ -205,7 +205,7 @@ func (a provisioningArgs) predecessor() int64 { return a.After }
 func (a provisioningArgs) following(id int64) dueArgs { a.After = id; return a }
 
 func (s *Engine) provisioningArgs(t *provisioningTarget) provisioningArgs {
-	return provisioningArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer, Target: t.name}
+	return provisioningArgs{Schema: s.dbSchema(), Issuer: s.cfg.Issuer, Target: t.name}
 }
 
 func provisioningQueue(schema, issuer string) string {
@@ -219,15 +219,15 @@ func (s *Engine) registerProvisioning(cfg *river.Config) error {
 	if err := river.AddWorkerSafely(cfg.Workers, &provisioningWorker{engine: s}); err != nil {
 		return err
 	}
-	if len(s.cfg.Provisioning.Targets) == 0 {
+	if len(s.cfg.Provisioning) == 0 {
 		return nil
 	}
-	queue := provisioningQueue(s.dbSchema(), s.cfg.Token.Issuer)
+	queue := provisioningQueue(s.dbSchema(), s.cfg.Issuer)
 	if existing, ok := cfg.Queues[queue]; ok && existing.MaxWorkers < 1 {
 		return fmt.Errorf("authkit: provisioning queue %q requires workers", queue)
 	}
 	if _, ok := cfg.Queues[queue]; !ok {
-		cfg.Queues[queue] = river.QueueConfig{MaxWorkers: len(s.cfg.Provisioning.Targets)}
+		cfg.Queues[queue] = river.QueueConfig{MaxWorkers: len(s.cfg.Provisioning)}
 	}
 	return nil
 }
@@ -243,7 +243,7 @@ func (w *provisioningWorker) Timeout(*river.Job[provisioningArgs]) time.Duration
 
 func (w *provisioningWorker) Work(ctx context.Context, job *river.Job[provisioningArgs]) error {
 	s := w.engine
-	if job.Args.Schema != s.dbSchema() || job.Args.Issuer != s.cfg.Token.Issuer {
+	if job.Args.Schema != s.dbSchema() || job.Args.Issuer != s.cfg.Issuer {
 		return river.JobCancel(errors.New("authkit: provisioning job routed to a different application"))
 	}
 	if err := awaitPredecessor(ctx, job.Args.After); err != nil {
@@ -264,10 +264,10 @@ func (w *provisioningWorker) Work(ctx context.Context, job *river.Job[provisioni
 }
 
 // provisioningNextRun is when t next has work: its earliest change's due_at,
-// now while its initial sync or a reconciliation is unfinished, and its next
-// reconciliation, none before a backoff's retry_at. Nil: none.
+// or now while its initial sync is unfinished, none before a backoff's
+// retry_at. Nil: none.
 func (s *Engine) provisioningNextRun(ctx context.Context, t *provisioningTarget) (*time.Time, error) {
-	key := db.ProvisioningTargetParams{Issuer: s.cfg.Token.Issuer, Name: t.name}
+	key := db.ProvisioningTargetParams{Issuer: s.cfg.Issuer, Name: t.name}
 	row, err := s.q.ProvisioningTarget(ctx, key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil // pruned
@@ -287,26 +287,18 @@ func (s *Engine) provisioningNextRun(ctx context.Context, t *provisioningTarget)
 	if row.SyncedAt == nil {
 		next = earliest(next, now)
 	}
-	if interval := s.cfg.Provisioning.ReconcileInterval; interval > 0 {
-		if row.ReconcileStartedAt != nil || row.ReconciledAt == nil {
-			next = earliest(next, now)
-		} else {
-			next = earliest(next, row.ReconciledAt.Add(interval))
-		}
-	}
 	if next != nil && row.RetryAt != nil && next.Before(*row.RetryAt) {
 		next = row.RetryAt
 	}
 	return next, nil
 }
 
-// runProvisioning is one run for t: the initial sync's queueing, every due
-// change in bulk until none is left or the budget is spent, then a
-// reconciliation when one is due. A failure to reach the target is recorded
+// runProvisioning is one run for t: the initial sync's queueing, then every
+// due change in bulk until none is left or the budget is spent. A failure to reach the target is recorded
 // on it, and only a database error fails the job.
 func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) error {
 	ctx = WithTenant(ctx, t.tenant)
-	key := db.ProvisioningTargetParams{Issuer: s.cfg.Token.Issuer, Name: t.name}
+	key := db.ProvisioningTargetParams{Issuer: s.cfg.Issuer, Name: t.name}
 	row, err := s.q.ProvisioningTarget(ctx, key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Pruned by a replica running an older configuration.
@@ -329,10 +321,9 @@ func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) err
 		if err := s.queueInitialSync(ctx, t, row.SyncAfter); err != nil {
 			return err
 		}
-		row.ReconciledAt = &start
 	}
 	run := &provisioningRun{engine: s, target: t, deadline: start.Add(provisioningRunBudget), rounds: map[string]int{}}
-	caughtUp, err := run.deliver(ctx)
+	_, err = run.deliver(ctx)
 	var unreachable *targetError
 	if errors.As(err, &unreachable) {
 		return s.provisioningFailed(ctx, t, row, unreachable.err)
@@ -340,19 +331,8 @@ func (s *Engine) runProvisioning(ctx context.Context, t *provisioningTarget) err
 	if err != nil {
 		return err
 	}
-	interval := s.cfg.Provisioning.ReconcileInterval
-	due := row.ReconcileStartedAt != nil || row.ReconciledAt == nil || s.nowTime().Sub(*row.ReconciledAt) >= interval
-	if caughtUp && interval > 0 && due {
-		err := run.reconcile(ctx, row)
-		if errors.As(err, &unreachable) {
-			return s.provisioningFailed(ctx, t, row, unreachable.err)
-		}
-		if err != nil {
-			return err
-		}
-	}
 	return s.q.ProvisioningTargetRan(ctx, db.ProvisioningTargetRanParams{
-		Issuer: s.cfg.Token.Issuer, Name: t.name, Clean: run.lastError == "", LastError: nullable(run.lastError),
+		Issuer: s.cfg.Issuer, Name: t.name, Clean: run.lastError == "", LastError: nullable(run.lastError),
 	})
 }
 
@@ -363,14 +343,14 @@ func (s *Engine) provisioningFailed(ctx context.Context, t *provisioningTarget, 
 	s.log.WarnContext(ctx, "authkit: provisioning target unavailable; will retry", "target", t.name, "attempt", row.Failures+1, "retry_at", retry, "error", cause)
 	msg := cause.Error()
 	return s.q.ProvisioningTargetFailed(ctx, db.ProvisioningTargetFailedParams{
-		Issuer: s.cfg.Token.Issuer, Name: t.name, RetryAt: &retry, LastError: &msg,
+		Issuer: s.cfg.Issuer, Name: t.name, RetryAt: &retry, LastError: &msg,
 	})
 }
 
 // queueInitialSync queues every account for a new target, a page per
 // transaction, resuming after the last page a previous run queued.
 func (s *Engine) queueInitialSync(ctx context.Context, t *provisioningTarget, after *string) error {
-	issuer := s.cfg.Token.Issuer
+	issuer := s.cfg.Issuer
 	for {
 		done := false
 		err := pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error {
@@ -416,7 +396,7 @@ func (s *Engine) ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTar
 	if len(names) == 0 {
 		return out, nil
 	}
-	rows, err := s.q.ProvisioningTargetStatuses(ctx, db.ProvisioningTargetStatusesParams{Issuer: s.cfg.Token.Issuer, Names: names})
+	rows, err := s.q.ProvisioningTargetStatuses(ctx, db.ProvisioningTargetStatusesParams{Issuer: s.cfg.Issuer, Names: names})
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +406,7 @@ func (s *Engine) ProvisioningTargets(ctx context.Context) ([]iam.ProvisioningTar
 			continue
 		}
 		target := iam.ProvisioningTarget{
-			TenantID: configured.tenant, Name: r.Name, SyncedAt: r.SyncedAt, ReconciledAt: r.ReconciledAt, LastSuccessAt: r.LastSuccessAt,
+			TenantID: configured.tenant, Name: r.Name, SyncedAt: r.SyncedAt, LastSuccessAt: r.LastSuccessAt,
 			FailingSince: r.FailingSince, LastError: r.LastError, Backlog: int(r.Backlog),
 		}
 		if t := s.provisioningTarget(r.Name); t != nil && t.invalid != nil {
@@ -464,4 +444,88 @@ func scimUser(u db.User, asOf time.Time) scim.User {
 		out.Emails = []scim.Email{{Value: c.Email, Primary: true}}
 	}
 	return out
+}
+
+// discoveredTokenSource gets client-credentials tokens for resource from the
+// token endpoint its metadata names: the protected-resource metadata (RFC
+// 9728) gives the authorization server and scopes, whose metadata (RFC 8414)
+// gives the endpoint. Discovery is retried until it succeeds once.
+type discoveredTokenSource struct {
+	resource, id, secret string
+	http                 *http.Client
+
+	mu  sync.Mutex
+	src oauth2.TokenSource
+}
+
+func (d *discoveredTokenSource) Token() (*oauth2.Token, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.src == nil {
+		ctx := context.WithValue(context.Background(), oauth2.HTTPClient, d.http)
+		endpoint, scopes, err := discoverTokenEndpoint(ctx, d.http, d.resource)
+		if err != nil {
+			return nil, fmt.Errorf("authkit: provisioning token endpoint for %s: %w", d.resource, err)
+		}
+		creds := clientcredentials.Config{ClientID: d.id, ClientSecret: d.secret, TokenURL: endpoint, Scopes: scopes, EndpointParams: url.Values{"resource": {d.resource}}}
+		d.src = creds.TokenSource(ctx)
+	}
+	return d.src.Token()
+}
+
+// discoverTokenEndpoint reads resource's protected-resource metadata (RFC
+// 9728 §3), which must name resource itself, then its first authorization
+// server's metadata (RFC 8414 §3), which must name that server.
+func discoverTokenEndpoint(ctx context.Context, c *http.Client, resource string) (string, []string, error) {
+	var pr struct {
+		Resource             string   `json:"resource"`
+		AuthorizationServers []string `json:"authorization_servers"`
+		ScopesSupported      []string `json:"scopes_supported"`
+	}
+	if err := getWellKnown(ctx, c, resource, "oauth-protected-resource", &pr); err != nil {
+		return "", nil, err
+	}
+	if strings.TrimRight(pr.Resource, "/") != strings.TrimRight(resource, "/") || len(pr.AuthorizationServers) == 0 {
+		return "", nil, fmt.Errorf("protected-resource metadata names resource %q and %d authorization servers", pr.Resource, len(pr.AuthorizationServers))
+	}
+	issuer := pr.AuthorizationServers[0]
+	var as struct {
+		Issuer        string `json:"issuer"`
+		TokenEndpoint string `json:"token_endpoint"`
+	}
+	if err := getWellKnown(ctx, c, issuer, "oauth-authorization-server", &as); err != nil {
+		return "", nil, err
+	}
+	if as.Issuer != issuer || as.TokenEndpoint == "" {
+		return "", nil, fmt.Errorf("authorization server metadata names issuer %q and token endpoint %q", as.Issuer, as.TokenEndpoint)
+	}
+	return as.TokenEndpoint, pr.ScopesSupported, nil
+}
+
+// getWellKnown decodes the well-known document name of id: the suffix goes
+// between the host and id's path (RFC 8615, as RFC 8414 §3.1 and RFC 9728
+// §3.1 place it).
+func getWellKnown(ctx context.Context, c *http.Client, id, name string, out any) error {
+	u, err := url.Parse(id)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("%q is not a URL", id)
+	}
+	u.Path = "/.well-known/" + name + strings.TrimRight(u.Path, "/")
+	u.RawQuery, u.Fragment = "", ""
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	res, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: HTTP %d", u, res.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(out); err != nil {
+		return fmt.Errorf("%s: %w", u, err)
+	}
+	return nil
 }

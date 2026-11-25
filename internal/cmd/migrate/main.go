@@ -19,7 +19,7 @@ import (
 func main() {
 	dsn := flag.String("dsn", "", "PostgreSQL connection string")
 	schema := flag.String("schema", "profiles", "AuthKit PostgreSQL schema")
-	riverSchema := flag.String("river-schema", "public", "River PostgreSQL schema")
+	riverSchema := flag.String("river-schema", "", "River PostgreSQL schema (default: -schema)")
 	legacy := flag.String("legacy-tenant-id", "", "canonical tenant UUID that explicitly owns an existing unscoped directory")
 	flag.Parse()
 	var options []engine.MigrationOptions

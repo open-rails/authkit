@@ -34,25 +34,20 @@ const (
 type Feature string
 
 const (
-	FeatureNotifications        Feature = "notifications"
-	Always                      Feature = ""
-	FeaturePasskeys             Feature = "passkeys"     // Passkeys.RPID set
-	FeaturePasswordless         Feature = "passwordless" // passwordless login on
-	FeatureRegistration         Feature = "registration" // registration not closed
-	FeatureTwoFactor            Feature = "two_factor"   // two-factor authentication not disabled
-	FeatureSolana               Feature = "solana"       // a Solana network set
-	FeatureOIDC                 Feature = "oidc"         // an identity provider configured
-	FeatureDeviceKeys           Feature = "device_keys"  // device keys on
-	FeatureGroups               Feature = "groups"       // a persona besides root
-	FeatureAPIKeys              Feature = "api_keys"     // a persona whose groups hold API keys
-	FeaturePersonalAccessTokens Feature = "personal_access_tokens"
-	FeatureCustomRoles          Feature = "custom_roles"  // a persona whose groups define roles
-	FeatureOAuthClients         Feature = "oauth_clients" // a persona whose groups register OAuth clients
+	Always              Feature = ""
+	FeaturePasskeys     Feature = "passkeys"      // a passkey relying party (FrontendURL)
+	FeatureRegistration Feature = "registration"  // registration not closed
+	FeatureTwoFactor    Feature = "two_factor"    // two-factor authentication not disabled
+	FeatureSolana       Feature = "solana"        // a Solana network set
+	FeatureOIDC         Feature = "oidc"          // an identity provider configured
+	FeatureGroups       Feature = "groups"        // a persona besides root
+	FeatureAPIKeys      Feature = "api_keys"      // a persona whose groups hold API keys
+	FeatureCustomRoles  Feature = "custom_roles"  // a persona whose groups define roles
+	FeatureOAuthClients Feature = "oauth_clients" // a persona whose groups register OAuth clients
 	// FeatureRemoteApplications: a persona whose groups control remote
 	// applications, and so hold their users' directory.
 	FeatureRemoteApplications Feature = "remote_applications"
-	FeatureInvitations        Feature = "invitations" // invitations not disabled
-	FeatureNewDevices         Feature = "new_devices" // SignIn.NewDevicesPerAccount not off, or an SMS sender (phone-only accounts)
+	FeatureNewDevices         Feature = "new_devices" // the new-device limit on, or an SMS sender (phone-only accounts)
 	// FeatureAuthorizationServer: AuthorizationServer declares clients.
 	FeatureAuthorizationServer Feature = "authorization_server"
 	// FeatureTokenEndpoint: an authorization server, or a resource server
@@ -61,7 +56,7 @@ const (
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeatureNotifications, FeaturePasskeys, FeaturePasswordless, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureDeviceKeys, FeatureGroups, FeatureAPIKeys, FeaturePersonalAccessTokens, FeatureCustomRoles, FeatureOAuthClients, FeatureRemoteApplications, FeatureInvitations, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
+var Features = []Feature{FeaturePasskeys, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureGroups, FeatureAPIKeys, FeatureCustomRoles, FeatureOAuthClients, FeatureRemoteApplications, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -149,6 +144,7 @@ func Catalog() []RouteSpec {
 		GET, POST, PUT, PATCH, DELETE, OPTIONS                       = http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions
 		auth, deviceKeys, registration, account, admin, groups, oidc = iam.RouteAuth, iam.RouteDeviceKeys, iam.RouteRegistration, iam.RouteAccount, iam.RouteAdmin, iam.RoutePermissionGroups, iam.RouteBrowserOIDC
 		as                                                           = iam.RouteAuthorizationServer
+		passwordless, personalTokens, invitations                    = iam.RoutePasswordless, iam.RoutePersonalAccessTokens, iam.RouteInvitations
 		public, optional, required, session, permission              = iam.AuthPublic, iam.AuthOptional, iam.AuthRequired, iam.AuthSession, iam.AuthPermission
 	)
 	type (
@@ -186,9 +182,9 @@ func Catalog() []RouteSpec {
 			Request: DeviceVerificationConfirmRequest{}, Responses: signedIn, serve: handle((*Service).handleDeviceVerificationConfirmPOST)},
 		{Method: POST, Path: "/account/recovery/confirm", Group: auth, Auth: public, Bucket: RLPasswordLogin,
 			Request: TokenRequest{}, Responses: []Reply{{http.StatusOK, AuthResult{}}, {http.StatusNoContent, nil}}, serve: handle((*Service).handleAccountRecoveryConfirmPOST)},
-		{Method: POST, Path: "/passwordless/start", Group: auth, Auth: public, Bucket: RLPasswordlessStart, MountedWhen: FeaturePasswordless,
+		{Method: POST, Path: "/passwordless/start", Group: passwordless, Auth: public, Bucket: RLPasswordlessStart,
 			Request: PasswordlessStartRequest{}, Responses: replyChallenge, serve: handle((*Service).handlePasswordlessStartPOST)},
-		{Method: POST, Path: "/passwordless/confirm", Group: auth, Auth: public, Bucket: RLPasswordlessConfirm, MountedWhen: FeaturePasswordless,
+		{Method: POST, Path: "/passwordless/confirm", Group: passwordless, Auth: public, Bucket: RLPasswordlessConfirm,
 			Request: CodeOrLinkRequest{}, Responses: signedIn, serve: handle((*Service).handlePasswordlessConfirmPOST)},
 		{Method: POST, Path: "/passkeys/login/begin", Group: auth, Auth: public, Bucket: RLPasskeyLogin, MountedWhen: FeaturePasskeys,
 			Responses: replyOK(assertion{}), serve: handle((*Service).handlePasskeyLoginBeginPOST)},
@@ -213,17 +209,17 @@ func Catalog() []RouteSpec {
 		{Method: POST, Path: "/oidc/exchange", Group: oidc, Auth: public, Bucket: RLOIDCCallback, MountedWhen: FeatureOIDC,
 			Request: OIDCExchangeRequest{}, Responses: signedIn, serve: handle((*Service).handleOIDCExchangePOST)},
 
-		{Method: POST, Path: "/device-keys/enroll/begin", Group: deviceKeys, Auth: public, Bucket: RLDeviceKeyEnrollBegin, MountedWhen: FeatureDeviceKeys,
+		{Method: POST, Path: "/device-keys/enroll/begin", Group: deviceKeys, Auth: public, Bucket: RLDeviceKeyEnrollBegin,
 			Request: DeviceKeyEnrollBeginRequest{}, Responses: replyOK(DeviceKeyEnrollment{}), serve: handle((*Service).handleDeviceKeyEnrollBeginPOST)},
-		{Method: POST, Path: "/device-keys/enroll/finish", Group: deviceKeys, Auth: public, Bucket: RLDeviceKeyEnrollFinish, MountedWhen: FeatureDeviceKeys,
+		{Method: POST, Path: "/device-keys/enroll/finish", Group: deviceKeys, Auth: public, Bucket: RLDeviceKeyEnrollFinish,
 			Request: DeviceKeyEnrollFinishRequest{}, Responses: signedIn, serve: handle((*Service).handleDeviceKeyEnrollFinishPOST)},
-		{Method: POST, Path: "/device-keys/login/begin", Group: deviceKeys, Auth: public, Bucket: RLDeviceKeyLoginBegin, MountedWhen: FeatureDeviceKeys,
+		{Method: POST, Path: "/device-keys/login/begin", Group: deviceKeys, Auth: public, Bucket: RLDeviceKeyLoginBegin,
 			Request: DeviceKeyLoginBeginRequest{}, Responses: replyOK(DeviceKeyLoginChallenge{}), serve: handle((*Service).handleDeviceKeyLoginBeginPOST)},
-		{Method: POST, Path: "/device-keys/login/finish", Group: deviceKeys, Auth: public, Bucket: RLDeviceKeyLoginFinish, MountedWhen: FeatureDeviceKeys,
+		{Method: POST, Path: "/device-keys/login/finish", Group: deviceKeys, Auth: public, Bucket: RLDeviceKeyLoginFinish,
 			Request: DeviceKeyLoginFinishRequest{}, Responses: signedIn, serve: handle((*Service).handleDeviceKeyLoginFinishPOST)},
 		// Revokes the caller's other device keys: the recovery a new key's
 		// email-proven enrollment token may run.
-		{Method: DELETE, Path: "/device-keys", Group: deviceKeys, Auth: session, Bucket: RLDeviceKeyManage, MountedWhen: FeatureDeviceKeys,
+		{Method: DELETE, Path: "/device-keys", Group: deviceKeys, Auth: session, Bucket: RLDeviceKeyManage,
 			Responses: replyNoContent, serve: handle((*Service).handleDeviceKeysDELETE)},
 
 		{Method: POST, Path: "/register", Group: registration, Auth: public, Bucket: RLRegisterCreate, MountedWhen: FeatureRegistration,
@@ -264,11 +260,11 @@ func Catalog() []RouteSpec {
 			Request: AgreementsRequest{}, Responses: replyOK(UserAgreements{}), serve: handle((*Service).handleMeAgreementsPOST)},
 		{Method: GET, Path: "/me/security", Group: account, Auth: required, Bucket: RLMeRead,
 			Responses: replyOK(UserSecurity{}), serve: handle((*Service).handleMeSecurityGET)},
-		{Method: GET, Path: "/me/personal-access-tokens", Group: account, Auth: session, Bucket: RLMeRead, MountedWhen: FeaturePersonalAccessTokens,
+		{Method: GET, Path: "/me/personal-access-tokens", Group: personalTokens, Auth: session, Bucket: RLMeRead,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.PersonalAccessToken]{}), serve: handle((*Service).handlePersonalTokensGET)},
-		{Method: POST, Path: "/me/personal-access-tokens", Group: account, Auth: session, StepUp: true, Bucket: RLAPIKeyCreate, MountedWhen: FeaturePersonalAccessTokens,
+		{Method: POST, Path: "/me/personal-access-tokens", Group: personalTokens, Auth: session, StepUp: true, Bucket: RLAPIKeyCreate,
 			Request: PersonalTokenCreateRequest{}, Responses: replyCreated(iam.PersonalAccessTokenCreated{}), serve: handle((*Service).handlePersonalTokensPOST)},
-		{Method: DELETE, Path: "/me/personal-access-tokens/{id}", Group: account, Auth: session, StepUp: true, Bucket: RLMeUpdate, MountedWhen: FeaturePersonalAccessTokens,
+		{Method: DELETE, Path: "/me/personal-access-tokens/{id}", Group: personalTokens, Auth: session, StepUp: true, Bucket: RLMeUpdate,
 			Responses: replyNoContent, serve: handle((*Service).handlePersonalTokensDELETE)},
 		{Method: PUT, Path: "/me/password", Group: account, Auth: session, StepUp: true, Bucket: RLMePasswordChange,
 			Request: PasswordChangeRequest{}, Responses: replyNoContent, serve: handle((*Service).handleMePasswordPUT)},
@@ -357,20 +353,20 @@ func Catalog() []RouteSpec {
 
 		// Optional account inbox: current native account only. No arbitrary
 		// recipient or application selector is accepted on this surface.
-		{Method: GET, Path: "/me/notifications", Group: account, Auth: session, Bucket: RLNotificationsRead, MountedWhen: FeatureNotifications,
+		{Method: GET, Path: "/me/notifications", Group: account, Auth: session, Bucket: RLNotificationsRead,
 			Query: NotificationQuery{}, Responses: replyOK(notify.Page{}), serve: handle((*Service).handleNotificationsList)},
-		{Method: GET, Path: "/me/notifications/{notification_id}", Group: account, Auth: session, Bucket: RLNotificationsRead, MountedWhen: FeatureNotifications,
+		{Method: GET, Path: "/me/notifications/{notification_id}", Group: account, Auth: session, Bucket: RLNotificationsRead,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationGet)},
-		{Method: PUT, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+		{Method: PUT, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationRead)},
-		{Method: DELETE, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+		{Method: DELETE, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationRead)},
-		{Method: PUT, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+		{Method: PUT, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationDismiss)},
-		{Method: DELETE, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+		{Method: DELETE, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationDismiss)},
 		// Producer-specific authority is checked live by the operation.
-		{Method: POST, Path: "/notifications/{producer}", Group: admin, Auth: permission, Bucket: RLNotificationsPublish, MountedWhen: FeatureNotifications,
+		{Method: POST, Path: "/notifications/{producer}", Group: admin, Auth: permission, Bucket: RLNotificationsPublish,
 			Request: NotificationMutations{}, Responses: replyNoContent, serve: handle((*Service).handleNotificationsApply)},
 		// Other people, as anyone may see them, public metadata included:
 		// public profile pages need no sign-in.
@@ -421,7 +417,7 @@ func Catalog() []RouteSpec {
 			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantBySlugGET)},
 
 		// #430: the SPA's half of an OAuth sign-in. The authorize endpoint
-		// stores the request and sends the browser to Frontend.AuthorizePath;
+		// stores the request and sends the browser to FrontendURL + /authorize;
 		// the SPA signs the user in, then approves it for that sign-in (a
 		// one-time code back to the client) or declines it.
 		{Method: GET, Path: "/oauth2/authorizations/{authorization_id}", Group: as, Auth: public, Bucket: RLOAuthAuthorization, MountedWhen: FeatureAuthorizationServer,
@@ -453,13 +449,13 @@ func Catalog() []RouteSpec {
 			Request: GroupRoleUpdateRequest{}, Responses: replyOK(iam.GroupRole{}), serve: groupOp(OpRoleUpdate)},
 		{Method: DELETE, Path: "/groups/{group_id}/roles/{role}", Group: groups, Auth: permission, Perm: OpRoleDelete.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureCustomRoles,
 			Responses: replyNoContent, serve: groupOp(OpRoleDelete)},
-		{Method: GET, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationsList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureInvitations,
+		{Method: GET, Path: "/groups/{group_id}/invitations", Group: invitations, Auth: permission, Perm: OpInvitationsList.catalogPermission(), Bucket: RLGroupRead,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.Invitation]{}), serve: groupOp(OpInvitationsList)},
 		// A link answers its code once (201); an emailed invitation answers
 		// 202 whoever holds the address.
-		{Method: POST, Path: "/groups/{group_id}/invitations", Group: groups, Auth: permission, Perm: OpInvitationCreate.catalogPermission(), Bucket: RLInviteCreate, MountedWhen: FeatureInvitations,
+		{Method: POST, Path: "/groups/{group_id}/invitations", Group: invitations, Auth: permission, Perm: OpInvitationCreate.catalogPermission(), Bucket: RLInviteCreate,
 			Request: InvitationCreateRequest{}, Responses: []Reply{{http.StatusCreated, iam.InvitationCreated{}}, {http.StatusAccepted, nil}}, serve: groupOp(OpInvitationCreate)},
-		{Method: DELETE, Path: "/groups/{group_id}/invitations/{id}", Group: groups, Auth: permission, Perm: OpInvitationRevoke.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureInvitations,
+		{Method: DELETE, Path: "/groups/{group_id}/invitations/{id}", Group: invitations, Auth: permission, Perm: OpInvitationRevoke.catalogPermission(), Bucket: RLGroupWrite,
 			Responses: replyNoContent, serve: groupOp(OpInvitationRevoke)},
 		{Method: GET, Path: "/groups/{group_id}/oauth-clients", Group: groups, Auth: permission, Perm: OpOAuthClientsList.catalogPermission(), Bucket: RLGroupRead, MountedWhen: FeatureOAuthClients,
 			Responses: replyOK(iam.ListPage[iam.OAuthClient]{}), serve: groupOp(OpOAuthClientsList)},
@@ -489,7 +485,7 @@ func Catalog() []RouteSpec {
 			Request: RemoteApplicationUpdateRequest{}, Responses: replyOK(RemoteApplication{}), serve: groupOp(OpRemoteAppUpdate)},
 		{Method: DELETE, Path: "/groups/{group_id}/remote-applications/{id}", Group: groups, Auth: permission, Perm: OpRemoteAppDelete.catalogPermission(), Bucket: RLGroupWrite, MountedWhen: FeatureRemoteApplications,
 			Responses: replyNoContent, serve: groupOp(OpRemoteAppDelete)},
-		{Method: POST, Path: "/invitations/redeem", Group: groups, Auth: session, Bucket: RLInviteRedeem, MountedWhen: FeatureInvitations,
+		{Method: POST, Path: "/invitations/redeem", Group: invitations, Auth: session, Bucket: RLInviteRedeem,
 			Request: InvitationRedeemRequest{}, Responses: replyOK(iam.Membership{}), serve: handle((*Service).handleInvitationRedeemPOST)},
 
 		// Browser OIDC: navigations and the provider's one callback, which

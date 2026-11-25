@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -81,7 +82,7 @@ func TestCriticalSessionHistoryImport(t *testing.T) {
 		}
 		next, err := f.auth.ListSessionEvents(t.Context(), u.ID, iam.SessionEventQuery{Page: iam.PageRequest{Cursor: page.Next}})
 		noError(t, err)
-		wantFailure := iam.SessionEvent{Kind: failure.Kind, OccurredAt: failure.OccurredAt, Issuer: f.cfg.Token.Issuer,
+		wantFailure := iam.SessionEvent{Kind: failure.Kind, OccurredAt: failure.OccurredAt, Issuer: f.cfg.Issuer,
 			Reason: &failure.Reason, IP: &failure.IP, UserAgent: &failure.UserAgent}
 		if len(next.Items) != 1 || next.Next != "" {
 			t.Fatalf("failure page: %+v", next)
@@ -214,7 +215,9 @@ func TestCriticalSessionHistoryImport(t *testing.T) {
 	t.Run("AK-J05-C10_history_import_obeys_configured_and_unlimited_retention", func(t *testing.T) {
 		for _, retention := range []time.Duration{0, 24 * time.Hour, -1} {
 			t.Run(retention.String(), func(t *testing.T) {
-				f := newFixture(t, redisDep, authtest.WithConfig(func(c *authkit.Config) { c.SessionEventRetention = retention }))
+				f := newFixture(t, redisDep, authtest.WithConfig(func(c *authkit.Config) {
+					config.Tune(c, func(tn *config.Tuning) { tn.SessionEventRetention = retention })
+				}))
 				u := f.user(t)
 				old, recent, middle := entry(u.ID, "old"), entry(u.ID, "recent"), entry(u.ID, "middle")
 				old.OccurredAt = time.Now().Add(-366 * 24 * time.Hour)
@@ -457,9 +460,9 @@ func TestCriticalSessions(t *testing.T) {
 		if one.RefreshToken == nil || two.RefreshToken == nil || *one.RefreshToken != *two.RefreshToken || *one.RefreshToken == *old.RefreshToken {
 			t.Fatal("concurrent refresh forked or failed to rotate its successor")
 		}
-		c1, err := f.auth.Verify(t.Context(), one.AccessToken)
+		c1, err := verifyToken(t, f.auth, one.AccessToken)
 		noError(t, err)
-		c2, err := f.auth.Verify(t.Context(), two.AccessToken)
+		c2, err := verifyToken(t, f.auth, two.AccessToken)
 		noError(t, err)
 		if c1.SessionID == "" || c1.SessionID != c2.SessionID {
 			t.Fatal("refresh created independent session authority")
@@ -494,7 +497,7 @@ func TestCriticalSessions(t *testing.T) {
 		if !deadline().Equal(first) {
 			t.Fatal("a refresh moved the session's deadline")
 		}
-		claims, err := f.auth.Verify(t.Context(), next.AccessToken)
+		claims, err := verifyToken(t, f.auth, next.AccessToken)
 		noError(t, err)
 		// A session an earlier release opened has no deadline; its next refresh sets one.
 		_, err = f.pool.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, "refresh_sessions"}.Sanitize()+" SET expires_at = NULL WHERE id = $1", claims.SessionID)
@@ -507,7 +510,7 @@ func TestCriticalSessions(t *testing.T) {
 	t.Run("AK-J05-C02_revoke_other_then_all_sessions", func(t *testing.T) {
 		u := f.user(t)
 		one, two := f.signIn(t, u), f.signIn(t, u)
-		other, err := f.auth.Verify(t.Context(), two.AccessToken)
+		other, err := verifyToken(t, f.auth, two.AccessToken)
 		noError(t, err)
 		f.call(t, "DELETE", "/me/sessions/"+other.SessionID, one.AccessToken, nil).want(t, http.StatusNoContent, "")
 		f.call(t, "PATCH", "/me", two.AccessToken, map[string]string{"username": "revokedwriter"}).want(t, http.StatusUnauthorized, "session_revoked")
@@ -516,7 +519,7 @@ func TestCriticalSessions(t *testing.T) {
 		_, err = f.auth.RevokeAccountSessions(t.Context(), who, u.ID)
 		noError(t, err)
 		for _, token := range []string{one.AccessToken, two.AccessToken} {
-			claims, err := f.auth.Verify(t.Context(), token)
+			claims, err := verifyToken(t, f.auth, token)
 			noError(t, err)
 			if !errors.Is(f.auth.CheckSession(t.Context(), claims), iam.ErrSessionRevoked) {
 				t.Fatal("account revoke left a session usable")
@@ -538,7 +541,7 @@ func TestCriticalSessions(t *testing.T) {
 		u.Password = changed
 		newTokens := f.signIn(t, u)
 		noError(t, f.auth.Ban(t.Context(), iam.SystemIdentity(), u.ID, iam.Ban{}))
-		claims, err := f.auth.Verify(t.Context(), newTokens.AccessToken)
+		claims, err := verifyToken(t, f.auth, newTokens.AccessToken)
 		noError(t, err)
 		if !errors.Is(f.auth.CheckSession(t.Context(), claims), iam.ErrSessionRevoked) {
 			t.Fatal("ban preserved live authority")
@@ -548,7 +551,7 @@ func TestCriticalSessions(t *testing.T) {
 	t.Run("AK-J05-C04_stateless_signature_is_not_live_session_authority", func(t *testing.T) {
 		u := f.user(t)
 		tokens := f.signIn(t, u)
-		claims, err := f.auth.Verify(t.Context(), tokens.AccessToken)
+		claims, err := verifyToken(t, f.auth, tokens.AccessToken)
 		noError(t, err)
 		if claims.UserID != u.ID || claims.SessionID == "" {
 			t.Fatal("sign-in token did not bind the expected user and session")
@@ -557,7 +560,7 @@ func TestCriticalSessions(t *testing.T) {
 		noError(t, f.auth.RevokeSession(t.Context(), who, u.ID, claims.SessionID))
 		// An old JWT remains cryptographically valid; privileged requests must
 		// nevertheless consult the now-revoked sign-in.
-		_, err = f.auth.Verify(t.Context(), tokens.AccessToken)
+		_, err = verifyToken(t, f.auth, tokens.AccessToken)
 		noError(t, err)
 		if err := f.auth.CheckSession(t.Context(), claims); !errors.Is(err, iam.ErrSessionRevoked) {
 			t.Fatalf("revoked session error = %v", err)
@@ -565,7 +568,7 @@ func TestCriticalSessions(t *testing.T) {
 		f.call(t, "PATCH", "/me", tokens.AccessToken, map[string]string{"username": "mustnotpersist"}).want(t, http.StatusUnauthorized, "session_revoked")
 		r, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/identity", nil)
 		noError(t, err)
-		r.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+		authorize(t, r, tokens.AccessToken)
 		if _, err = f.auth.Authenticator().Authenticate(r); !errors.Is(err, auth.ErrUnauthenticated) || !errors.Is(err, auth.ErrRevoked) {
 			t.Fatalf("live authenticator must classify revoked authority: %v", err)
 		}
@@ -582,7 +585,7 @@ func TestCriticalSessions(t *testing.T) {
 		request := func(ctx context.Context, token string) *http.Request {
 			r, err := http.NewRequestWithContext(ctx, "GET", f.server.URL+"/member", nil)
 			noError(t, err)
-			r.Header.Set("Authorization", "Bearer "+token)
+			authorize(t, r, token)
 			return r
 		}
 		// The hosts' tenant member gate: a live sign-in, then its source account.
@@ -671,14 +674,14 @@ func TestCriticalSessions(t *testing.T) {
 		})
 		t.Run("session_revoked", func(t *testing.T) {
 			id, token, verified := signedIn(t)
-			claims, err := f.auth.Verify(t.Context(), token)
+			claims, err := verifyToken(t, f.auth, token)
 			noError(t, err)
 			noError(t, f.auth.RevokeSession(t.Context(), iam.SystemIdentity(), id, claims.SessionID))
 			revoked(t, token, verified)
 		})
 		t.Run("session_expired", func(t *testing.T) {
 			_, token, verified := signedIn(t)
-			claims, err := f.auth.Verify(t.Context(), token)
+			claims, err := verifyToken(t, f.auth, token)
 			noError(t, err)
 			exec(t, "UPDATE "+table("refresh_sessions")+" SET expires_at = now() - interval '1 microsecond' WHERE id = $1", claims.SessionID)
 			revoked(t, token, verified)
@@ -733,7 +736,7 @@ func TestCriticalSessions(t *testing.T) {
 		// A sign-in stands only for its own account.
 		t.Run("session_of_another_account", func(t *testing.T) {
 			_, ownerToken, _ := signedIn(t)
-			owner, err := f.auth.Verify(t.Context(), ownerToken)
+			owner, err := verifyToken(t, f.auth, ownerToken)
 			noError(t, err)
 			intruder, _, _ := signedIn(t)
 			claims := owner
@@ -756,7 +759,7 @@ func TestCriticalSessions(t *testing.T) {
 		// in the hyphenated form and refuses the rest as no usable account.
 		t.Run("non_standard_account_id", func(t *testing.T) {
 			id, token, _ := signedIn(t)
-			claims, err := f.auth.Verify(t.Context(), token)
+			claims, err := verifyToken(t, f.auth, token)
 			noError(t, err)
 			session := iam.SessionRef{SessionID: claims.SessionID}
 			hex := strings.ReplaceAll(id, "-", "")
@@ -787,7 +790,7 @@ func TestCriticalSessions(t *testing.T) {
 		// reach this refusal.
 		t.Run("claims_naming_another_tenant", func(t *testing.T) {
 			_, token, _ := signedIn(t)
-			claims, err := f.auth.Verify(t.Context(), token)
+			claims, err := verifyToken(t, f.auth, token)
 			noError(t, err)
 			noError(t, f.auth.CheckSession(t.Context(), claims))
 			for _, tenant := range []string{other.String(), "not-a-tenant"} {
@@ -802,7 +805,7 @@ func TestCriticalSessions(t *testing.T) {
 			noError(t, err)
 			server := httptest.NewServer(view.Handler())
 			t.Cleanup(server.Close)
-			outsider := &fixture{auth: view, server: server}
+			outsider := &fixture{auth: view, server: server, t: t, dpop: f.dpop, cfg: f.cfg}
 			u := outsider.user(t)
 			token := outsider.signIn(t, u).AccessToken
 			actor, err := member(t.Context(), token)
@@ -828,9 +831,9 @@ func TestCriticalSessions(t *testing.T) {
 		f.call(t, "DELETE", "/logout", session.AccessToken, nil).want(t, http.StatusNoContent, "")
 		f.call(t, "PATCH", "/me", session.AccessToken, map[string]string{"username": "latewriter"}).want(t, http.StatusUnauthorized, "session_revoked")
 		fresh := f.signIn(t, u)
-		oldClaims, err := f.auth.Verify(t.Context(), session.AccessToken)
+		oldClaims, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
-		newClaims, err := f.auth.Verify(t.Context(), fresh.AccessToken)
+		newClaims, err := verifyToken(t, f.auth, fresh.AccessToken)
 		noError(t, err)
 		if oldClaims.SessionID == newClaims.SessionID {
 			t.Fatal("fresh sign-in revived a retired session")

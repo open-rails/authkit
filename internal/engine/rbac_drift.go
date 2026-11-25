@@ -28,7 +28,7 @@ func (s *Engine) driftReport(ctx context.Context) (rbacDriftReport, error) {
 	if err != nil {
 		return rbacDriftReport{}, err
 	}
-	keyRoles, err := s.q.APIKeyRoleCounts(ctx, s.cfg.Token.Issuer)
+	keyRoles, err := s.q.APIKeyRoleCounts(ctx, s.cfg.Issuer)
 	if err != nil {
 		return rbacDriftReport{}, err
 	}

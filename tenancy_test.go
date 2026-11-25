@@ -8,13 +8,14 @@ import (
 
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/keys"
 )
 
 // A single-tenant Client refuses tenant management before any database
 // work; the multi-tenant opt-in is named in the refusal.
 func TestSingleTenantRefusesOtherTenants(t *testing.T) {
-	cfg := authkit.Config{Token: authkit.TokenConfig{Issuer: "https://auth.example.com", IssuedAudiences: []string{"app"}}, Keys: authkit.KeysConfig{VerifyOnly: true}}
-	client, err := authkit.New(context.Background(), cfg, authkit.Deps{})
+	cfg := authkit.Config{Issuer: "https://auth.example.com"}
+	client, err := authkit.New(context.Background(), cfg, authkit.Deps{KeySource: keys.Static{}})
 	noErr(t, err)
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
 	err = client.CreateTenant(t.Context(), iam.Tenant{ID: iam.NewTenantID(), Slug: "another"})

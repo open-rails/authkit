@@ -50,7 +50,7 @@ func (s *Engine) startOAuthRefreshFamily(ctx context.Context, m oauthMint) (stri
 	id := secret.Token(16)
 	f := oauthRefreshFamily{
 		ClientID: m.client.ID, UserID: m.userID, SessionID: m.sessionID, Scopes: m.scopes, Resource: m.resource,
-		JKT: m.jkt, ExpiresAt: s.nowTime().Add(s.cfg.AuthorizationServer.RefreshTokenTTL).UTC(), ConsentAt: m.consentAt,
+		JKT: m.jkt, ExpiresAt: s.nowTime().Add(config.OAuthRefreshTokenTTL).UTC(), ConsentAt: m.consentAt,
 	}
 	token := f.rotate(id)
 	raw, err := json.Marshal(f)
@@ -118,7 +118,7 @@ func (s *Engine) RefreshOAuthTokens(ctx context.Context, in authflow.OAuthRefres
 		return authflow.OAuthTokens{}, invalid
 	case f.JKT != "" && !secret.Equal(f.JKT, in.JKT):
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "the refresh token is bound to another DPoP key")
-	case f.JKT == "" && s.cfg.SignIn.DPoP == config.DPoPRequired:
+	case f.JKT == "":
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidDPoPProof, "the refresh token is not bound to a DPoP key")
 	case in.Resource != "" && in.Resource != f.Resource:
 		return authflow.OAuthTokens{}, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "resource does not match the refresh token's")
@@ -299,7 +299,7 @@ func (s *Engine) exchangeSubject(ctx context.Context, token, jkt string) (userID
 	userID, sessionID = jose.String(claims, "sub"), jose.String(claims, "sid")
 	switch {
 	case !ok || !s.nowTime().Before(exp), !isUUID(userID), sessionID == "", pending, jose.String(claims, "group_id") != "",
-		!slices.ContainsFunc(jose.Audiences(claims), func(aud string) bool { return slices.Contains(s.cfg.Token.ExpectedAudiences, aud) }),
+		!slices.ContainsFunc(jose.Audiences(claims), func(aud string) bool { return slices.Contains([]string{s.cfg.Issuer}, aud) }),
 		s.requireMFAEnrollment() && !enrolled:
 		return "", "", invalid
 	}

@@ -70,11 +70,17 @@ func (s *Engine) OAuthJWTBearer(ctx context.Context, in authflow.OAuthJWTBearer)
 	if oerr != nil {
 		return authflow.OAuthTokens{}, authflow.JWTBearerRefusal(authflow.ReasonCapabilityInvalid, "the capability's "+oerr.Description)
 	}
+	// Counted before the decision, so concurrent redemptions never both read
+	// as the first.
+	redeemed, err := s.ephemIncr(ctx, keyOAuthCapability+jtiKey(c.DeviceKeyID, c.ID), jtiTTL(c.ExpiresAt, now))
+	if err != nil {
+		return authflow.OAuthTokens{}, err
+	}
 	decision, err := s.decideOAuthGrant(ctx, iam.OAuthGrantRequest{
 		Kind: iam.OAuthGrantJWTBearer, ClientID: client.ID, UserID: c.UserID, DeviceKeyID: c.DeviceKeyID,
 		Resource: resource.ID, AuthorizationDetails: details, JWKThumbprint: a.JKT,
 		Assertion:  &iam.OAuthAssertion{Subject: a.Subject, ID: a.ID, IssuedAt: a.IssuedAt, ExpiresAt: a.ExpiresAt, Claims: a.Claims},
-		Capability: &iam.OAuthCapability{ID: c.ID, IssuedAt: c.IssuedAt, ExpiresAt: c.ExpiresAt, Claims: c.Claims},
+		Capability: &iam.OAuthCapability{ID: c.ID, IssuedAt: c.IssuedAt, ExpiresAt: c.ExpiresAt, Claims: c.Claims, Renewal: redeemed > 1},
 	}, client.AuthorizationDetailsTypes)
 	switch {
 	case errors.Is(err, errOAuthGrantRefused):
@@ -97,13 +103,6 @@ func (s *Engine) OAuthJWTBearer(ctx context.Context, in authflow.OAuthJWTBearer)
 	if err := s.spendAssertion(ctx, a.JKT, a.ID, a.ExpiresAt, now,
 		authflow.JWTBearerRefusal(authflow.ReasonAssertionReplayed, "the assertion was already used")); err != nil {
 		return authflow.OAuthTokens{}, err
-	}
-	// A renewable client's capability redeems again by its key until it expires.
-	if !client.RenewableCapabilities {
-		if err := s.spendJTI(ctx, keyOAuthCapability, c.DeviceKeyID, c.ID, c.ExpiresAt, now,
-			authflow.JWTBearerRefusal(authflow.ReasonCapabilityReplayed, "the capability was already redeemed")); err != nil {
-			return authflow.OAuthTokens{}, err
-		}
 	}
 	s.oauthAudit(ctx, "oauth_jwt_bearer", c.UserID, map[string]string{
 		"client_id": client.ID, "resource": resource.ID, "invoker": decision.Invoker, "jkt": a.JKT,
@@ -192,5 +191,6 @@ func (s *Engine) oauthTokenEndpoint() string {
 	if s.cfg.HTTP == nil {
 		return ""
 	}
-	return strings.TrimRight(s.cfg.HTTP.PublicURL, "/") + iam.OAuthTokenPath
+	return config.HTTPSurface(s.cfg.Issuer).PublicURL + iam.OAuthTokenPath
+
 }

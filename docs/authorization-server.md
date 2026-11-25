@@ -31,7 +31,7 @@ cfg.AuthorizationServer = authkit.AuthorizationServerConfig{
 ```
 
 - Declared clients are first-party: sign-in needs no consent screen. Groups also register their own, third-party clients at run time ([group clients](#group-clients)).
-- A confidential client sets `SecretSHA256`, the hex SHA-256 of a secret of at least 32 random bytes; AuthKit never holds the secret. A public client chooses DPoP (RFC 9449): a proof at the token endpoint binds its tokens, and without one its refresh tokens rotate (RFC 9700 §4.14.2). `SignIn.DPoP` required refuses a user grant (code, refresh, token exchange) without a proof; client credentials are never covered. Every workload jwt-bearer request proves its key.
+- A confidential client sets `SecretSHA256`, the hex SHA-256 of a secret of at least 32 random bytes; AuthKit never holds the secret. Every user grant (code, refresh, token exchange) proves a DPoP key (RFC 9449), which binds its tokens, and is refused without one; client credentials need none, and every workload jwt-bearer request proves its key.
 - Redirect URIs match exactly: https, or http on a loopback host.
 
 ## Group clients
@@ -43,9 +43,12 @@ roles := authkit.NewRoles()
 roles.Persona("merchant", authkit.OAuthClients)
 cfg.AuthorizationServer.Resources = []authkit.ResourceServerConfig{{ID: "https://api.example.com", Scopes: []string{"shop:self"}}}
 cfg.AuthorizationServer.GroupClients = authkit.GroupClientsConfig{
-	Scopes:     []authkit.GroupClientScope{{Name: "shop:self", Resource: "https://api.example.com", Description: "See and manage your orders here"}},
-	Agreements: []string{"network-terms"}, // accepted before approving any group client
+	Scopes: []authkit.GroupClientScope{{Name: "shop:self", Resource: "https://api.example.com", Description: "See and manage your orders here"}},
 }
+cfg.Agreements = append(cfg.Agreements, authkit.AgreementConfig{
+	Key: "network-terms", Version: "2026-11-01", URL: "https://example.com/network-terms",
+	GroupClients: true, // accepted before approving any group client
+})
 deps.GroupName = func(ctx context.Context, groupID string) (string, error) { return shops.Name(ctx, groupID) } // the consent screen's name
 ```
 
@@ -73,7 +76,7 @@ Errors are OAuth's `{error, error_description}`. Until the client and redirect U
 
 ## Signing in
 
-The authorize endpoint stores the request and sends the browser to the SPA at `Frontend.AuthorizePath` (`/authorize`) with `?authorization=<id>`. The SPA:
+The authorize endpoint stores the request and sends the browser to the SPA at `/authorize` beneath `Config.FrontendURL` with `?authorization=<id>`. The SPA:
 
 1. reads the request: `GET {api}/oauth2/authorizations/{id}` (the client's name, scopes, `prompt`, `max_age`);
 2. signs the user in as usual, second factors included;
@@ -91,9 +94,9 @@ For `prompt=none` with nobody signed in, or when the user refuses, the SPA decli
 | `refresh_token` | the same client, proving the same DPoP key; `scope` may narrow | rotated tokens with live permissions |
 | `urn:ietf:params:oauth:grant-type:token-exchange` | a host frontend (RFC 8693): `subject_token` is the user's AuthKit session access token, `subject_token_type` `urn:ietf:params:oauth:token-type:access_token`; optionally `group_id` ([group-bound tokens](#group-bound-tokens)) | an access token for `resource`, on the same session; impersonation (RFC 8693 §1.1), so no `act` |
 | `client_credentials` | a confidential client acting for itself | an access token with `sub` = `client_id` and the client's `Permissions` within the ceiling |
-| `urn:ietf:params:oauth:grant-type:jwt-bearer` | a [workload](#workloads) acting for a user (RFC 7523): `assertion` signed by its key, carrying the capability the user's device key signed, with a DPoP proof of the same key | an access token for the user, `act` the workload, bound to its key, carrying the capability's operations until it expires (a renewable client's: until the authorizer's `MaxLifetime`, then it redeems the capability again); no refresh token |
+| `urn:ietf:params:oauth:grant-type:jwt-bearer` | a [workload](#workloads) acting for a user (RFC 7523): `assertion` signed by its key, carrying the capability the user's device key signed, with a DPoP proof of the same key | an access token for the user, `act` the workload, bound to its key, carrying the capability's operations until it expires (or the authorizer's `MaxLifetime`, after which it redeems the capability again); no refresh token |
 
-Refresh tokens rotate on every use. A family stands on the session it was issued from and lasts `RefreshTokenTTL` (12 hours by default), which rotation never extends; then the client signs in again with `prompt=none`. Presenting a rotated-out token revokes the family, newest token included. `offline_access` is refused.
+Refresh tokens rotate on every use. A family stands on the session it was issued from and lasts 12 hours, which rotation never extends; then the client signs in again with `prompt=none`. Presenting a rotated-out token revokes the family, newest token included. `offline_access` is refused.
 
 `authorization_details` (RFC 9396) is granted only by a [workload's capability](#workloads): the authorize and token endpoints refuse the parameter.
 
@@ -116,7 +119,7 @@ A host serving several tenants in process mints a customer token bound to one in
 A workload (a worker, an agent, a CI runner) acts for a user only through a capability the user's device signs offline: exactly the operations it may do, on one resource, until it expires. There is no round trip to AuthKit for the user, and AuthKit stores nothing per workload.
 
 ```go
-cfg.DeviceKeys.Enabled = true // device keys sign capabilities
+cfg.HTTP.Groups = append(iam.DefaultRouteGroups(), iam.RouteDeviceKeys) // device keys sign capabilities
 cfg.AuthorizationServer.Clients = append(cfg.AuthorizationServer.Clients, authkit.OAuthClientConfig{
 	ID:                        "tensord", // one client per kind of workload; public
 	Resources:                 []string{"https://hub.example.com"},
@@ -138,15 +141,15 @@ deps.OAuthGrants = func(ctx context.Context, r iam.OAuthGrantRequest) (iam.OAuth
 1. The user's device (a CLI holding an enrolled [device key](tokens.md)) signs the capability with `devicekey.SignCapability`: a JWT with header `alg` `EdDSA`, `typ` `authkit-capability+jwt` and `kid` the device key's id, and claims `sub` (the user), `aud` (the resource's ID), `cnf.jkt` (the workload key's RFC 7638 thumbprint), `authorization_details` (RFC 9396, of the client's types), `jti`, and `exp` at most 24 hours ahead. Its other claims, such as a run id, reach the host untouched.
 2. The workload posts `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, `client_id`, `assertion`, and optionally `resource` (the capability's `aud`), with a `DPoP` proof of its P-256 key (no `ath`). The assertion is a JWT signed by that key: header `alg` `ES256` and `jwk` (`kty`, `crv`, `x`, `y` only), `typ` `JWT` if any; claims `iss` the `client_id`, `sub` the workload's name for itself, `aud` the metadata's `token_endpoint` alone, `exp` at most 5 minutes ahead, a `jti` of 16-128 characters, and `capability`, the capability's compact JWT.
 3. AuthKit verifies both signatures, that the device key is live and the user's, that the user is usable, and that the capability, the assertion and the DPoP proof name the same workload key. It then asks the grant authorizer (`Deps.OAuthGrants`, which decides only this grant) with `Kind` `jwt_bearer`: `UserID`, `DeviceKeyID`, `Resource`, the capability's `AuthorizationDetails`, `JWKThumbprint` (the workload key), and the verified `Assertion` and `Capability` (their ids, times and other claims). `iam.ErrOAuthGrantRefused` refuses; any other error is an outage (`temporarily_unavailable`). The decision may narrow `AuthorizationDetails` by dropping entries (each kept entry must be one of the capability's); `Invoker` names the workload in `act` (default: its key thumbprint); `MaxLifetime` shortens the token; `Claims` adds access-token claims, each named by an absolute URI.
-4. The token is an `at+jwt` with `sub` the user, `act` `{"sub": <Invoker>}`, `cnf.jkt` the workload key, `device_key_id` the capability's key, `authorization_details` as decided, and `permissions` empty; no `scope`, `sid`, `auth_time`, `acr` or `amr`. It lasts until the capability expires (or `MaxLifetime`), not `AccessTokenTTL`, and has no refresh token: one exchange per capability.
+4. The token is an `at+jwt` with `sub` the user, `act` `{"sub": <Invoker>}`, `cnf.jkt` the workload key, `device_key_id` the capability's key, `authorization_details` as decided, and `permissions` empty; no `scope`, `sid`, `auth_time`, `acr` or `amr`. It lasts until the capability expires (or `MaxLifetime`), not the 15 minutes of other access tokens, and has no refresh token: one exchange per capability.
 
-Each `jti` redeems once: the assertion's per workload key, the capability's per device key. A spent assertion is kept with spent DPoP proofs (`Deps.Replays`, else `Deps.Redis`, else memory); a spent capability is a grant record, kept in PostgreSQL. Nothing is spent until the token is minted, so a failed request may be retried with the same capability.
+An assertion's `jti` redeems once per workload key; a spent assertion is kept with spent DPoP proofs (`Deps.Replays`, else `Deps.Redis`, else memory). Nothing is spent until the token is minted, so a failed request may be retried with a fresh assertion.
 
-A client with `RenewableCapabilities` lets the workload keep working without the user (RFC 7523's repeated assertions): the key a capability binds redeems it again, each time with a fresh assertion and DPoP proof, until it expires. Every redemption is a whole grant: the device key must still be live and the user usable, and the authorizer decides again, so a host that stops granting (a machine that is gone, say) ends the workload at its next redemption, and the decision's `MaxLifetime` is how often it asks. The capability is never spent; the assertion still is. Another key cannot redeem it (`key_mismatch`).
+A capability lets the workload keep working without the user (RFC 7523's repeated assertions): the key it binds redeems it again, each time with a fresh assertion and DPoP proof, until it expires. Every redemption is a whole grant: the device key must still be live and the user usable, and the authorizer decides again, so a host that stops granting (a machine that is gone, say) ends the workload at its next redemption, and the decision's `MaxLifetime` is how often it asks. `Capability.Renewal` marks a redemption after the first: an authorizer refuses it (`iam.ErrOAuthGrantRefused`) for a capability that should redeem once. Another key cannot redeem it (`key_mismatch`).
 
 ```go
 authkit.OAuthClientConfig{ID: "tensord", Resources: []string{"https://hub.example.com"}, AuthorizationDetailsTypes: []string{"hub_operation"},
-	GrantTypes: []authkit.OAuthGrantType{authkit.GrantJWTBearer}, RenewableCapabilities: true}
+	GrantTypes: []authkit.OAuthGrantType{authkit.GrantJWTBearer}}
 // the authorizer: iam.OAuthGrantDecision{MaxLifetime: 15 * time.Minute}
 ```
 
@@ -154,13 +157,13 @@ The client may be public: the assertion and the DPoP proof prove the workload ke
 
 Revoking the device key ends every token its capabilities minted, at once, for a resource server in the issuer's process: `verify.RequireSession` over a `Client.NewVerifier` (or `Client.CheckSession` on the claims) checks the token's device key with one query, answering 401 `session_revoked`.
 
-A refusal is `invalid_grant` with a `reason` beside it: `assertion_invalid`, `assertion_replayed`, `capability_invalid`, `capability_expired`, `capability_replayed`, `device_key_revoked` (unknown, revoked, or a ban revoked it), `key_mismatch` (the capability names another workload key), `user_unavailable` or `refused` (the authorizer). Also `invalid_dpop_proof` (no proof, or reason `key_mismatch` for another key's), `invalid_target` (a resource that is not the capability's, or not the client's), `invalid_scope` (any `scope`), `unauthorized_client` and `temporarily_unavailable` (the authorizer failed).
+A refusal is `invalid_grant` with a `reason` beside it: `assertion_invalid`, `assertion_replayed`, `capability_invalid`, `capability_expired`, `device_key_revoked` (unknown, revoked, or a ban revoked it), `key_mismatch` (the capability names another workload key), `user_unavailable` or `refused` (the authorizer). Also `invalid_dpop_proof` (no proof, or reason `key_mismatch` for another key's), `invalid_target` (a resource that is not the capability's, or not the client's), `invalid_scope` (any `scope`), `unauthorized_client` and `temporarily_unavailable` (the authorizer failed).
 
 In tests, `authtest.EnrollDeviceKey` enrolls a device key, `DeviceKey.Capability` signs a capability, `AuthorizationServer.JWTBearer` (`JWTBearerToken` for refusals) runs the grant against the real token endpoint, `authtest.GrantAuthorizer` records the authorizer's requests, and `authtest.RevokeDeviceKey` revokes the key.
 
 ## Tokens
 
-- The access token is an RFC 9068 `at+jwt` for the requested resource ([claims](stability.md#tokens)), lasting `AccessTokenTTL` (5 minutes by default, at most 15). Its `permissions` are the user's grants on the root group intersected with the resource's `Permissions`: a role that holds `merchant:*` gives `merchant:*` under that ceiling, so the issuer's role catalog decides what the user may do there. A resource's `Permissions` may hold the app's own `root:` permissions (`root:billing:*`), never AuthKit's built-in ones. `roles` names the user's root role, for display only.
+- The access token is an RFC 9068 `at+jwt` for the requested resource ([claims](stability.md#tokens)), lasting 15 minutes. Its `permissions` are the user's grants on the root group intersected with the resource's `Permissions`: a role that holds `merchant:*` gives `merchant:*` under that ceiling, so the issuer's role catalog decides what the user may do there. A resource's `Permissions` may hold the app's own `root:` permissions (`root:billing:*`), never AuthKit's built-in ones. `roles` names the user's root role, for display only.
 - With the `openid` scope, the answer also carries an ID token for the client (`nonce`, `sid`, `auth_time`, `acr`, `amr`; `profile` and `email` claims by scope).
 - Codes last 60 seconds and redeem once; each grant re-checks that the user is live and the sign-in still stands. AuthKit's own API refuses an `at+jwt`.
 

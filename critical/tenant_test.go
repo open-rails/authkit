@@ -184,7 +184,7 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		noError(t, err)
 		r, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/source", nil)
 		noError(t, err)
-		r.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+		authorize(t, r, tokens.AccessToken)
 		verified, err := f.auth.Authenticator().Authenticate(r)
 		noError(t, err)
 		actor, err := view.ResolveTenantActor(t.Context(), verified)
@@ -204,13 +204,13 @@ func TestCriticalTenantAuthority(t *testing.T) {
 			t.Fatalf("identity-preserving adapter changed native source account: %+v", forwarded)
 		}
 		foreign := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Token.Issuer = "https://different-actor-issuer.example"
+			c.Issuer = "https://different-actor-issuer.example"
 		}))
 		foreignUser := foreign.user(t)
 		foreignTokens := foreign.signIn(t, foreignUser)
 		foreignRequest, err := http.NewRequestWithContext(t.Context(), "GET", foreign.server.URL+"/source", nil)
 		noError(t, err)
-		foreignRequest.Header.Set("Authorization", "Bearer "+foreignTokens.AccessToken)
+		authorize(t, foreignRequest, foreignTokens.AccessToken)
 		foreignVerified, err := foreign.auth.Authenticator().Authenticate(foreignRequest)
 		noError(t, err)
 		if actor, err := view.ResolveTenantActor(t.Context(), foreignVerified); !errors.Is(err, auth.ErrForbidden) || actor != (iam.TenantActor{}) {
@@ -218,7 +218,7 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		}
 		otherServer := httptest.NewServer(view.Handler())
 		t.Cleanup(otherServer.Close)
-		otherFixture := &fixture{auth: view, server: otherServer}
+		otherFixture := &fixture{auth: view, server: otherServer, t: t, dpop: f.dpop, cfg: f.cfg}
 		otherFixture.call(t, "GET", "/me", tokens.AccessToken, nil).want(t, http.StatusForbidden, "forbidden")
 		if err := view.Start(t.Context()); err == nil {
 			t.Fatal("borrowed view started the shared owner")
@@ -303,7 +303,7 @@ func TestCriticalProviderReconciliation(t *testing.T) {
 	otherIDP := authtest.NewIdP(t)
 	first, second := idp.Provider("first"), otherIDP.Provider("second")
 	f := newFixture(t, multiTenant, authtest.WithConfig(func(c *authkit.Config) {
-		c.Registration.PasswordlessLogin = false
+		unmountGroup(c, iam.RoutePasswordless)
 	}), authtest.WithDeps(func(d *authkit.Deps) {
 		d.Providers = []provider.Provider{first, second}
 	}))

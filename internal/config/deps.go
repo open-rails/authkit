@@ -26,17 +26,23 @@ type Deps struct {
 	// every replica.
 	Postgres *pgxpool.Pool
 
-	// KeySource signs and publishes tokens. Nil resolves keys from
-	// Config.Keys. Hosts never handle the private key: they hand AuthKit a
-	// source that signs.
+	// KeySource signs and publishes tokens: keys.Watch(dir) serves a key
+	// directory's keys.json and totp.key (keys.TOTPSource, the TOTP key; TOTP
+	// is unavailable without one). A source with no active signer only
+	// verifies: minting returns iam.ErrSigningNotConfigured. Nil watches
+	// /vault/auth, or for a loopback Issuer a per-issuer development
+	// directory, $XDG_STATE_HOME/authkit/development/<issuer SHA-256>, where
+	// AuthKit generates what is missing, marked as development keys that no
+	// other issuer loads. Hosts never handle the private key: they hand
+	// AuthKit a source that signs.
 	KeySource keys.Source
 	// Providers are the external identity providers: provider.Google,
 	// Apple, Discord and GitHub, or provider.OIDC and OAuth2 for any other.
 	Providers []provider.Provider
 
-	// Email delivers email. Nil means no email: flows that need one answer
-	// email_unavailable unless Config.Registration.AllowMissingSenders is set. Start runs its
-	// CheckHealth now and every Config.SenderHealthInterval; after two failed
+	// Email delivers email; adapters/logsender's logs it, for development.
+	// Nil means no email: flows that need one answer email_unavailable. Start
+	// runs its CheckHealth now and every five minutes; after two failed
 	// checks in a row, email flows are unavailable until a check passes
 	// (Client.EmailAvailable).
 	Email EmailSender
@@ -49,7 +55,7 @@ type Deps struct {
 
 	// Entitlements returns the names of users' active entitlements (billing
 	// tiers), keyed by user id; ids without any are absent. Admin views show
-	// them all; Config.Token.EntitlementAllowlist selects which go into access
+	// them all; Config.EntitlementClaims selects which go into access
 	// tokens.
 	Entitlements func(ctx context.Context, userIDs []string) (map[string][]string, error)
 	// EntitlementHolders returns the ids of the users who hold entitlement,
@@ -76,7 +82,7 @@ type Deps struct {
 	// fails the request. Client.RevokeConsent does not run it.
 	ConsentRevocationCheck func(ctx context.Context, userID, clientID string) error
 	// PasskeyTopOrigin admits passkey ceremonies inside a cross-origin
-	// iframe of Passkeys.Origins, as on a merchant's site embedding the
+	// iframe of FrontendURL's origin, as on a merchant's site embedding the
 	// host's sign-in: a ceremony whose client data names the framing page
 	// (topOrigin, an https origin) passes when it reports true, and one that
 	// names none (Safari) passes on its own origin. Nil refuses every
@@ -105,11 +111,16 @@ type Deps struct {
 	// replica and no Redis implements it on the store they share. Its errors
 	// refuse the proof. Rate limits stay with Redis or memory.
 	Replays verify.ReplayStore
-	// ResourceHosts admits hosts besides Config.Resource.PublicURL's that the
+	// ResourceHosts admits hosts besides Config.Resource.ID's that the
 	// resource answers on (a host's per-tenant API hosts): a DPoP proof's htu
 	// may name https://<host> when it reports true for the request's Host.
 	// No header is trusted otherwise.
 	ResourceHosts func(ctx context.Context, host string) (bool, error)
+	// SCIMHandlers serve in-process SCIM service providers, keyed by the
+	// name of the Config.Provisioning target they serve (one without a URL),
+	// so an embedded service provider is called with no network. Requests
+	// reach a handler with paths relative to its base ("/Users", "/Bulk").
+	SCIMHandlers map[string]http.Handler
 	// ClientIP extracts the client address. It is the host's own client-IP
 	// posture: New refuses it beside HTTPConfig's proxies or DirectPeerIP.
 	ClientIP func(*http.Request) string
@@ -135,7 +146,7 @@ type Deps struct {
 	// never changes the default. What the host builds, and the functions that
 	// need no Client, take their own: keys.Watch, provider.WithLogger,
 	// verify.WithLogger, twilio.SMSConfig.Logger, MigrationOptions.Logger,
-	// MigrateNotifications, EnsureGroups, NewNotificationDelivery and
+	// EnsureGroups, NewNotificationDelivery and
 	// ParseBootstrapManifestYAML.
 	Logger *slog.Logger
 }

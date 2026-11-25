@@ -39,7 +39,7 @@ func (s *Engine) Ready(ctx context.Context) error {
 	if err := s.riverReady(); err != nil {
 		return err
 	}
-	if !s.cfg.Keys.VerifyOnly && s.keys.ActiveSigner() == nil {
+	if s.signs && s.keys.ActiveSigner() == nil {
 		return errors.New("authkit: signing keys: the key source has no active signing key")
 	}
 	return nil
@@ -139,7 +139,7 @@ func (s *Engine) applyProviders(providers []provider.Provider) {
 		names[p.Name()]++
 		issuers[issuerKey(p.Issuer())]++
 	}
-	httpsDeployment := strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.cfg.Frontend.BaseURL)), "https://")
+	httpsDeployment := strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.cfg.FrontendURL)), "https://")
 	for _, p := range s.configuredProviders {
 		name := p.Name()
 		problem := p.Validate()
@@ -152,7 +152,7 @@ func (s *Engine) applyProviders(providers []provider.Provider) {
 		case issuers[issuerKey(p.Issuer())] > 1:
 			problem = fmt.Errorf("%w: provider %q shares issuer %q with another provider", provider.ErrInvalid, name, p.Issuer())
 		case s.cfg.HTTP != nil && p.ResponseModeFormPost() && !httpsDeployment:
-			problem = fmt.Errorf("%w: provider %q uses response_mode=form_post, which needs an HTTPS deployment (SameSite=None; Secure state cookie); set Frontend.BaseURL to an https URL", provider.ErrInvalid, name)
+			problem = fmt.Errorf("%w: provider %q uses response_mode=form_post, which needs an HTTPS deployment (SameSite=None; Secure state cookie); set FrontendURL to an https URL", provider.ErrInvalid, name)
 		}
 		if problem != nil {
 			if s.providerProblems[name] == nil {
@@ -169,7 +169,7 @@ func (s *Engine) applyProviders(providers []provider.Provider) {
 // issuers, which no identity provider may claim.
 func (s *Engine) accountIssuer(issuer string) bool {
 	key := issuerKey(issuer)
-	for _, own := range s.cfg.Token.AccountIssuers {
+	for _, own := range s.cfg.AccountIssuers {
 		if issuerKey(own) == key {
 			return true
 		}

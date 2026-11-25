@@ -16,7 +16,7 @@ func (s *Engine) credentialUseStands(ctx context.Context, st *permissionGroupSto
 	if !isUUID(id) {
 		return false, nil
 	}
-	c, err := db.New(st.q).CredentialAuthority(ctx, db.CredentialAuthorityParams{Kind: kind, ID: id, GroupID: group, Issuer: s.cfg.Token.Issuer})
+	c, err := db.New(st.q).CredentialAuthority(ctx, db.CredentialAuthorityParams{Kind: kind, ID: id, GroupID: group, Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 func (s *Engine) proofRouteKey(kind, hash string) string {
-	return "auth-proof-route:" + secret.Hash(s.cfg.Token.Issuer+"\x00"+kind+"\x00"+hash)
+	return "auth-proof-route:" + secret.Hash(s.cfg.Issuer+"\x00"+kind+"\x00"+hash)
 }
 
 // This is an immutable routing hint, not a credential. The actual proof in

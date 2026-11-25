@@ -181,7 +181,7 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 		noError(t, f.auth.Ban(t.Context(), iam.SystemIdentity(), u.ID, iam.Ban{}))
 		noError(t, f.auth.Unban(t.Context(), iam.SystemIdentity(), u.ID))
 		f.signIn(t, u)
-		cl, err := f.auth.Verify(t.Context(), token.AccessToken)
+		cl, err := verifyToken(t, f.auth, token.AccessToken)
 		noError(t, err)
 		if !errors.Is(f.auth.CheckSession(t.Context(), cl), iam.ErrSessionRevoked) {
 			t.Fatal("unban revived a retired session")
@@ -227,7 +227,7 @@ func TestCriticalAccountLifecycle(t *testing.T) {
 		if restored.DeletedAt != nil {
 			t.Fatal("authorized restoration did not reopen the account")
 		}
-		cl, err := f.auth.Verify(t.Context(), token.AccessToken)
+		cl, err := verifyToken(t, f.auth, token.AccessToken)
 		noError(t, err)
 		if !errors.Is(f.auth.CheckSession(t.Context(), cl), iam.ErrSessionRevoked) {
 			t.Fatal("restore revived old credentials")
@@ -522,7 +522,7 @@ func checkNativeCallbackTenants(t *testing.T) {
 	t.Cleanup(front.Close)
 	var persona iam.Persona
 	f := newFixture(t, multiTenant, authtest.WithConfig(func(c *authkit.Config) {
-		c.Token.Issuer = front.URL
+		c.Issuer = front.URL
 		persona = c.Roles.Persona("callbackshop", authkit.OAuthClients).Persona
 	}), authtest.WithDeps(func(d *authkit.Deps) {
 		d.DeletionCheck = func(ctx context.Context, user string) error {
@@ -545,7 +545,7 @@ func checkNativeCallbackTenants(t *testing.T) {
 		noError(t, err)
 		handler := view.Handler()
 		selected.Store(&handler)
-		caller := &fixture{auth: view, server: front}
+		caller := &fixture{auth: view, server: front, t: t, dpop: f.dpop, cfg: f.cfg}
 		user := authtest.NewUser(t, view)
 		session := caller.signIn(t, user)
 		if firstToken == "" {

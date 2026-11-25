@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+
 	"github.com/open-rails/authkit/iam"
 )
 

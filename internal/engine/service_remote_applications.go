@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
@@ -19,14 +20,16 @@ import (
 )
 
 // trustSourcePolicy relaxes remote-application trust-source validation.
-// AllowPrivateNetworkJWKS admits loopback/private-network JWKS URLs (local
-// development only; production leaves it off, see Config.Token.AllowPrivateNetworkJWKS).
+// AllowPrivateNetworkJWKS admits loopback/private-network JWKS URLs: for an
+// application the host declares, and on a loopback issuer.
 type trustSourcePolicy struct {
 	AllowPrivateNetworkJWKS bool
 }
 
-func (s *Engine) trustSourcePolicy() trustSourcePolicy {
-	return trustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Token.AllowPrivateNetworkJWKS}
+// trustSourcePolicy is the policy for an application registered as private
+// says: host-declared, or at run time.
+func (s *Engine) trustSourcePolicy(private bool) trustSourcePolicy {
+	return trustSourcePolicy{AllowPrivateNetworkJWKS: private || config.Tuned(s.cfg).PrivateNetworkJWKS}
 }
 
 // normalizeRemoteAppTrustSource validates the mutually-exclusive trust source
@@ -81,7 +84,7 @@ func normalizeRemoteAppTrustSource(jwksURI string, mode iam.RemoteApplicationMod
 // This is a syntactic check (no DNS resolution). The verifier's SSRF-guarding
 // dialer provides a second layer against DNS rebinding at fetch time.
 //
-// allowInsecure (Token.AllowPrivateNetworkJWKS) permits http and
+// allowInsecure (a host-declared application, or a loopback issuer) permits http and
 // loopback/private hosts for local federation; still requires a parseable
 // http(s) URL with a host.
 func validateJWKSURI(raw string, allowInsecure bool) error {
@@ -176,6 +179,7 @@ func remoteAppFromRow(row db.RemoteApplication) *iam.RemoteApplication {
 		TrustRoot: iam.ApplicationTrustRoot(row.TrustRoot),
 		RoleMap:   decodeRoleMap(row.RoleMap),
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		PrivateNetwork: row.PrivateNetwork,
 	}
 	return ra
 }
@@ -184,7 +188,9 @@ func remoteAppFromRow(row db.RemoteApplication) *iam.RemoteApplication {
 // by issuer, in the group in.GroupID. A set TrustRoot is stored;
 // unset, a new row is manual and an existing one keeps its own. Callers
 // authorize.
-func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGroupStore, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
+// private marks an application the host declared, which may fetch from a
+// private network (iam.RemoteApplication.PrivateNetwork).
+func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGroupStore, in iam.RemoteApplication, private bool) (*iam.RemoteApplication, error) {
 	q := db.New(st.q)
 	issuer := strings.TrimSpace(in.Issuer)
 	jwksURI := strings.TrimSpace(in.JWKSURI)
@@ -203,7 +209,7 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 	if s.reservedIssuer(issuer) {
 		return nil, iam.ErrReservedIssuer
 	}
-	mode, err := normalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.trustSourcePolicy())
+	mode, err := normalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.trustSourcePolicy(private))
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +250,7 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 		Mode:              string(mode),
 		PublicKeys:        keysJSON,
 		Enabled:           in.Enabled,
-		CatalogIssuer:     s.cfg.Token.Issuer,
+		CatalogIssuer:     s.cfg.Issuer,
 		RoleMap:           encodeRoleMap(in.RoleMap),
 	})
 	// The atomic upsert guard also covers an issuer claimed after our lookup.
@@ -261,6 +267,12 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 			return nil, err
 		}
 	}
+	if private && !out.PrivateNetwork {
+		if err := q.RemoteApplicationSetPrivateNetwork(ctx, out.ID); err != nil {
+			return nil, err
+		}
+		out.PrivateNetwork = true
+	}
 	return out, nil
 }
 
@@ -272,7 +284,7 @@ func (s *Engine) reservedIssuer(issuer string) bool {
 	if key == "" {
 		return false
 	}
-	if issuerKey(s.cfg.Token.Issuer) == key {
+	if issuerKey(s.cfg.Issuer) == key {
 		return true
 	}
 	for _, p := range s.configuredProviders {
@@ -289,7 +301,7 @@ func (s *Engine) reservedIssuer(issuer string) bool {
 // sign for every shared account.
 func (s *Engine) accountPeerIssuer(issuer string) bool {
 	key := issuerKey(issuer)
-	for _, peer := range s.cfg.Token.AccountIssuers {
+	for _, peer := range s.cfg.AccountIssuers {
 		if key != "" && issuerKey(peer) == key {
 			return true
 		}

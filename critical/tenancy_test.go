@@ -2,6 +2,10 @@ package critical_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -72,24 +76,20 @@ func TestCriticalTenancy(t *testing.T) {
 		// Restarts, explicit migrations and the tenant named explicitly keep it.
 		noError(t, authkit.Migrate(t.Context(), f.pool, f.cfg.Database))
 		noError(t, authkit.Migrate(t.Context(), f.pool, f.cfg.Database, authkit.MigrationOptions{LegacyTenantID: sole}))
-		for _, id := range []iam.TenantID{{}, sole} {
-			replica := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.DefaultTenantID = id }))
-			got, err := replica.User(t.Context(), iam.UserByID(u.ID))
-			noError(t, err)
-			if got.TenantID != sole || replica.TenantID() != sole {
-				t.Fatal("a restart lost the tenant")
-			}
+		replica := authtest.Replica(t, f.auth)
+		got, err := replica.User(t.Context(), iam.UserByID(u.ID))
+		noError(t, err)
+		if got.TenantID != sole || replica.TenantID() != sole {
+			t.Fatal("a restart lost the tenant")
 		}
 		if ids := f.tenantIDs(t); len(ids) != 1 || ids[0] != sole {
 			t.Fatalf("restarts and migrations changed the tenants: %v", ids)
 		}
 
-		// A tenant named on a fresh database is the one it gets.
-		named := iam.NewTenantID()
-		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.DefaultTenantID = named }))
-		if ids := g.tenantIDs(t); len(ids) != 1 || ids[0] != named || g.auth.TenantID() != named {
-			t.Fatalf("a fresh database with DefaultTenantID holds %v", ids)
-		}
+		// A single-tenant host names no tenant, even its own.
+		named := f.cfg
+		named.DefaultTenantID = sole
+		startRefused(t, named, f.deps, "DefaultTenantID is multi-tenant only")
 	})
 
 	t.Run("AK-J02-C09_single_tenant_adopts_the_one_tenant_a_database_holds", func(t *testing.T) {
@@ -119,7 +119,7 @@ func TestCriticalTenancy(t *testing.T) {
 		}
 
 		single.DefaultTenantID = iam.NewTenantID()
-		startRefused(t, single, f.deps, "is not the single-tenant database's tenant")
+		startRefused(t, single, f.deps, "DefaultTenantID is multi-tenant only")
 		if after := f.tenantIDs(t); len(after) != 1 || after[0] != before[0] {
 			t.Fatalf("adoption changed the tenants: %v", after)
 		}
@@ -162,11 +162,9 @@ func TestCriticalTenancy(t *testing.T) {
 		// A database with more tenants contradicts the mode: New and Migrate refuse it.
 		m := newFixture(t, multiTenant)
 		noError(t, m.auth.CreateTenant(t.Context(), iam.Tenant{ID: iam.NewTenantID(), Slug: "realm"}))
-		for _, id := range []iam.TenantID{{}, m.tenant} {
-			cfg := m.cfg
-			cfg.Tenancy, cfg.DefaultTenantID = authkit.TenancySingle, id
-			startRefused(t, cfg, m.deps, "more than one tenant")
-		}
+		cfg := m.cfg
+		cfg.Tenancy, cfg.DefaultTenantID = authkit.TenancySingle, iam.TenantID{}
+		startRefused(t, cfg, m.deps, "more than one tenant")
 		if err := authkit.Migrate(t.Context(), m.pool, m.cfg.Database); err == nil || !strings.Contains(err.Error(), "more than one tenant") {
 			t.Fatalf("single-tenant Migrate of two tenants = %v", err)
 		}
@@ -207,5 +205,37 @@ func TestCriticalTenancy(t *testing.T) {
 				t.Errorf("an unscoped operation wrote %s: %d rows, then %d", table, before[table], n)
 			}
 		}
+	})
+
+	t.Run("AK-J02-C12_a_single_tenant_host_names_no_tenant_for_its_SCIM_client_or_target", func(t *testing.T) {
+		const secret = "a single-tenant directory reader's secret"
+		sum := sha256.Sum256([]byte(secret))
+		target := newSCIMTarget()
+		as := authtest.NewAuthorizationServer(t, authtest.WithConfig(func(c *authkit.Config) {
+			scim := strings.TrimRight(c.Issuer, "/") + "/scim/v2"
+			c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: "directory-reader", SecretSHA256: hex.EncodeToString(sum[:]), GrantTypes: []authkit.OAuthGrantType{authkit.GrantClientCredentials}, Resources: []string{scim}}}
+			c.Provisioning = []authkit.ProvisioningTarget{{Name: "directory"}}
+		}), authtest.WithDeps(func(d *authkit.Deps) { d.SCIMHandlers = map[string]http.Handler{"directory": target} }))
+		u := authtest.NewUser(t, as.Client)
+		if u.TenantID != as.Client.TenantID() || as.Client.TenantID().IsZero() {
+			t.Fatalf("the account landed in %s, not the one tenant %s", u.TenantID, as.Client.TenantID())
+		}
+		// The client reads the one tenant's accounts.
+		tokens := as.ClientCredentials(t, "directory-reader", secret, as.URL+"/scim/v2", []string{"scim:read"}, nil)
+		r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, as.URL+"/scim/v2/Users/"+u.ID, nil)
+		noError(t, err)
+		r.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+		res, err := (&http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}).Do(r) // the test issuer's own certificate
+		noError(t, err)
+		defer res.Body.Close()
+		var user struct {
+			ID string `json:"id"`
+		}
+		if res.StatusCode != http.StatusOK || json.NewDecoder(res.Body).Decode(&user) != nil || user.ID != u.ID {
+			t.Fatalf("the single-tenant SCIM client read HTTP %d for %s", res.StatusCode, u.ID)
+		}
+		// The target receives the one tenant's accounts.
+		noError(t, as.Client.Start(context.Background()))
+		target.await(t, u.ID)
 	})
 }

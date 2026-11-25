@@ -15,6 +15,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -25,7 +26,7 @@ const deviceCookieMaxAge = 400 * 24 * time.Hour
 // is on, or phone-only accounts can exist (an SMS sender), whose every new
 // device proves the phone again.
 func (s *Service) countsDevices() bool {
-	c := s.cfg.SignIn
+	c := config.Tuned(s.cfg)
 	return c.AccountsPerDevice > 0 || c.AccountsPerAddress > 0 || c.NewDevicesPerAccount > 0 || s.smsSender
 }
 

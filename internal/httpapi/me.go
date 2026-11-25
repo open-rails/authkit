@@ -50,7 +50,7 @@ func (s *Service) handleMePATCH(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.PreferredLanguage != nil {
 		language, err := authflow.NormalizePreferredLanguage(strings.TrimSpace(*body.PreferredLanguage))
-		if err != nil || !acceptable(s.cfg.Languages, language) {
+		if err != nil || !acceptable(s.cfg, language) {
 			s.fail(w, errmodel.CodeInvalidPreferredLanguage)
 			return
 		}

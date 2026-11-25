@@ -77,7 +77,7 @@ type credentialSweepWorker struct {
 // Work sweeps what this app issued in the scope of another app's change, under
 // the authority lock. The change is made: the sweep retires and never refuses.
 func (w *credentialSweepWorker) Work(ctx context.Context, job *river.Job[credentialSweepArgs]) error {
-	if job.Args.Schema != w.engine.dbSchema() || job.Args.Issuer != w.engine.cfg.Token.Issuer {
+	if job.Args.Schema != w.engine.dbSchema() || job.Args.Issuer != w.engine.cfg.Issuer {
 		return river.JobCancel(errors.New("authkit: credential sweep routed to a different application"))
 	}
 	return w.engine.withAuthorityMutation(ctx, auth.Identity{}, func(st *permissionGroupStore) error {

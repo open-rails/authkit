@@ -13,7 +13,9 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
+	"github.com/open-rails/authkit/naming"
 )
 
 func (f *fixture) ageTerminal(t *testing.T, table, id string) {
@@ -33,7 +35,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		f := newFixture(t)
 		u := f.user(t)
 		session := f.signIn(t, u)
-		claims, err := f.auth.Verify(t.Context(), session.AccessToken)
+		claims, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		_, err = f.pool.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, "refresh_sessions"}.Sanitize()+" SET expires_at=statement_timestamp()-interval '1 second' WHERE id=$1", claims.SessionID)
 		noError(t, err)
@@ -104,7 +106,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		noError(t, err)
 		_, err = f.auth.ResolvePersonalAccessToken(t.Context(), pat.Secret)
 		noError(t, err)
-		cl, err := f.auth.Verify(t.Context(), session.AccessToken)
+		cl, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.CheckSession(t.Context(), cl))
 		kept, err := f.auth.User(t.Context(), iam.UserByID(recoverable.ID), authkit.IncludeDeleted())
@@ -168,11 +170,8 @@ func TestCriticalMaintenance(t *testing.T) {
 	})
 	t.Run("AK-J32-C06_alias_and_history_retention_do_not_change_live_authority", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Username.Renames = true
-			c.Username.RenameInterval = -1
-			c.Username.FormerNames = authkit.NameRetention{Mode: authkit.NameRetentionFinite, Duration: time.Hour}
-			c.EventRetention = time.Hour
-			c.SessionEventRetention = time.Hour
+			config.Tune(c, func(tn *config.Tuning) { tn.EventRetention = time.Hour })
+			config.Tune(c, func(tn *config.Tuning) { tn.SessionEventRetention = time.Hour })
 		}))
 		clock := testclock.Wall()
 		testclock.Use(f.auth, clock.Now)
@@ -196,7 +195,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		}
 		_, err = f.pool.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, "session_events"}.Sanitize()+" SET occurred_at=statement_timestamp()-interval '2 hours' WHERE user_id=$1", u.ID)
 		noError(t, err)
-		clock.Advance(2 * time.Hour)
+		clock.Advance(naming.FormerNameReservation + time.Hour)
 		_, err = f.auth.ResolveUsername(t.Context(), u.Username)
 		if !errors.Is(err, iam.ErrUserNotFound) {
 			t.Fatal("expired alias remained authoritative before maintenance")
@@ -212,7 +211,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		if len(events.Events) != 0 {
 			t.Fatal("expired retained-log history became visible")
 		}
-		cl, err := f.auth.Verify(t.Context(), session.AccessToken)
+		cl, err := verifyToken(t, f.auth, session.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.CheckSession(t.Context(), cl))
 	})

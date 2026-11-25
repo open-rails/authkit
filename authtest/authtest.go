@@ -24,10 +24,12 @@ package authtest
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -45,11 +47,8 @@ import (
 	"github.com/open-rails/authkit/keys"
 )
 
-// Issuer and Audience are the token issuer and audience New configures.
-const (
-	Issuer   = "https://example.com"
-	Audience = "authtest"
-)
+// Issuer is the token issuer, and so the audience, New configures.
+const Issuer = "https://example.com"
 
 // Option adjusts what New builds.
 type Option func(*setup)
@@ -75,13 +74,13 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 // the Client with the Outbox wired as its email and SMS senders. The defaults
 // differ from a zero Config only where a test needs them to:
 //
-//   - Token: Issuer and Audience.
-//   - TwoFactor.TOTPSecretKey: random, so authenticator apps can enroll.
-//   - HTTP: served (DirectPeerIP), with every rate limit lifted (RateLimits).
-//   - SignIn: every limit off, since tests sign many accounts in from one
-//     address.
-//   - Deps.KeySource: an RSA key generated once per test binary.
-//   - Database.Schema and Database.RiverSchema: the scratch schema, unless set.
+//   - Issuer.
+//   - HTTP: served (DirectPeerIP), with every rate limit lifted.
+//   - The sign-in limits off, since tests sign many accounts in from one
+//     address. The session cap stays (LiftLimits lifts it too).
+//   - Deps.KeySource: an RSA key generated once per test binary, and a
+//     random TOTP key, so authenticator apps can enroll.
+//   - Database.Schema: the scratch schema, unless set (River's follows it).
 //
 // The Client is not started: call Start when a test needs River's work, such
 // as account deletion cleanup. Cleanup closes the Client and drops
@@ -93,16 +92,18 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 		opt(&s)
 	}
 	outbox := &Outbox{}
-	key := make([]byte, 32)
-	_, _ = rand.Read(key)
 	cfg := authkit.Config{
-		DefaultTenantID: iam.NewTenantID(),
-		Token:           authkit.TokenConfig{Issuer: Issuer, IssuedAudiences: []string{Audience}},
-		TwoFactor:       authkit.TwoFactorConfig{TOTPSecretKey: key},
-		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: unlimited()},
-		SignIn:          authkit.SignInConfig{AccountsPerDevice: -1, AccountsPerAddress: -1, NewDevicesPerAccount: -1},
+		Issuer: Issuer,
+		HTTP:   &authkit.HTTPConfig{DirectPeerIP: true},
 	}
-	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email(), SMS: outbox.SMS()}
+	config.Tune(&cfg, func(t *config.Tuning) {
+		t.NoRateLimits = true
+		t.AccountsPerDevice, t.AccountsPerAddress, t.NewDevicesPerAccount = -1, -1, -1
+	})
+	ks := signingKeys()
+	ks.TOTP = make([]byte, 32)
+	_, _ = rand.Read(ks.TOTP)
+	deps := authkit.Deps{KeySource: ks, Email: outbox.Email(), SMS: outbox.SMS()}
 	for _, fn := range s.config {
 		fn(&cfg)
 	}
@@ -121,9 +122,6 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	if cfg.Database.Schema == "" {
 		cfg.Database.Schema = scratchSchema(t, deps.Postgres)
 	}
-	if cfg.Database.RiverSchema == "" {
-		cfg.Database.RiverSchema = cfg.Database.Schema
-	}
 	auth, err := authkit.New(ctx, cfg, deps)
 	if err != nil {
 		t.Fatalf("authtest: new client: %v", err)
@@ -135,7 +133,8 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 // Replica builds another Client on auth's database and schema, as another
 // replica of the deployment runs: the Config and Deps auth was built with
 // (its Outbox included, when New built it), then opts. auth may be any
-// Client authkit.New built, a host's own included. A different Token.Issuer
+// Client authkit.New built, a host's own included. A different Issuer
+
 // makes a sibling deployment sharing the account store; different HTTPConfig
 // serves the same accounts another way. HTTP is copied, so opts may set its
 // fields; replace, never mutate, the maps and slices opts
@@ -185,9 +184,19 @@ func StaleSession(t testing.TB, auth *authkit.Client, accessToken string) string
 		t.Fatalf("authtest: stale session: no database (%v)", err)
 	}
 	ctx := context.Background()
-	claims, err := auth.Verify(ctx, accessToken)
-	if err != nil || claims.SessionID == "" {
-		t.Fatalf("authtest: stale session: no session behind the token (%v)", err)
+	// The token's own claims name its session: whoever holds its DPoP key,
+	// the session row below must exist.
+	var claims struct {
+		UserID    string `json:"sub"`
+		SessionID string `json:"sid"`
+	}
+	if parts := strings.Split(accessToken, "."); len(parts) == 3 {
+		if payload, err := base64.RawURLEncoding.DecodeString(parts[1]); err == nil {
+			_ = json.Unmarshal(payload, &claims)
+		}
+	}
+	if claims.SessionID == "" {
+		t.Fatal("authtest: stale session: no session behind the token")
 	}
 	tag, err := deps.Postgres.Exec(ctx, `UPDATE `+pgx.Identifier{schema, "refresh_sessions"}.Sanitize()+`
 		SET last_authenticated_at = now() - interval '1 day',
@@ -236,11 +245,8 @@ func scratchSchema(t testing.TB, pool *pgxpool.Pool) string {
 	return name
 }
 
-// unlimited lifts every rate-limit bucket out of a test's way.
-func unlimited() map[string]authkit.RateLimit {
-	limits := authkit.DefaultRateLimits()
-	for bucket := range limits {
-		limits[bucket] = authkit.RateLimit{Limit: math.MaxInt32, Window: time.Millisecond}
-	}
-	return limits
-}
+// LiftLimits lifts what a host's test rig would trip, for a Client it builds
+// itself (New already lifts the rate and sign-in limits): every rate limit,
+// the sign-in limits and the session cap. It also admits private-network
+// JWKS URLs. Only tests call it; a production Config has no such setting.
+func LiftLimits(c *authkit.Config) { config.LiftLimits(c) }

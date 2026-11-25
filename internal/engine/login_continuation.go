@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -49,7 +50,7 @@ func (s *Engine) loadLoginProof(ctx context.Context, userID, nonce string) (logi
 	if err != nil {
 		return proof, err
 	}
-	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Token.Issuer || !secret.Equal(proof.NonceHash, secret.Hash(nonce)) || proof.AuthenticatedAt.IsZero() || proof.AuthenticatedAt.After(time.Now().Add(time.Minute)) || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
+	if !ok || nonce == "" || proof.Version <= 0 || proof.Input.UserID != userID || proof.Issuer != s.cfg.Issuer || !secret.Equal(proof.NonceHash, secret.Hash(nonce)) || proof.AuthenticatedAt.IsZero() || proof.AuthenticatedAt.After(time.Now().Add(time.Minute)) || time.Since(proof.AuthenticatedAt) > 10*time.Minute {
 		return proof, jwt.ErrTokenUnverifiable
 	}
 	proof.expected = raw
@@ -181,7 +182,7 @@ func (s *Engine) finishFirstFactorTx(ctx context.Context, tx pgx.Tx, proof login
 		}
 		nonce := secret.Token(32)
 		proof.NonceHash = secret.Hash(nonce)
-		proof.Issuer = s.cfg.Token.Issuer
+		proof.Issuer = s.cfg.Issuer
 		proof.Enrollment = !needsChallenge
 		if proof.AuthenticatedAt.IsZero() {
 			proof.AuthenticatedAt = time.Now().UTC()
@@ -206,7 +207,13 @@ func (s *Engine) finishFirstFactorTx(ctx context.Context, tx pgx.Tx, proof login
 				}
 			}
 			authTime, amr, acr := (authflow.SessionFreshness{LastAuthenticatedAt: proof.AuthenticatedAt, AuthMethods: proof.Input.AuthMethods}).AssuranceClaims(false)
-			token, expires, err := s.mintAccessTokenForUserWithAssurance(ctx, s.q, user, &status, map[string]any{"2fa_enrollment": true}, 10*time.Minute, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr, JTI: nonce})
+			// Bound to the sign-in's DPoP key, so the session the enrollment
+			// finishes is bound to it too.
+			extra := map[string]any{"2fa_enrollment": true}
+			if jkt := authflow.DPoPKey(ctx); jkt != "" {
+				extra["cnf"] = map[string]any{jose.JWKThumbprintMember: jkt}
+			}
+			token, expires, err := s.mintAccessTokenForUserWithAssurance(ctx, s.q, user, &status, extra, 10*time.Minute, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr, JTI: nonce})
 			if err != nil {
 				return authflow.LoginOutcome{}, err
 			}
@@ -251,7 +258,7 @@ func (s *Engine) holdsPasskey(ctx context.Context, q db.DBTX, userID string) (bo
 	if !s.PasskeysEnabled() {
 		return false, nil
 	}
-	return db.New(q).PasskeyExistsForRP(ctx, db.PasskeyExistsForRPParams{UserID: userID, Rpid: s.cfg.Passkeys.RPID})
+	return db.New(q).PasskeyExistsForRP(ctx, db.PasskeyExistsForRPParams{UserID: userID, Rpid: s.passkeys.ID})
 }
 
 func (s *Engine) sendLoginFactor(ctx context.Context, user *db.User, proof loginProof, nonce string, settings *authflow.TwoFactorSettings, factorID string) (*authflow.TwoFactorChallenge, error) {
@@ -505,7 +512,7 @@ func (s *Engine) validateLoginProofSource(ctx context.Context, source db.DBTX, p
 		}
 	}
 	if proof.SessionID != "" {
-		_, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: proof.Input.UserID, SessionID: proof.SessionID, Issuer: s.cfg.Token.Issuer})
+		_, err := q.SessionFreshSinceForUpdate(ctx, db.SessionFreshSinceForUpdateParams{UserID: proof.Input.UserID, SessionID: proof.SessionID, Issuer: s.cfg.Issuer})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return jwt.ErrTokenUnverifiable
 		}

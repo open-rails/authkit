@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/verify"
 )
@@ -36,7 +37,7 @@ func (s *Service) handleSignInKeysGET(w http.ResponseWriter, r *http.Request) {
 			keys = append(keys, passkeySignInKey(p))
 		}
 	}
-	if s.cfg.DeviceKeys.Enabled {
+	if config.Mounted(s.cfg, iam.RouteDeviceKeys) {
 		deviceKeys, err := s.svc.DeviceKeys(r.Context(), claims.UserID)
 		if err != nil {
 			s.serverErr(w, "list_device_keys", err)
@@ -84,7 +85,7 @@ func (s *Service) handleSignInKeyPATCH(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if s.cfg.DeviceKeys.Enabled {
+	if config.Mounted(s.cfg, iam.RouteDeviceKeys) {
 		key, err := s.svc.RelabelDeviceKey(r.Context(), claims.UserID, id, label)
 		if err == nil {
 			writeJSON(w, http.StatusOK, deviceSignInKey(key, claims))
@@ -119,7 +120,7 @@ func (s *Service) handleSignInKeyDELETE(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	if s.cfg.DeviceKeys.Enabled {
+	if config.Mounted(s.cfg, iam.RouteDeviceKeys) {
 		err := s.svc.RevokeDeviceKey(r.Context(), claims.UserID, claims.DeviceKeyID, id)
 		if err == nil {
 			noContent(w)

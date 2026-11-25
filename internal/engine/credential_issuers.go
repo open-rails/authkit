@@ -77,7 +77,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 	return s.withAuthorityMutation(ctx, auth.Identity{}, func(st *permissionGroupStore) error {
 		st.reconcile = true
 		q := db.New(st.q)
-		stored, err := q.RoleCatalogFingerprint(ctx, s.cfg.Token.Issuer)
+		stored, err := q.RoleCatalogFingerprint(ctx, s.cfg.Issuer)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -89,7 +89,7 @@ func (s *Engine) reconcileRoleCatalog(ctx context.Context) error {
 			return err
 		}
 		st.touched = append(st.touched, authorityTouch{groupID: rootID})
-		return q.RoleCatalogSet(ctx, db.RoleCatalogSetParams{Issuer: s.cfg.Token.Issuer, Fingerprint: fingerprint, Roles: s.declaredRoles()})
+		return q.RoleCatalogSet(ctx, db.RoleCatalogSetParams{Issuer: s.cfg.Issuer, Fingerprint: fingerprint, Roles: s.declaredRoles()})
 	})
 }
 
@@ -115,7 +115,7 @@ func catalogRoleName(persona, role string) string { return persona + ":" + role 
 func (s *Engine) roleCatalogFingerprint() string {
 	sch := s.groupSchemaOrDefault()
 	h := sha256.New()
-	fmt.Fprintf(h, "mfa-policy=2 mode=%s passkeys=%t\n", s.cfg.TwoFactor.Mode, s.PasskeysEnabled())
+	fmt.Fprintf(h, "mfa-policy=2 mode=%s passkeys=%t\n", s.cfg.TwoFactor, s.PasskeysEnabled())
 	for _, method := range []iam.TwoFactorMethod{iam.TwoFactorTOTP, iam.TwoFactorSMS} {
 		fmt.Fprintf(h, "factor %s=%t\n", method, s.twoFactorMethodConfigured(method))
 	}

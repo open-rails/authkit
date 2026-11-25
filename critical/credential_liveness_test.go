@@ -41,7 +41,7 @@ func liveProofRequest(t *testing.T, provider auth.Authenticator, token string, s
 	t.Helper()
 	r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proofOrigin+"/customer-proof", nil)
 	noError(t, err)
-	r.Header.Set("Authorization", "Bearer "+token)
+	authorize(t, r, token)
 	if sender != nil {
 		sender.Authorize(t, r, token, "")
 	}
@@ -124,7 +124,7 @@ func TestCriticalCredentialLiveness(t *testing.T) {
 			if err := v.(auth.RecentSignInChecker).CheckRecentSignIn(t.Context()); !errors.Is(err, auth.ErrStepUpRequired) {
 				t.Fatalf("valid older sign-in did not exercise the no-step-up contract: %v", err)
 			}
-			claims, err := f.auth.Verify(t.Context(), stale)
+			claims, err := verifyToken(t, f.auth, stale)
 			noError(t, err)
 			noError(t, f.auth.CheckCredential(t.Context(), claims))
 			group, _, owner := f.ownedGroup(t)
@@ -153,7 +153,7 @@ func TestCriticalCredentialLiveness(t *testing.T) {
 			}
 
 			fresh := f.signIn(t, u)
-			zero, err := f.auth.NewVerifier([]string{authtest.Audience}, verify.WithSkew(0))
+			zero, err := f.auth.NewVerifier([]string{authtest.Issuer}, verify.WithSkew(0))
 			noError(t, err)
 			for _, profile := range []struct {
 				name     string
@@ -172,6 +172,7 @@ func TestCriticalCredentialLiveness(t *testing.T) {
 					delete(body, "nbf")
 					if profile.resource {
 						header["typ"] = "at+jwt"
+						delete(body, "cnf") // a bearer resource token
 						body["aud"], body["client_id"] = waitingResource, "waiting-client"
 					}
 					verified, _ := liveProofRequest(t, profile.provider, signJWT(t, f.deps.KeySource.ActiveSigner(), header, body), nil)
@@ -181,9 +182,10 @@ func TestCriticalCredentialLiveness(t *testing.T) {
 		})
 
 		t.Run("asserted_and_sender_bound_resource_registration_is_live", func(t *testing.T) {
-			const resource = "https://customer-proof.example"
+			const resource = proofOrigin + "/customer-proof"
 			f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-				c.Resource = authkit.ResourceConfig{ID: resource, PublicURL: proofOrigin, Scopes: map[string][]string{"customer:self": {}}}
+				c.Resource = authkit.ResourceConfig{ID: resource, Scopes: map[string][]string{"customer:self": {}}}
+
 			}))
 			group, _, _ := f.ownedGroup(t)
 			_, private, err := ed25519.GenerateKey(rand.Reader)
@@ -196,7 +198,7 @@ func TestCriticalCredentialLiveness(t *testing.T) {
 			noError(t, err)
 			customer := uuid.NewString()
 			now := time.Now()
-			assertion := signJWT(t, signer, map[string]any{"alg": signer.Algorithm(), "kid": signer.KID(), "typ": "JWT"}, map[string]any{"iss": app.Issuer, "sub": customer, "aud": f.cfg.Token.Issuer + iam.OAuthTokenPath, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(), "jti": uuid.NewString()})
+			assertion := signJWT(t, signer, map[string]any{"alg": signer.Algorithm(), "kid": signer.KID(), "typ": "JWT"}, map[string]any{"iss": app.Issuer, "sub": customer, "aud": f.cfg.Issuer + iam.OAuthTokenPath, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(), "jti": uuid.NewString()})
 			form := url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "assertion": {assertion}, "scope": {"customer:self"}}
 			response, err := f.server.Client().PostForm(f.server.URL+iam.OAuthTokenPath, form)
 			noError(t, err)
@@ -271,6 +273,7 @@ func TestCriticalCredentialLiveness(t *testing.T) {
 			noError(t, err)
 			header, claims := jwtParts(t, session.AccessToken)
 			header["typ"] = "at+jwt"
+			delete(claims, "cnf") // a bearer resource token
 			claims["aud"], claims["client_id"], claims["scope"] = resource, client.ClientID, "customer:self"
 			resourceToken := signJWT(t, f.deps.KeySource.ActiveSigner(), header, claims)
 			resourceVerified, _ := liveProofRequest(t, f.auth.Authenticator(), resourceToken, nil)

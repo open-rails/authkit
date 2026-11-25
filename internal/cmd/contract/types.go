@@ -218,8 +218,8 @@ func pathParams(path string) []string {
 	return out
 }
 
-// fullPath is the route's path on a default mount: the JSON API beneath
-// /api/v1, browser OIDC beneath /oidc, the issuer's own paths at the root.
+// fullPath is the route's path on an issuer at the root: the JSON API beneath
+// /auth/v1, browser OIDC beneath /oidc, the issuer's own paths at the root.
 func fullPath(r httpapi.RouteSpec) string {
 	switch r.Surface {
 	case httpapi.SurfaceAPI:

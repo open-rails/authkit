@@ -55,13 +55,13 @@ func (s *Engine) RequestPhoneChange(ctx context.Context, userID, newPhone string
 	}
 	if existing, _ := s.getUserByPhone(ctx, trimmed); existing != nil && existing.ID != userID {
 		if s.sms == nil {
-			return newChallengeHandle(), s.missingSender(errSMSNotConfigured)
+			return newChallengeHandle(), errSMSNotConfigured
 		}
 		return newChallengeHandle(), s.notifyAccountExists(ctx, "sms", trimmed)
 	}
 	return s.sendVerification(ctx, verificationChallenge{Kind: kindChangePhone, Target: trimmed, UserID: userID}, func(code, link string) error {
 		if s.sms == nil {
-			return s.missingSender(errSMSNotConfigured)
+			return errSMSNotConfigured
 		}
 		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: trimmed, UserID: userID, Language: s.userLanguage(ctx, userID),
 			Code: code, Link: s.phoneVerificationURL(link), Purpose: iam.PurposeContactChange})
@@ -104,13 +104,13 @@ func (s *Engine) RequestEmailChange(ctx context.Context, userID, newEmail string
 	}
 	if existing, _ := s.getUserByEmail(ctx, trimmed); existing != nil && existing.ID != userID {
 		if s.email == nil {
-			return newChallengeHandle(), s.missingSender(errEmailNotConfigured)
+			return newChallengeHandle(), errEmailNotConfigured
 		}
 		return newChallengeHandle(), s.notifyAccountExists(ctx, "email", trimmed)
 	}
 	return s.sendVerification(ctx, verificationChallenge{Kind: kindChangeEmail, Target: trimmed, UserID: userID}, func(code, link string) error {
 		if s.email == nil {
-			return s.missingSender(errEmailNotConfigured)
+			return errEmailNotConfigured
 		}
 		return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: trimmed, Username: deref(u.Username), Language: s.userLanguage(ctx, userID),
 			Code: code, Link: s.emailVerificationURL(link), Purpose: iam.PurposeContactChange})

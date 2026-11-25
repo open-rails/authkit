@@ -31,7 +31,7 @@ func (s *Engine) reconcileRemoteApplications(ctx context.Context) error {
 	}
 	apps := make([]iam.RemoteApplication, len(declared))
 	for i, app := range declared {
-		apps[i] = iam.RemoteApplication{Issuer: app.Issuer, JWKSURI: app.JWKSURI, PublicKeys: app.PublicKeys, Enabled: !app.Disabled, Role: app.Role, RoleMap: app.RoleMap}
+		apps[i] = iam.RemoteApplication{Issuer: app.Issuer, PublicKeys: app.PublicKeys, Enabled: true, Role: app.Role, RoleMap: app.RoleMap}
 	}
 	return s.declareRemoteApplications(ctx, nil, iam.RootGroup(), apps, "Config.RemoteApplications")
 }
@@ -97,7 +97,7 @@ func (s *Engine) declareRemoteApplications(ctx context.Context, host pgx.Tx, ref
 		}
 		issuers := declared
 		q := db.New(st.q)
-		by := s.cfg.Token.Issuer
+		by := s.cfg.Issuer
 		if err := q.RemoteApplicationsDeclare(ctx, db.RemoteApplicationsDeclareParams{DeclaredBy: by, PermissionGroupID: g.ID, Issuers: issuers}); err != nil {
 			return err
 		}
@@ -170,7 +170,7 @@ func (s *Engine) applyDeclaredApplication(ctx context.Context, st *permissionGro
 		return err
 	}
 	app.GroupID, app.TrustRoot = g.ID, iam.ApplicationTrustRootManual
-	ra, err := s.upsertRemoteApplication(ctx, st, app)
+	ra, err := s.upsertRemoteApplication(ctx, st, app, true)
 	if err != nil {
 		return err
 	}

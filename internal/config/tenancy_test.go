@@ -1,25 +1,15 @@
 package config
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/notify"
 )
 
-func tenancyConfig(tenancy Tenancy, producers ...NotificationProducer) Config {
-	return Config{
-		Tenancy:       tenancy,
-		Token:         TokenConfig{Issuer: "https://auth.example.com", IssuedAudiences: []string{"app"}},
-		Notifications: &NotificationsConfig{Producers: producers},
-	}
-}
-
-func producer(name string, tenant iam.TenantID) NotificationProducer {
-	return NotificationProducer{Name: name, TenantID: tenant, Visibility: notify.VisibilityTenant, Origin: notify.OriginScope{System: "billing", Scope: "invoices"}}
+func tenancyConfig(tenancy Tenancy) Config {
+	return Config{Tenancy: tenancy, Issuer: "https://auth.example.com"}
 }
 
 func TestTenancyIsSingleUnlessMulti(t *testing.T) {
@@ -31,24 +21,6 @@ func TestTenancyIsSingleUnlessMulti(t *testing.T) {
 	}
 }
 
-// A single-tenant deployment's tenant is the database's, known once New has
-// migrated: settings naming no tenant wait for it. Multi-tenant they need
-// one, or DefaultTenantID.
-func TestUnnamedTenantsWaitForTheSoleTenant(t *testing.T) {
-	if _, _, err := Normalize(tenancyConfig(TenancySingle, producer("invoices", iam.TenantID{})), Deps{}); err != nil {
-		t.Fatalf("single-tenant: %v", err)
-	}
-	if _, _, err := Normalize(tenancyConfig(TenancyMulti, producer("invoices", iam.TenantID{})), Deps{}); err == nil || !strings.Contains(err.Error(), "needs a tenant") {
-		t.Fatalf("multi-tenant without a default = %v, want a producer refused", err)
-	}
-	multi := tenancyConfig(TenancyMulti, producer("invoices", iam.TenantID{}))
-	multi.DefaultTenantID = iam.NewTenantID()
-	norm, _, err := Normalize(multi, Deps{})
-	if err != nil || norm.Notifications.Producers[0].TenantID != multi.DefaultTenantID {
-		t.Fatalf("multi-tenant default not applied: %v", err)
-	}
-}
-
 func TestBindDefaultTenant(t *testing.T) {
 	sole, other := iam.NewTenantID(), iam.NewTenantID()
 	bind := func(c Config, id iam.TenantID) (Config, error) {
@@ -57,32 +29,43 @@ func TestBindDefaultTenant(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		norm.Provisioning.Targets = []ProvisioningTarget{{Name: "billing"}}
+		norm.Provisioning = []ProvisioningTarget{{Name: "billing"}}
 		norm.AuthorizationServer.Clients = []OAuthClientConfig{{ID: "scim"}}
 		return norm, BindDefaultTenant(&norm, id)
 	}
 
-	norm, err := bind(tenancyConfig(TenancySingle, producer("invoices", iam.TenantID{})), sole)
-	if err != nil || norm.DefaultTenantID != sole || norm.Notifications.Producers[0].TenantID != sole ||
-		norm.Provisioning.Targets[0].TenantID != sole || norm.AuthorizationServer.Clients[0].TenantID != sole {
+	norm, err := bind(tenancyConfig(TenancySingle), sole)
+	if err != nil || norm.DefaultTenantID != sole ||
+		norm.Provisioning[0].TenantID != sole || norm.AuthorizationServer.Clients[0].TenantID != sole {
 		t.Fatalf("unnamed tenants not bound to the sole tenant: %v", err)
 	}
 
-	explicit := tenancyConfig(TenancySingle)
-	explicit.DefaultTenantID = other
-	if _, err := bind(explicit, sole); err == nil || !strings.Contains(err.Error(), "is not the database's tenant") {
-		t.Fatalf("a DefaultTenantID other than the sole tenant = %v", err)
+	multi := tenancyConfig(TenancyMulti)
+	multi.DefaultTenantID = other
+	if _, err := bind(multi, sole); err == nil || !strings.Contains(err.Error(), "is not the database's tenant") {
+		t.Fatalf("a DefaultTenantID other than the bound tenant = %v", err)
 	}
+}
 
-	if _, err := bind(tenancyConfig(TenancySingle, producer("invoices", other)), sole); !errors.Is(err, iam.ErrSingleTenant) {
-		t.Fatalf("single-tenant producer of another tenant = %v, want ErrSingleTenant", err)
+// A single-tenant host names no tenant anywhere: every tenant ID is
+// multi-tenant only.
+func TestSingleTenantNamesNoTenant(t *testing.T) {
+	id := iam.NewTenantID()
+	for name, edit := range map[string]func(*Config){
+		"DefaultTenantID":                         func(c *Config) { c.DefaultTenantID = id },
+		"AuthorizationServer.Clients[0].TenantID": func(c *Config) { c.AuthorizationServer.Clients = []OAuthClientConfig{{ID: "scim", TenantID: id}} },
+		"Provisioning[0].TenantID":                func(c *Config) { c.Provisioning = []ProvisioningTarget{{Name: "billing", TenantID: id}} },
+	} {
+		single := tenancyConfig(TenancySingle)
+		edit(&single)
+		if _, _, err := Normalize(single, Deps{}); err == nil || !strings.Contains(err.Error(), name+" is multi-tenant only") {
+			t.Fatalf("single-tenant %s = %v, want refused", name, err)
+		}
 	}
-	if _, err := bind(tenancyConfig(TenancyMulti, producer("invoices", other)), sole); err != nil {
-		t.Fatalf("multi-tenant producer of another tenant: %v", err)
-	}
-
-	if _, err := bind(tenancyConfig(TenancySingle, producer("invoices", iam.TenantID{}), producer("invoices", sole)), sole); err == nil || !strings.Contains(err.Error(), "unique producer name") {
-		t.Fatalf("two producers of one name once bound = %v", err)
+	multi := tenancyConfig(TenancyMulti)
+	multi.DefaultTenantID = id
+	if _, _, err := Normalize(multi, Deps{}); err != nil {
+		t.Fatalf("multi-tenant DefaultTenantID: %v", err)
 	}
 }
 

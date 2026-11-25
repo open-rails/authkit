@@ -2,8 +2,12 @@ package keys
 
 import (
 	"crypto"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -27,16 +31,30 @@ type Source interface {
 	PublicKeys() map[string]crypto.PublicKey
 }
 
+// A Source with no active signer only verifies: AuthKit then mints nothing,
+// and its JWKS serves the public keys alone.
+
+// TOTPSource is a Source that also holds the key encrypting stored
+// authenticator-app secrets, 16, 24 or 32 bytes. Without one, TOTP is
+// unavailable.
+type TOTPSource interface {
+	Source
+	TOTPKey() []byte
+}
+
 // Static is a fixed Source.
 type Static struct {
-	// Active signs.
+	// Active signs; nil only verifies.
 	Active Signer
 	// Public is every key JWKS publishes, the active one included, by kid.
 	Public map[string]crypto.PublicKey
+	// TOTP encrypts stored authenticator-app secrets: 16, 24 or 32 bytes.
+	TOTP []byte
 }
 
 func (s Static) ActiveSigner() Signer                    { return s.Active }
 func (s Static) PublicKeys() map[string]crypto.PublicKey { return clonePublicKeyMap(s.Public) }
+func (s Static) TOTPKey() []byte                         { return s.TOTP }
 
 // FileSource is the Source Watch returns: keys.json, reloaded when it changes
 // on disk (re-rendered by Vault Agent), so a signing-key rotation needs no
@@ -48,6 +66,8 @@ type FileSource struct {
 	interval time.Duration
 	log      *slog.Logger
 	cur      atomic.Pointer[fileKeys]
+	totp     []byte
+	totpDev  bool
 
 	mu      sync.Mutex // serializes Reload and guards lastMod
 	lastMod time.Time
@@ -58,9 +78,11 @@ type FileSource struct {
 
 // Watch loads <path>/keys.json, the envelope {active_key_id,
 // active_private_key_pem, public_keys: {kid: pem}, development}, and re-reads
-// it every 10s when it changed. It errors when path holds no valid keys.json,
-// or one that is group- or world-writable. Close stops the watch; reloads are
-// logged on log (nil is slog.Default()).
+// it every 10s when it changed; and <path>/totp.key when present, the TOTP
+// key (TOTPSource) as base64, hex or raw bytes, "development:"-prefixed when
+// AuthKit generated it. It errors when path holds no valid keys.json, an
+// invalid totp.key, or either group- or world-writable. Close stops the
+// watch; reloads are logged on log (nil is slog.Default()).
 func Watch(path string, log *slog.Logger) (*FileSource, error) {
 	return watch(path, defaultKeyReloadInterval, logx.Or(log))
 }
@@ -74,6 +96,9 @@ func watch(path string, interval time.Duration, log *slog.Logger) (*FileSource, 
 		return nil, err
 	}
 	r := &FileSource{path: path, interval: interval, log: log, done: make(chan struct{})}
+	if r.totp, r.totpDev, err = loadTOTPKey(log, path); err != nil {
+		return nil, err
+	}
 	r.cur.Store(loaded)
 	if mod, modErr := r.keyFileModTime(); modErr == nil {
 		r.lastMod = mod
@@ -87,9 +112,12 @@ func (r *FileSource) PublicKeys() map[string]crypto.PublicKey {
 	return r.cur.Load().PublicKeys()
 }
 
-// Development reports whether keys.json is marked "development": true, as
-// AuthKit marks the keys it generates for a loopback issuer.
-func (r *FileSource) Development() bool { return r.cur.Load().development }
+// Development reports whether keys.json or totp.key is marked as AuthKit
+// marks the keys it generates for a loopback issuer.
+func (r *FileSource) Development() bool { return r.cur.Load().development || r.totpDev }
+
+// TOTPKey is totp.key's key; nil without one.
+func (r *FileSource) TOTPKey() []byte { return r.totp }
 
 func (r *FileSource) keyFilePath() string { return filepath.Join(r.path, "keys.json") }
 
@@ -229,4 +257,44 @@ func StaticFromPEM(activeKeyID, activePrivateKeyPEM string, publicKeysPEM map[st
 	}
 
 	return Static{Active: signer, Public: publicKeys}, nil
+}
+
+// developmentTOTPPrefix marks a totp.key AuthKit generated.
+const developmentTOTPPrefix = "development:"
+
+// loadTOTPKey reads dir's totp.key; a missing one is nil.
+func loadTOTPKey(log *slog.Logger, dir string) (key []byte, development bool, _ error) {
+	raw, err := keyfile.Read(log, dir, "totp.key")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("TOTP key: %w", err)
+	}
+	s, development := strings.CutPrefix(strings.TrimSpace(string(raw)), developmentTOTPPrefix)
+	if key, err = decodeTOTPKey(s); err != nil {
+		return nil, false, fmt.Errorf("TOTP key %s: %w", filepath.Join(dir, "totp.key"), err)
+	}
+	return key, development, nil
+}
+
+// decodeTOTPKey accepts base64 (std or URL, padded or not), hex or raw
+// bytes, whichever is an AES key length.
+func decodeTOTPKey(s string) ([]byte, error) {
+	valid := func(n int) bool { return n == 16 || n == 24 || n == 32 }
+	if s == "" {
+		return nil, errors.New("file is empty")
+	}
+	if b, err := hex.DecodeString(s); err == nil && valid(len(b)) {
+		return b, nil
+	}
+	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+		if b, err := enc.DecodeString(s); err == nil && valid(len(b)) {
+			return b, nil
+		}
+	}
+	if valid(len(s)) {
+		return []byte(s), nil
+	}
+	return nil, errors.New("must decode to 16, 24, or 32 bytes (base64, hex, or raw)")
 }

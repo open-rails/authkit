@@ -29,7 +29,7 @@ export type AdminAuth = {
 
 export type AdminClientOptions = {
   auth: AdminAuth
-  // AuthKit's JSON API mount. Default "/api/v1".
+  // AuthKit's JSON API mount. Default "/auth/v1".
   baseUrl?: string
   // Sent as ?lang= for AuthKit's own messages.
   language?: string
@@ -143,7 +143,7 @@ export type AdminClient = ReturnType<typeof createAdminClient>
 // AuthKit's group and account administration routes, called with the
 // person's own credentials: no host proxy. Errors are AuthKitError.
 export function createAdminClient(options: AdminClientOptions) {
-  const base = (options.baseUrl ?? "/api/v1").replace(/\/+$/, "")
+  const base = (options.baseUrl ?? "/auth/v1").replace(/\/+$/, "")
 
   const mismatch = () =>
     new AuthKitError(0, {

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -64,7 +65,7 @@ func (s *Engine) appendEventLog(ctx context.Context, tx pgx.Tx, events []iam.Eve
 // ListEvents reads one authorized scope using shared paging and the historical
 // AuthKit cursor codec. Product authorization remains outside shared storage.
 func (s *Engine) ListEvents(ctx context.Context, query iam.EventQuery) (iam.EventPage, error) {
-	out := iam.EventPage{Events: []iam.Event{}, RetentionSeconds: int64(s.cfg.EventRetention / time.Second)}
+	out := iam.EventPage{Events: []iam.Event{}, RetentionSeconds: int64(config.Tuned(s.cfg).EventRetention / time.Second)}
 	if err := s.requirePG(); err != nil {
 		return out, err
 	}
@@ -80,7 +81,7 @@ func (s *Engine) ListEvents(ctx context.Context, query iam.EventQuery) (iam.Even
 	for _, kind := range query.Kinds {
 		types = append(types, string(kind))
 	}
-	log := eventlog.Log{Source: "authkit", Scope: scope, Retention: s.cfg.EventRetention,
+	log := eventlog.Log{Source: "authkit", Scope: scope, Retention: config.Tuned(s.cfg).EventRetention,
 		Now: s.nowTime, Codec: authEventCursor{}, SkipFloorBoundary: true,
 		ReadSnapshot: func(ctx context.Context, read func(eventlog.Snapshot) error) error {
 			tx, err := s.pg.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
@@ -202,12 +203,12 @@ func (s *authEventSnapshot) Events(ctx context.Context, after int64, types []str
 // pruneEventLog uses the existing auth maintenance tick, at most 100 scopes
 // and 5,000 rows per scope. It never examines or stores reader progress.
 func (s *Engine) pruneEventLog(ctx context.Context) error {
-	scopes, err := s.q.EventLogDueScopes(ctx, s.nowTime().Add(-s.cfg.EventRetention))
+	scopes, err := s.q.EventLogDueScopes(ctx, s.nowTime().Add(-config.Tuned(s.cfg).EventRetention))
 	if err != nil {
 		return err
 	}
 	for _, scope := range scopes {
-		store, err := eventpg.New(s.pg, eventpg.Config{Schema: s.dbSchema(), Source: "authkit", Scope: scope, Retention: s.cfg.EventRetention, Now: s.nowTime})
+		store, err := eventpg.New(s.pg, eventpg.Config{Schema: s.dbSchema(), Source: "authkit", Scope: scope, Retention: config.Tuned(s.cfg).EventRetention, Now: s.nowTime})
 		if err != nil {
 			return err
 		}

@@ -315,7 +315,7 @@ func (s *Engine) PutOIDCState(ctx context.Context, state string, data oidcstate.
 	if err != nil {
 		return err
 	}
-	data.TenantID, data.Issuer = id, s.cfg.Token.Issuer
+	data.TenantID, data.Issuer = id, s.cfg.Issuer
 	if err := s.ephemSetJSON(ctx, keyOIDCState+state, data, oidcStateTTL); err != nil {
 		return err
 	}
@@ -338,7 +338,7 @@ func (s *Engine) ConsumeOIDCState(ctx context.Context, state string) (oidcstate.
 		return d, false, err
 	}
 	legacy := d.TenantID.IsZero() && d.Issuer == "" && id == s.cfg.DefaultTenantID
-	if !legacy && (d.TenantID != id || d.Issuer != s.cfg.Token.Issuer) {
+	if !legacy && (d.TenantID != id || d.Issuer != s.cfg.Issuer) {
 		return d, false, nil
 	}
 	d.TenantID = id

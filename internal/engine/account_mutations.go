@@ -169,7 +169,7 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 		return iam.User{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("verified"))
 	}
 	username := naming.Canonical(n.Username)
-	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
+	if err := naming.ValidateImport(username); err != nil {
 		return iam.User{}, err
 	}
 	var hash string
@@ -770,7 +770,7 @@ func (s *Engine) RevokeAccountSessions(ctx context.Context, a auth.Identity, use
 		out.RevokedSessions[r.Issuer]++
 	}
 	s.logRevokedSessions(ctx, userID, revoked, reason)
-	s.logSessionEvent(ctx, authflow.AuthSessionEvent{Issuer: s.cfg.Token.Issuer, UserID: userID, Event: iam.SessionEventAccountSessionsRevoked, Reason: &reason})
+	s.logSessionEvent(ctx, authflow.AuthSessionEvent{Issuer: s.cfg.Issuer, UserID: userID, Event: iam.SessionEventAccountSessionsRevoked, Reason: &reason})
 	return out, nil
 }
 
@@ -842,7 +842,7 @@ func (s *Engine) RevokeSession(ctx context.Context, a auth.Identity, userID, ses
 	var sid string
 	err := s.withAccountMutation(ctx, a, userID, ident.RootUsersManage, selfAllowed|peersAllowed, func(at accountTx) error {
 		var err error
-		sid, err = at.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: strings.TrimSpace(sessionID), UserID: strings.TrimSpace(userID), Issuer: s.cfg.Token.Issuer})
+		sid, err = at.q.SessionRevokeByIDForUser(ctx, db.SessionRevokeByIDForUserParams{ID: strings.TrimSpace(sessionID), UserID: strings.TrimSpace(userID), Issuer: s.cfg.Issuer})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

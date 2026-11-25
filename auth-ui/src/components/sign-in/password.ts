@@ -8,13 +8,6 @@ const PASSWORD_MIN = 8
 // password.MinIdentifierLength).
 const IDENTIFIER_MIN = 4
 
-const CLASSES = [
-  ["require_uppercase", /\p{Lu}/u],
-  ["require_lowercase", /\p{Ll}/u],
-  ["require_digit", /\p{Nd}/u],
-  ["require_symbol", /[^\p{L}\p{Nd}]/u],
-] as const
-
 // An email is compared by its local part, anything else (username, phone)
 // whole, case-insensitively.
 function containsIdentifier(value: string, identifiers: string[]) {
@@ -36,8 +29,6 @@ function passwordIssue(
   const min = policy?.min_length ?? PASSWORD_MIN
   if (value.length < min) return "password_too_short"
   if (policy && value.length > policy.max_length) return "password_too_long"
-  if (CLASSES.some(([key, re]) => policy?.[key] && !re.test(value)))
-    return "password_requirements_unmet"
   if (containsIdentifier(value, identifiers))
     return "password_contains_identifier"
   return null

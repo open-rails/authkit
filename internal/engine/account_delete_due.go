@@ -54,7 +54,7 @@ func (w *accountDeleteDueWorker) Timeout(*river.Job[accountDeleteDueArgs]) time.
 
 func (w *accountDeleteDueWorker) Work(ctx context.Context, job *river.Job[accountDeleteDueArgs]) error {
 	s := w.engine
-	if job.Args.Schema != s.dbSchema() || job.Args.Issuer != s.cfg.Token.Issuer {
+	if job.Args.Schema != s.dbSchema() || job.Args.Issuer != s.cfg.Issuer {
 		return river.JobCancel(fmt.Errorf("authkit: account cleanup routed to a different application"))
 	}
 	if err := awaitPredecessor(ctx, job.Args.After); err != nil {
@@ -89,7 +89,7 @@ func (s *Engine) scheduleAccountCleanupTx(ctx context.Context, tx pgx.Tx, issuer
 // catchUpAccountCleanup schedules this issuer's batch at its earliest pending
 // work, which a deletion recorded by an earlier release has no job for.
 func (s *Engine) catchUpAccountCleanup(ctx context.Context) error {
-	at, err := s.q.AccountCleanupNextDue(ctx, db.AccountCleanupNextDueParams{Issuer: s.cfg.Token.Issuer})
+	at, err := s.q.AccountCleanupNextDue(ctx, db.AccountCleanupNextDueParams{Issuer: s.cfg.Issuer})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -97,7 +97,7 @@ func (s *Engine) catchUpAccountCleanup(ctx context.Context) error {
 		return err
 	}
 	return pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error {
-		return s.scheduleDue(ctx, tx, s.maintenance.producer, accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: s.cfg.Token.Issuer}, at)
+		return s.scheduleDue(ctx, tx, s.maintenance.producer, accountDeleteDueArgs{Schema: s.dbSchema(), Issuer: s.cfg.Issuer}, at)
 	})
 }
 
@@ -144,7 +144,7 @@ func (s *Engine) deleteDueAccounts(ctx context.Context) (*time.Time, error) {
 		failed = earliest(failed, *cleanupFailed)
 	}
 	var next *time.Time
-	at, err := s.q.AccountCleanupNextDue(ctx, db.AccountCleanupNextDueParams{Issuer: s.cfg.Token.Issuer, AfterAt: dueAt})
+	at, err := s.q.AccountCleanupNextDue(ctx, db.AccountCleanupNextDueParams{Issuer: s.cfg.Issuer, AfterAt: dueAt})
 	switch {
 	case err == nil:
 		next = &at
@@ -164,7 +164,7 @@ func (s *Engine) completeDueAccountCleanups(ctx context.Context, dueAt time.Time
 	var after int64
 	var failed *time.Time
 	for {
-		rows, err := s.q.AccountCleanupsDue(ctx, db.AccountCleanupsDueParams{Issuer: s.cfg.Token.Issuer, DueAt: dueAt, AfterID: after})
+		rows, err := s.q.AccountCleanupsDue(ctx, db.AccountCleanupsDueParams{Issuer: s.cfg.Issuer, DueAt: dueAt, AfterID: after})
 		if err != nil {
 			return nil, err
 		}

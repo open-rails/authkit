@@ -58,10 +58,17 @@ WHERE r.remote_application_id = sqlc.arg(remote_application_id)::uuid AND g.dele
 ORDER BY g.id;
 
 -- name: RemoteApplicationsDeclare :exec
--- declared_by declares these issuers in the group.
-UPDATE remote_applications SET declared_by = sqlc.arg(declared_by)::text
+-- declared_by declares these issuers in the group; a declared application
+-- may fetch from a private network.
+UPDATE remote_applications SET declared_by = sqlc.arg(declared_by)::text, private_network = true
 WHERE permission_group_id = sqlc.arg(permission_group_id)::uuid
-  AND issuer = ANY(sqlc.arg(issuers)::text[]) AND declared_by IS DISTINCT FROM sqlc.arg(declared_by)::text;
+  AND issuer = ANY(sqlc.arg(issuers)::text[])
+  AND (declared_by IS DISTINCT FROM sqlc.arg(declared_by)::text OR NOT private_network);
+
+-- name: RemoteApplicationSetPrivateNetwork :exec
+-- A host-declared application (the bootstrap manifest) may fetch from a
+-- private network.
+UPDATE remote_applications SET private_network = true WHERE id = sqlc.arg(id)::uuid AND NOT private_network;
 
 -- name: RemoteApplicationsUndeclared :many
 -- What declared_by declared in the group before and no longer does.
@@ -74,5 +81,5 @@ FOR UPDATE;
 -- name: RemoteApplicationsRelease :exec
 -- Disables them and ends the declaration: a later registration is an
 -- operation's.
-UPDATE remote_applications SET enabled = false, declared_by = NULL, updated_at = now()
+UPDATE remote_applications SET enabled = false, declared_by = NULL, private_network = false, updated_at = now()
 WHERE id = ANY(sqlc.arg(ids)::uuid[]);

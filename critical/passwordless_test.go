@@ -14,6 +14,8 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/httpapi"
 )
 
 // codeProof is a delivered code with the challenge its start answered.
@@ -50,11 +52,11 @@ func (f *fixture) confirmCode(t *testing.T, path, credential string, proof codeP
 
 // behindProxy makes requests' X-Forwarded-For their client address and
 // restores the default limits of buckets, which authtest lifts.
-func behindProxy(buckets map[string]authkit.RateLimit) authtest.Option {
+func behindProxy(buckets map[string]config.RateLimit) authtest.Option {
 	return authtest.WithConfig(func(c *authkit.Config) {
 		c.HTTP.DirectPeerIP = false
 		c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
-		maps.Copy(c.HTTP.RateLimits, buckets)
+		config.Tune(c, func(tn *config.Tuning) { maps.Copy(tn.RateLimits, buckets) })
 	})
 }
 
@@ -109,10 +111,8 @@ func TestCriticalPasswordless(t *testing.T) {
 	})
 	t.Run("AK-J33-C02_new_accounts_still_obey_invitation_and_agreement_policy", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Agreements = []authkit.AgreementConfig{{Key: "terms", Version: "v1", URL: "https://policy.example/terms"}}
-			c.Registration.Agreements = []string{"terms"}
-			c.Registration.PasswordlessAutoRegistration = true
-			c.Username.RandomNames = []string{"journeyperson"}
+			c.Agreements = []authkit.AgreementConfig{{Key: "terms", Version: "v1", URL: "https://policy.example/terms", SignUp: true}}
+			c.Usernames = []string{"journeyperson"}
 		}))
 		proof := f.passwordlessProof(t, "agreement-signup@example.com", "code")
 		f.confirmCode(t, "/passwordless/confirm", "", proof).want(t, http.StatusConflict, "agreement_required")
@@ -133,8 +133,7 @@ func TestCriticalPasswordless(t *testing.T) {
 			t.Fatal("signup failed to record its literal accepted document")
 		}
 		closed := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Registration.NativeUserMode = iam.RegistrationModeInviteOnly
-			c.Registration.PasswordlessAutoRegistration = true
+			c.Registration = iam.RegistrationModeInviteOnly
 		}))
 		closed.call(t, "POST", "/passwordless/start", "", map[string]string{"identifier": "not-invited@example.com", "mode": "code"}).want(t, http.StatusForbidden, "registration_disabled")
 		if len(closed.out.Messages(iam.MessageVerification, "not-invited@example.com")) != 0 {
@@ -194,7 +193,7 @@ func TestCriticalPasswordless(t *testing.T) {
 		noError(t, err)
 		server := httptest.NewServer(view.Handler())
 		t.Cleanup(server.Close)
-		g := &fixture{auth: view, server: server}
+		g := &fixture{auth: view, server: server, t: t, dpop: f.dpop, cfg: f.cfg}
 		g.confirmCode(t, "/passwordless/confirm", "", proof).want(t, http.StatusUnauthorized, "invalid_code")
 		tokensFrom(t, f.confirmCode(t, "/passwordless/confirm", "", proof), u.ID)
 		reset := f.resetProof(t, u.Email)
@@ -261,11 +260,11 @@ func TestCriticalPasswordless(t *testing.T) {
 		tokensFrom(t, f.call(t, "POST", "/2fa/verify", "", map[string]string{"user_id": u.ID, "challenge": result.Step.Challenge, "factor_id": created.Factor.ID, "code": authtest.TOTPCode(t, secret, time.Now().Add(30*time.Second))}), u.ID)
 	})
 	t.Run("AK-J33-C07_one_address_cannot_lock_another_account_out_of_code_sign_in", func(t *testing.T) {
-		defaults := authkit.DefaultRateLimits()
+		defaults := httpapi.DefaultRateLimits()
 		start, confirm := defaults["passwordless_start"], defaults["passwordless_confirm"]
 		// No cooldown, so one address spends its whole start budget now.
 		start.Cooldown = 0
-		f := newFixture(t, behindProxy(map[string]authkit.RateLimit{
+		f := newFixture(t, behindProxy(map[string]config.RateLimit{
 			"passwordless_start": start, "passwordless_confirm": confirm,
 			"passwordless_start_identifier": defaults["passwordless_start_identifier"],
 		}))
@@ -313,7 +312,9 @@ func TestCriticalPasswordless(t *testing.T) {
 	})
 	t.Run("AK-J33-C09_past_the_destination_quota_a_start_answers_alike_and_sends_nothing", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["passwordless_start_identifier"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["passwordless_start_identifier"] = config.RateLimit{Limit: 1, Window: time.Hour}
+			})
 		}))
 		u := f.user(t)
 		first := f.passwordlessProof(t, u.Email, "code")
@@ -330,7 +331,7 @@ func TestCriticalPasswordless(t *testing.T) {
 
 		// A number past its text-message quota answers alike too.
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["sms_number"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) { tn.RateLimits["sms_number"] = config.RateLimit{Limit: 1, Window: time.Hour} })
 		}))
 		const phone = "+12025550187"
 		p, err := g.auth.CreateUser(t.Context(), iam.NewUser{Phone: phone, PhoneVerified: true, Username: "smsquotaowner"})

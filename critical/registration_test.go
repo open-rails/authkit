@@ -16,11 +16,9 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/httpapi"
 )
-
-func proofRegistration() authtest.Option {
-	return authtest.WithConfig(func(c *authkit.Config) { c.Registration.Verification = iam.RegistrationVerificationRequired })
-}
 
 func (f *fixture) register(t *testing.T, address, name string) response {
 	t.Helper()
@@ -44,11 +42,9 @@ func (f *fixture) expireProofs(t *testing.T) {
 }
 
 func TestCriticalRegistration(t *testing.T) {
-	f := newFixture(t, proofRegistration())
+	f := newFixture(t)
 	t.Run("unproven_password_sign_in_keeps_new_registrations_pending", func(t *testing.T) {
-		g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
-			c.Registration.UnprovenPasswordSignIn = true
-		}))
+		g := newFixture(t)
 		for i, address := range []string{"pending-unproven@example.com", "+12025550179"} {
 			name := fmt.Sprintf("pendingunproven%d", i)
 			g.register(t, address, name).want(t, http.StatusAccepted, "")
@@ -140,7 +136,7 @@ func TestCriticalRegistration(t *testing.T) {
 	t.Run("AK-J03-C03_closed_and_invite_only_admission", func(t *testing.T) {
 		for _, mode := range []iam.RegistrationMode{iam.RegistrationModeClosed, iam.RegistrationModeInviteOnly} {
 			t.Run(string(mode), func(t *testing.T) {
-				g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) { c.Registration.NativeUserMode = mode }))
+				g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.Registration = mode }))
 				r := g.register(t, "uninvited-person@example.com", "uninvitedperson")
 				if mode == iam.RegistrationModeClosed {
 					r.want(t, http.StatusNotFound, "")
@@ -158,7 +154,7 @@ func TestCriticalRegistration(t *testing.T) {
 		}
 	})
 	t.Run("AK-J03-C04_verification_is_scoped_expiring_and_single_use", func(t *testing.T) {
-		g := newFixture(t, multiTenant, proofRegistration())
+		g := newFixture(t, multiTenant)
 		const email = "scoped-proof@example.com"
 		message := g.registered(t, email, "scopedproof")
 		g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": "wrong-person@example.com", "challenge": message.Challenge, "code": message.Code}).want(t, http.StatusUnauthorized, "invalid_code")
@@ -168,7 +164,7 @@ func TestCriticalRegistration(t *testing.T) {
 		noError(t, err)
 		server := httptest.NewServer(view.Handler())
 		t.Cleanup(server.Close)
-		other := &fixture{auth: view, server: server}
+		other := &fixture{auth: view, server: server, t: t, dpop: f.dpop, cfg: f.cfg}
 		other.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusUnauthorized, "invalid_code")
 		g.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusOK, "")
 		g.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusUnauthorized, "invalid_code")
@@ -278,7 +274,7 @@ func TestCriticalRegistration(t *testing.T) {
 		}
 		f.call(t, "GET", "/register/availability?email="+url.QueryEscape(owner.Email), "", nil).want(t, http.StatusBadRequest, "invalid_request")
 
-		g := newFixture(t, proofRegistration(), authtest.WithDeps(func(d *authkit.Deps) { d.Email = refuseAccountExists{d.Email} }))
+		g := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) { d.Email = refuseAccountExists{d.Email} }))
 		u := g.user(t)
 		g.register(t, u.Email, "fallbackattempt").want(t, http.StatusAccepted, "")
 		if g.out.Last(t, iam.MessagePasswordReset, u.Email).Token == "" {
@@ -301,11 +297,11 @@ func TestCriticalRegistration(t *testing.T) {
 
 func TestCriticalRegistrationLockout(t *testing.T) {
 	t.Run("AK-J03-C08_one_address_cannot_lock_a_pending_sign_up_out_of_its_code", func(t *testing.T) {
-		defaults := authkit.DefaultRateLimits()
+		defaults := httpapi.DefaultRateLimits()
 		request, confirm := defaults["verify_request"], defaults["verify_confirm"]
 		// No cooldown, so one address spends its whole resend budget now.
 		request.Cooldown = 0
-		f := newFixture(t, proofRegistration(), behindProxy(map[string]authkit.RateLimit{
+		f := newFixture(t, behindProxy(map[string]config.RateLimit{
 			"verify_request": request, "verify_confirm": confirm,
 			"verify_request_identifier":  defaults["verify_request_identifier"],
 			"register_create_identifier": defaults["register_create_identifier"],

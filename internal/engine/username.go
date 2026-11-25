@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/naming"
 )
 
 const generatedUsernameAttempts = 100
@@ -23,13 +24,13 @@ func (s *Engine) GenerateUsername(ctx context.Context) (string, error) {
 }
 
 func (s *Engine) generateUsername(ctx context.Context, q *db.Queries) (string, error) {
-	pool := s.cfg.Username.RandomNames
+	pool := s.cfg.Usernames
 	if pool == nil {
-		if s.cfg.Username.MaxLength < 4 {
+		if naming.MaxLength < 4 {
 			return "", errors.New("authkit: generated usernames require MaxLength >= 4")
 		}
-		base := "user"[:min(4, s.cfg.Username.MaxLength-3)]
-		for len(base)+3 < s.cfg.Username.MinLength {
+		base := "user"[:min(4, naming.MaxLength-3)]
+		for len(base)+3 < naming.MinLength {
 			base += "_"
 		}
 		pool = []string{base}

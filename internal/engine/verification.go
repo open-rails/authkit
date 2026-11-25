@@ -70,20 +70,11 @@ func (s *Engine) sendEmailVerificationCode(ctx context.Context, u *db.User) (str
 	}
 	return s.sendVerification(ctx, verificationChallenge{Kind: kindVerifyEmail, Target: *u.Email, UserID: u.ID}, func(code, link string) error {
 		if s.email == nil {
-			return s.missingSender(errEmailNotConfigured)
+			return errEmailNotConfigured
 		}
 		return s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageVerification, To: *u.Email, Username: deref(u.Username), Language: s.userLanguage(ctx, u.ID),
 			Code: code, Link: s.emailVerificationURL(link), Purpose: iam.PurposeContactVerify})
 	})
-}
-
-// missingSender is a send with no sender: unavailable unless
-// Registration.AllowMissingSenders lets it pass unsent.
-func (s *Engine) missingSender(unavailable error) error {
-	if s.cfg.Registration.AllowMissingSenders {
-		return nil
-	}
-	return unavailable
 }
 
 // --- Phone Verification (for existing users with unverified phones) ---
@@ -124,7 +115,7 @@ func (s *Engine) RequestPhoneVerification(ctx context.Context, phone string) (st
 func (s *Engine) sendPhoneVerificationToUser(ctx context.Context, phone, userID string) (string, error) {
 	return s.sendVerification(ctx, verificationChallenge{Kind: kindVerifyPhone, Target: phone, UserID: userID}, func(code, link string) error {
 		if s.sms == nil {
-			return s.missingSender(errSMSNotConfigured)
+			return errSMSNotConfigured
 		}
 		return s.sendSMS(ctx, iam.SMSMessage{Kind: iam.MessageVerification, To: phone, UserID: userID, Language: s.userLanguage(ctx, userID),
 			Code: code, Link: s.phoneVerificationURL(link), Purpose: iam.PurposeContactVerify})

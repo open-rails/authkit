@@ -6,28 +6,28 @@ This page covers the credentials AuthKit issues, how long each lasts, and when a
 
 | Credential | Who holds it | Lifetime | Revocation |
 |---|---|---|---|
-| Access token (`access+jwt`) | a signed-in user | `TokenConfig.AccessTokenDuration`, 15 minutes by default | live gates refuse it at once; `Required` accepts it until it expires |
-| DPoP-bound session | a client that proved a key at sign-in (`SignIn.DPoP`, [resource server](resource-server.md#dpop)) | as its session | its access tokens carry `cnf.jkt` and need a proof of the key; each refresh proves it |
-| Refresh token | a signed-in user | 30 days from sign-in by default (`TokenConfig.RefreshTokenDuration`; negative: until revoked) | at once |
+| Access token (`access+jwt`) | a signed-in user | 15 minutes | live gates refuse it at once; `Required` accepts it until it expires |
+| DPoP-bound session | every signed-in client: each sign-in proves a key ([resource server](resource-server.md#dpop)) | as its session | its access tokens carry `cnf.jkt` and need a proof of the key; each refresh proves it |
+| Refresh token | a signed-in user | 30 days from sign-in | at once |
 | Device-key sign-in | a native client | each sign-in is signed by the device key, with no refresh token | like a session, when the key is revoked |
-| Organization API key | a group's account | until revoked or its expiry (capped by `APIKeysConfig.MaxTTL`) | at once; the creator's departure does not revoke the group's key |
-| Personal access token | a user, limited to one group's explicit permission ceiling | 30 days by default, capped at 90 days by default | explicit revocation and current owner authority checked on every use; no sign-in or MFA assurance |
-| Resource access token (`at+jwt`) | an OAuth client, for a resource server | `AuthorizationServerConfig.AccessTokenTTL` (5 minutes by default, at most 15) | at expiry; each grant re-checks the session it stands on ([authorization server](authorization-server.md)) |
+| Organization API key | a group's account | until revoked or its expiry | at once; the creator's departure does not revoke the group's key |
+| Personal access token | a user, limited to one group's explicit permission ceiling | 30 days by default, at most 90 days | explicit revocation and current owner authority checked on every use; no sign-in or MFA assurance |
+| Resource access token (`at+jwt`) | an OAuth client, for a resource server | 15 minutes | at expiry; each grant re-checks the session it stands on ([authorization server](authorization-server.md)) |
 | Workload token (`at+jwt`, jwt-bearer) | a workload, for a resource server | until its capability expires (at most 24 hours) | at once for a resource server that checks its device key (`verify.RequireSession`); revoking the device key revokes it ([workloads](authorization-server.md#workloads)) |
 
 ## Refresh and sessions
 
-- Each sign-in opens a session and returns a refresh token: in the body, or in the issuer-specific `__Host-authkit_rt_<issuer-hash>` cookie with `HTTPConfig.RefreshCookie`.
-- `POST /api/v1/token` rotates it: each use returns a new refresh token and retires the old one.
-- A session ends `TokenConfig.RefreshTokenDuration` after its sign-in, 30 days by default; refreshing does not move the deadline. A session opened without one (a negative duration since changed, or an earlier release) gets one at its next refresh.
-- Presenting a token retired within the last 90 days ends the session, since it means the token was copied; an older one is refused. For 30 seconds after a rotation (`TokenConfig.RefreshRotationGrace`), the retired token instead gets the same successor again, which covers two holders refreshing at once.
-- A user keeps at most 3 sessions (`TokenConfig.SessionMaxPerUser`); the oldest is evicted.
+- Each sign-in opens a session and sets its refresh token in the issuer-specific `HttpOnly` `__Host-authkit_rt_<issuer-hash>` cookie, never in a response body.
+- `POST /auth/v1/token` rotates it: each use returns a new refresh token and retires the old one.
+- A session ends 30 days after its sign-in; refreshing does not move the deadline. A session an earlier release opened without a deadline gets one at its next refresh.
+- Presenting a token retired within the last 90 days ends the session, since it means the token was copied; an older one is refused. For 30 seconds after a rotation, the retired token instead gets the same successor again, which covers two holders refreshing at once.
+- A user keeps at most 3 sessions; the oldest is evicted.
 - These end sessions:
   - signing out ends that session;
-  - `DELETE /api/v1/me/sessions` ends every other session;
+  - `DELETE /auth/v1/me/sessions` ends every other session;
   - a password change ends every other session;
   - a ban, deletion, or `Client.RevokeAccountSessions` ends all of them.
-- Account-level revocations reach every issuer in `TokenConfig.AccountIssuers`.
+- Account-level revocations reach every issuer in `Config.AccountIssuers`.
 
 ## Revocation timing
 
@@ -49,7 +49,7 @@ A service without AuthKit's database registers the issuer on a `verify.Verifier`
 
 ```go
 v := verify.NewVerifier()
-if err := v.AddIssuer("https://myapp.com", []string{"myapp"}, verify.IssuerOptions{
+if err := v.AddIssuer("https://myapp.com", []string{"https://myapp.com"}, verify.IssuerOptions{ // aud is the issuer
 	JWKSURI: "https://myapp.com/.well-known/jwks.json",
 	IsLocal: true, // its users are this service's users: Claims.UserID is set
 }); err != nil {

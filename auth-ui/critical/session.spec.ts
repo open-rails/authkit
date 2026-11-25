@@ -1,6 +1,6 @@
 import { test } from "./browser"
 import { expect } from "@playwright/test"
-import { identity, login, open, register, seed, settle } from "./browser"
+import { login, open, register, seed, settle } from "./browser"
 
 test("AK-UI-01: AK-J29-C01: start, stop, subscribe and browser restore retain only the current identity", async ({
   page,
@@ -23,7 +23,7 @@ test("AK-UI-01: AK-J29-C01: start, stop, subscribe and browser restore retain on
       "00000000-0000-4000-8000-000000000099",
       "foreign"
     )
-    return JSON.parse(localStorage.getItem("authkit:session:/api/v1")!) as {
+    return JSON.parse(localStorage.getItem("authkit:session:/auth/v1")!) as {
       userId: string
       username: string
     }
@@ -121,7 +121,7 @@ test("AK-UI-03: AK-J29-C02: concurrent refresh coalesces and a real network outa
   page.on("request", (request) => {
     if (
       request.method() === "POST" &&
-      new URL(request.url()).pathname === "/api/v1/token"
+      new URL(request.url()).pathname === "/auth/v1/token"
     )
       refreshRequests++
   })
@@ -139,7 +139,7 @@ test("AK-UI-03: AK-J29-C02: concurrent refresh coalesces and a real network outa
     const offline = await page.evaluate(async () => {
       let failure: string | undefined
       try {
-        await window.ak.client.authFetch("/api/v1/me", { cache: "no-store" })
+        await window.ak.client.authFetch("/auth/v1/me", { cache: "no-store" })
       } catch (error) {
         failure = window.ak.transportFailure(error)
       }
@@ -189,7 +189,7 @@ test("AK-UI-04: AK-J29-C03: a delayed real profile response cannot cross logout 
     complete = resolve
   })
   let held = false
-  await page.route("**/api/v1/me", async (route) => {
+  await page.route("**/auth/v1/me", async (route) => {
     if (held || route.request().method() !== "GET") {
       await route.continue()
       return
@@ -250,7 +250,7 @@ test("AK-UI-05: AK-J29-C06: real auth errors, rate limits and abort preserve the
       // Capabilities are legitimately cacheable; force real network I/O to
       // exercise the actual service limiter rather than a cached200.
       const response = await window.ak.client.authFetch(
-        "/limited/api/v1/capabilities",
+        "/limited/v1/capabilities",
         { cache: "no-store" }
       )
       if (response.status === 429) {
@@ -319,19 +319,12 @@ test("AK-UI-05: AK-J29-C06: real auth errors, rate limits and abort preserve the
 
 test("AK-UI-06: AK-J29-C04: contact proof cannot replay a mutation across a replacement sign-in", async ({
   page,
+  request,
 }) => {
-  const who = identity()
+  // A host-created account signs in unproven.
+  const who = await seed(request, { profile: "unproved", verified: false })
   await open(page, "?unproved")
-  const signIn = await settle(
-    page,
-    (who) =>
-      window.ak.client.register({
-        identifier: who.email,
-        username: who.username,
-        password: who.password,
-      }),
-    who
-  )
+  const signIn = await login(page, who)
   expect(signIn && "status" in signIn && signIn.status).toBe("complete")
   const result = await settle(page, async () => {
     const seen: { identifier: string; channel: string }[] = []

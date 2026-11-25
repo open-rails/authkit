@@ -43,7 +43,7 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 		session := f.signIn(t, user)
 		scope, err := f.auth.Scope(t.Context(), iam.GroupByID(group.ID))
 		noError(t, err)
-		zeroSkew, err := f.auth.NewVerifier([]string{authtest.Audience}, verify.WithSkew(0), verify.WithPublicURL(proofOrigin))
+		zeroSkew, err := f.auth.NewVerifier([]string{authtest.Issuer}, verify.WithSkew(0), verify.WithPublicURL(proofOrigin))
 		noError(t, err)
 		for _, sample := range []struct {
 			name     string
@@ -72,10 +72,13 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 					sender = authtest.NewDPoPKey(t)
 					claims["cnf"] = map[string]any{"jkt": sender.Thumbprint()}
 				}
+				if sender == nil {
+					delete(claims, "cnf") // a bearer token, verified from outside AuthKit
+				}
 				token := signJWT(t, f.deps.KeySource.ActiveSigner(), header, claims)
 				request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proofOrigin+"/stream", nil)
 				noError(t, err)
-				request.Header.Set("Authorization", "Bearer "+token)
+				authorize(t, request, token)
 				if sender != nil {
 					request.Header.Set("Authorization", "DPoP "+token)
 					request.Header.Set("DPoP", sender.Proof(t, http.MethodGet, request.URL.String(), token, ""))
@@ -187,7 +190,7 @@ func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
 		stale := authtest.StaleSession(t, f.auth, session.AccessToken)
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, proofOrigin+"/account", nil)
 		noError(t, err)
-		request.Header.Set("Authorization", "Bearer "+stale)
+		authorize(t, request, stale)
 		verified, err := f.auth.Authenticator().Authenticate(request)
 		noError(t, err)
 		if err := verified.(auth.RecentSignInChecker).CheckRecentSignIn(t.Context()); !errors.Is(err, auth.ErrStepUpRequired) {

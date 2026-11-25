@@ -126,7 +126,7 @@ func (s *Engine) revokeUncoveredCredentials(ctx context.Context, st *permissionG
 		}
 		seen[t] = true
 		unique = append(unique, t)
-		rows, err := db.New(st.q).AuthorityUncoveredCredentials(ctx, db.AuthorityUncoveredCredentialsParams{GroupID: t.groupID, UserID: t.userID, Issuer: s.cfg.Token.Issuer})
+		rows, err := db.New(st.q).AuthorityUncoveredCredentials(ctx, db.AuthorityUncoveredCredentialsParams{GroupID: t.groupID, UserID: t.userID, Issuer: s.cfg.Issuer})
 		if err != nil {
 			return err
 		}

@@ -52,7 +52,7 @@ func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oi
 
 	// Without a parseable frontend origin to post to, a popup falls through to
 	// the fragment redirect, which tolerates a relative base.
-	if targetOrigin, ok := originFromBaseURL(s.cfg.Frontend.BaseURL); ok && ui == "popup" {
+	if targetOrigin, ok := originFromBaseURL(s.cfg.FrontendURL); ok && ui == "popup" {
 		writePopupDocument(w, buildPopupHTML(oidcPopupMessage{Type: oidcPopupType, Nonce: popupNonce, Provider: provider, Error: &code}, targetOrigin))
 		return
 	}

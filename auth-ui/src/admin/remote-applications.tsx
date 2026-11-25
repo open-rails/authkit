@@ -47,11 +47,11 @@ export function RemoteApplicationsAdmin({
   scope,
   ...props
 }: RemoteApplicationsAdminProps) {
-  const base = (props.baseUrl ?? "/api/v1").replace(/\/+$/, "")
+  const base = (props.baseUrl ?? "/auth/v1").replace(/\/+$/, "")
   const endpoint =
     tokenEndpoint ??
     new URL(
-      `${base.replace(/\/api\/v1$/, "")}/oauth2/token`,
+      `${base.replace(/\/v1$/, "").replace(/^\/auth$/, "")}/oauth2/token`,
       globalThis.location?.origin ?? "http://localhost"
     ).toString()
   return (

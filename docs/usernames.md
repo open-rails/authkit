@@ -10,22 +10,13 @@ Usernames, aliases and reserved names are unique per tenant: apps that share a
 tenant share one namespace, and every rule below (blocking, forwarding,
 reservation) applies within that tenant only.
 
-Configure an app-owned list for automatic usernames:
+A username is 4 to 30 characters, 64 (hyphens allowed) for a host import. Configure an app-owned list for automatic usernames:
 
 ```go
-Username: authkit.UsernameConfig{
-    RandomNames: []string{"naruto", "sakura", "kakashi"},
-    Renames: true,
-},
+Usernames: []string{"naruto", "sakura", "kakashi"},
 ```
 
-The YAML field is `username.random_names`. Each literal base must begin with
-an ASCII letter and contain only ASCII letters, digits, and underscores. Its
-length plus three must fit the configured username length bounds. Empty,
-malformed, and case-insensitive duplicate entries are rejected at startup.
-Nil retains a neutral `user` default (fitted to the length bounds); an explicit
-empty list is invalid. A maximum length below four still supports manual names
-but cannot generate a name with a three-digit suffix.
+The YAML field is `usernames`. Each entry is an ASCII letter, then ASCII letters, digits and underscores, 1 to 27 characters, so a generated name fits. Empty, malformed, and case-insensitive duplicate entries are rejected at startup. Nil uses `user`; an explicit empty list is invalid.
 
 `Client.GenerateUsername(ctx)` and `GET /usernames/generate` choose a base and
 exactly three decimal digits with cryptographic randomness. For example,
@@ -52,25 +43,10 @@ check is not a guarantee against a concurrent claim before submission.
 
 ## Former and deleted names
 
-`Username.FormerNames` and `Username.DeletedNames` (YAML `former_names`,
-`deleted_names`) are each an `authkit.NameRetention`: `finite` for `Duration`
-(90 days when unset), `forever`, or `immediate`.
+One fixed policy applies, exported for hosts as `github.com/open-rails/authkit/naming` (tenant names share its former-name reservation):
 
-- A name its owner renamed away from forwards to the owner and blocks other
-  claims. Default: finite, 90 days.
-- A deleted account keeps its name through the 30-day recovery window. When
-  the account is purged, the name resolves to no one and blocks every claim.
-  Default: forever. `finite` frees it after the duration, `immediate` at the
-  purge. The account's former names keep their own expiry.
+- A user renames at most once per `naming.RenameCooldown` (72 hours).
+- A name its owner renamed away from forwards to the owner and blocks other claims for `naming.FormerNameReservation` (90 days).
+- A deleted account keeps its name through the 30-day recovery window. When the account is purged, the name resolves to no one and blocks every claim, forever. The account's former names keep their own expiry.
 
-```go
-Username: authkit.UsernameConfig{
-    DeletedNames: authkit.NameRetention{Mode: authkit.NameRetentionFinite, Duration: 365 * 24 * time.Hour},
-},
-```
-
-The expiry is fixed when the name is let go: a later policy applies only to
-later renames and purges. A reused name belongs to a new account; nothing tied
-to the old account's ID moves with it. `GET /capabilities`
-(`username.former_names`) and the account profile (`naming.policy`) report
-both policies.
+A reused name belongs to a new account; nothing tied to the old account's ID moves with it. `GET /capabilities` (`username.former_names`) and the account profile (`naming.policy`) report the policy.

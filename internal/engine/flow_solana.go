@@ -51,8 +51,8 @@ func (s *Engine) newSIWSChallenge(domain, address string, opts ...siws.InputOpti
 		return siws.ChallengeData{}, fmt.Errorf("invalid solana address: %w", err)
 	}
 	opts = append([]siws.InputOption{siws.WithChainID(s.solanaChainID())}, opts...)
-	if s.cfg.Frontend.BaseURL != "" {
-		opts = append(opts, siws.WithURI(s.cfg.Frontend.BaseURL))
+	if s.cfg.FrontendURL != "" {
+		opts = append(opts, siws.WithURI(s.cfg.FrontendURL))
 	}
 	input, err := siws.NewSignInInput(domain, address, opts...)
 	if err != nil {

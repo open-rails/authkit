@@ -6,10 +6,7 @@ does not revoke the group's automation. Explicit revocation, expiry, group
 deletion and current role policy still apply. Previously revoked keys stay
 revoked. Creating or changing a group key still requires group authority.
 
-Personal access tokens are separate, optional credentials for an individual
-user. Enable `Config.PersonalAccessTokens.Enabled` explicitly. No personal-token
-UI is installed, and existing applications do not enable this feature.
-`DefaultTTL` is 30 days and `MaxTTL` is 90 days unless configured otherwise.
+Personal access tokens are separate, optional credentials for an individual user, on only when `HTTP.Groups` mounts `iam.RoutePersonalAccessTokens`. No personal-token UI is installed. A token lasts 30 days unless its request names an expiry, at most 90 days ahead.
 
 An interactive, recently authenticated user creates a token with
 `POST /me/personal-access-tokens`, naming `name`, `group_id`, `permissions` and
@@ -22,7 +19,7 @@ MFA-protected operations. The user must currently hold every requested grant.
 recent authentication. Native clients expose `CreatePersonalAccessToken`,
 `ListPersonalAccessTokens`, `RevokePersonalAccessToken` and
 `ResolvePersonalAccessToken`; the browser client exposes matching lower-case
-methods. Routes are relative to the configured AuthKit API prefix.
+methods. Routes are relative to the JSON API base.
 
 The secret uses a separate `pat_` prefix and is returned only at creation. It is
 stored as a hash, excluded from lists and logs, and cannot be recovered.
