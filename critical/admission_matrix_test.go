@@ -1,9 +1,8 @@
 package critical_test
 
 import (
-	_ "embed"
-	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -14,12 +13,15 @@ import (
 	"github.com/open-rails/authkit/provider"
 )
 
-// Reviewed contract rows from tracker #1290. This is a fixed admission oracle,
-// not generated from the running router. Public login/proof success contracts
-// live in their stateful journeys; security-only rows do not claim full CRUD.
-//
-//go:embed testdata/route-admission.json
-var admissionRows []byte
+// openSCIM are the SCIM routes anyone may read: the directory's discovery
+// documents. Every other SCIM route authenticates its own credential.
+var openSCIM = map[string]bool{
+	"/directory/scim/v2/ServiceProviderConfig": true,
+	"/directory/scim/v2/ResourceTypes":         true,
+	"/directory/scim/v2/ResourceTypes/{id}":    true,
+	"/directory/scim/v2/Schemas":               true,
+	"/directory/scim/v2/Schemas/{id}":          true,
+}
 
 func fullSurfaceFixture(t *testing.T) *fixture {
 	t.Helper()
@@ -37,7 +39,7 @@ func fullSurfaceFixture(t *testing.T) *fixture {
 }
 
 func TestCriticalHTTPAdmission(t *testing.T) {
-	t.Run("AK-J31-C01_selected_route_admission_and_live_scope_contracts", func(t *testing.T) {
+	t.Run("AK-J31-C01_every_mounted_route_refuses_credentials_its_tier_does_not_admit", func(t *testing.T) {
 		f := fullSurfaceFixture(t)
 		group, target, _ := f.ownedGroup(t)
 		owner := iam.UserSubject(target.ID)
@@ -55,34 +57,38 @@ func TestCriticalHTTPAdmission(t *testing.T) {
 		claims, err := verifyToken(t, f.auth, revoked.AccessToken)
 		noError(t, err)
 		noError(t, f.auth.RevokeSession(t.Context(), iam.SystemIdentity(), outsider.ID, claims.SessionID))
-		var rows []struct{ ID, Method, Path, Gate, Coverage, Owner string }
-		noError(t, json.Unmarshal(admissionRows, &rows))
-		mounted := map[string]bool{}
+		// Every mounted route is probed by the tier it declares (api/openapi.json
+		// pins each route's tier): a route added without its gate fails here.
+		param := regexp.MustCompile(`\{[a-z_]+\}`)
+		probed := map[string]int{}
 		for _, route := range f.auth.Routes() {
-			mounted[route.Method+" "+route.Path] = true
-		}
-		for _, row := range rows {
-			t.Run(row.ID+"_"+row.Method+row.Path, func(t *testing.T) {
-				if !mounted[row.Method+" "+row.Path] {
-					t.Fatalf("contract route is not mounted: %s %s", row.Method, row.Path)
-				}
-				path := strings.NewReplacer("{group_id}", group.ID, "{user_id}", target.ID, "{id}", target.ID, "{kind}", "users", "{role}", f.reader.String(), "{provider}", "google", "{client_id}", "browser", "{authorization_id}", target.ID, "{tenant_id}", f.tenant.String(), "{slug}", "probe").Replace(row.Path)
-				if strings.Contains(row.Path, "/oauth-clients") {
+			gate := string(route.Auth)
+			if route.Group == iam.RouteSCIM && !openSCIM[route.Path] {
+				gate = "scim"
+			}
+			if route.Method == http.MethodHead || route.Method == http.MethodOptions || gate == string(iam.AuthPublic) {
+				continue
+			}
+			probed[gate]++
+			t.Run(route.Method+route.Path, func(t *testing.T) {
+				path := strings.NewReplacer("{group_id}", group.ID, "{user_id}", target.ID, "{id}", target.ID, "{kind}", "users", "{role}", f.reader.String(), "{provider}", "google", "{client_id}", "browser", "{authorization_id}", target.ID, "{tenant_id}", f.tenant.String(), "{slug}", "probe").Replace(route.Path)
+				path = param.ReplaceAllString(path, iam.NewTenantID().String())
+				if strings.Contains(route.Path, "/oauth-clients") {
 					path = strings.Replace(path, group.ID, oauthGroup.ID, 1)
 				}
 				mediaType := "application/json"
 				body := "{}"
-				if row.Method == "GET" || row.Method == "DELETE" {
+				if route.Method == "GET" || route.Method == "DELETE" {
 					body = ""
 				}
 				for _, cred := range []struct{ name, token string }{{"anonymous", ""}, {"malformed", "not-a-token"}, {"expired", expired}} {
-					if row.Gate == "optional" && cred.token == "" {
+					if gate == string(iam.AuthOptional) && cred.token == "" {
 						continue
 					} // anonymous confirmation uses its delivered proof
 					t.Run(cred.name, func(t *testing.T) {
-						r := wire(t, f.server.Client(), row.Method, f.server.URL+path, cred.token, mediaType, body, nil)
+						r := wire(t, f.server.Client(), route.Method, f.server.URL+path, cred.token, mediaType, body, nil)
 						r.want(t, http.StatusUnauthorized, "")
-						if row.Gate == "scim" {
+						if gate == "scim" {
 							var envelope struct {
 								Status  string   `json:"status"`
 								Schemas []string `json:"schemas"`
@@ -100,23 +106,33 @@ func TestCriticalHTTPAdmission(t *testing.T) {
 						}
 					})
 				}
-				if row.Gate == "session" || row.Gate == "permission" {
+				if route.Auth == iam.AuthSession || route.Auth == iam.AuthPermission {
 					t.Run("revoked_session", func(t *testing.T) {
-						wire(t, f.server.Client(), row.Method, f.server.URL+path, revoked.AccessToken, mediaType, body, nil).want(t, 401, "session_revoked")
+						wire(t, f.server.Client(), route.Method, f.server.URL+path, revoked.AccessToken, mediaType, body, nil).want(t, 401, "session_revoked")
 					})
 				}
-				if strings.HasPrefix(path, "/auth/v1/groups/") || strings.HasPrefix(path, "/auth/v1/admin/") || path == "/auth/v1/events" {
+				if route.Auth == iam.AuthPermission || strings.HasPrefix(path, "/auth/v1/groups/") || strings.HasPrefix(path, "/auth/v1/admin/") || path == "/auth/v1/events" {
 					t.Run("unprivileged_live_session", func(t *testing.T) {
-						if row.Method == "PATCH" && strings.Contains(path, "/admin/users/") {
+						if route.Method == "PATCH" && strings.Contains(path, "/admin/users/") {
 							body = `{"preferred_language":"en"}`
 						}
-						if row.Method == "PUT" && strings.HasSuffix(path, "/ban") {
+						if route.Method == "PUT" && strings.HasSuffix(path, "/ban") {
 							body = `{"reason":"unauthorized"}`
 						}
-						wire(t, f.server.Client(), row.Method, f.server.URL+path, session.AccessToken, mediaType, body, nil).want(t, 403, "")
+						wire(t, f.server.Client(), route.Method, f.server.URL+path, session.AccessToken, mediaType, body, nil).want(t, 403, "")
 					})
 				}
 			})
+		}
+		total := 0
+		for _, gate := range []string{"required", "session", "permission", "optional", "scim"} {
+			if probed[gate] == 0 {
+				t.Errorf("no mounted route declares the %s tier", gate)
+			}
+			total += probed[gate]
+		}
+		if total < 100 {
+			t.Fatalf("probed %d routes, want the full mounted surface: %v", total, probed)
 		}
 		for _, operation := range []struct {
 			method, path, form string
