@@ -201,7 +201,7 @@
   "AK-J42-C03": "a top-level passkey challenge answers one sign-in: the same answer, a fresh signature over it and a registration's challenge are refused",
   "AK-J42-C04": "a top-level passkey registration or sign-in reported from another origin is refused",
   "AK-J43-C01": "with pairwise subjects one group's clients share a user's sub and sid, another group's differ, no client token names the user or session id, a refresh keeps them, VerifyIDToken, userinfo and the resource server map them back, discovery lists pairwise, and one group's ID token ends the shared sign-in",
-  "AK-J44-C01": "an authorization code redeems once, only with its PKCE verifier at its redirect URI",
+  "AK-J44-C01": "an authorization code redeems once, only with its PKCE verifier at its redirect URI; presenting it again revokes the refresh tokens issued from it",
   "AK-J44-C02": "an OAuth refresh token refreshes only with its DPoP key, and presenting a rotated-out one revokes its family",
   "AK-J44-C03": "client_credentials issues a confidential client its own token for its resource; a wrong secret, undeclared scope or ungranted client is refused",
   "AK-J45-C01": "an OIDC provider sign-in completes through the callback and a one-time code, into one account per identity",
