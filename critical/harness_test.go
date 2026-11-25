@@ -308,10 +308,11 @@ func noError(t *testing.T, err error) {
 }
 
 // Wait for an observable asynchronous outcome, not for an assumed processing
-// duration. A missing transition fails with its own bounded deadline.
+// duration. A missing transition fails with its own bounded deadline, wide
+// enough for journeys running in parallel under -race: it only delays a failure.
 func eventually(t *testing.T, description string, ready func() bool) {
 	t.Helper()
-	deadline := time.NewTimer(10 * time.Second)
+	deadline := time.NewTimer(30 * time.Second)
 	defer deadline.Stop()
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
