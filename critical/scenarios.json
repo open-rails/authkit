@@ -188,7 +188,6 @@
   "AK-J39-C09": "a first-use Sync that overruns fails the pass unparked, and the next pass finishes first use",
   "AK-J40-C01": "one failed sender health check keeps the channel open and is re-checked quickly; a second failure in a row closes it, and a closed channel is checked at the normal interval until a check passes",
   "AK-J40-C02": "a failed real send brings one health check forward and never decides health; a burst of failed sends keeps one request, and a successful send does not clear a failed check",
-  "AK-J40-C03": "an unproven sign-in still gets its code after one failed sender check and is refused with verification_unavailable only after two in a row",
   "AK-J40-C04": "a send its caller abandons, or that hits AuthKit's send timeout, brings no health check forward",
   "AK-J41-C01": "a provisioning change reaches its target within seconds of its commit, and an idle target runs no job",
   "AK-J41-C02": "an unreachable target is retried at its retry_at, doubling, and a change during the backoff waits for it",

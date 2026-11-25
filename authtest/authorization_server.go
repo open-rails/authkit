@@ -137,7 +137,7 @@ func (as *AuthorizationServer) Authorize(t testing.TB, u User, f CodeFlow) OAuth
 // AuthorizeAs is Authorize for a sign-in the test already holds.
 func (as *AuthorizationServer) AuthorizeAs(t testing.TB, signedIn iam.TokenSet, f CodeFlow) OAuthTokens {
 	t.Helper()
-	if f.DPoP == nil && f.ClientSecret == "" {
+	if f.DPoP == nil { // every user grant is DPoP-bound
 		f.DPoP = NewDPoPKey(t)
 	}
 	verifier := pkceVerifier()

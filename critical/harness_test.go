@@ -89,14 +89,15 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 	base := authtest.WithConfig(func(c *authkit.Config) {
 		c.Database = authkit.DatabaseConfig{Schema: f.schema, RiverSchema: f.schema}
 		c.Roles = roles
+		c.DefaultTenantID = f.tenant
 		c.TwoFactor = iam.TwoFactorDisabled
 		c.HTTP.Groups = append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)
 	})
 	opts := append([]authtest.Option{base, authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = f.pool })}, options...)
 	// Multi-tenant fixtures act in f.tenant; a single-tenant one names none.
 	opts = append(opts, authtest.WithConfig(func(c *authkit.Config) {
-		if c.Tenancy == authkit.TenancyMulti && c.DefaultTenantID.IsZero() {
-			c.DefaultTenantID = f.tenant
+		if c.Tenancy == authkit.TenancySingle {
+			c.DefaultTenantID = iam.TenantID{}
 		}
 		f.cfg = *c
 	}), authtest.WithDeps(func(d *authkit.Deps) { f.deps = *d }))
@@ -110,6 +111,9 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 
 // mountGroups adds route groups to a fixture's mounted set.
 func mountGroups(c *authkit.Config, groups ...iam.RouteGroup) {
+	if c.HTTP.Groups == nil {
+		c.HTTP.Groups = iam.DefaultRouteGroups()
+	}
 	c.HTTP.Groups = append(slices.Clone(c.HTTP.Groups), groups...)
 }
 

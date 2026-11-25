@@ -3,6 +3,7 @@ package critical_test
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -224,7 +225,7 @@ func TestCriticalTenancy(t *testing.T) {
 		r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, as.URL+"/scim/v2/Users/"+u.ID, nil)
 		noError(t, err)
 		r.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
-		res, err := http.DefaultClient.Do(r)
+		res, err := (&http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}).Do(r) // the test issuer's own certificate
 		noError(t, err)
 		defer res.Body.Close()
 		var user struct {
