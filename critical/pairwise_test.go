@@ -44,7 +44,7 @@ func TestCriticalPairwiseSubjects(t *testing.T) {
 		}))
 		h := f.auth.Handler()
 		selected.Store(&h)
-		caller := &fixture{auth: f.auth, server: front}
+		caller := &fixture{auth: f.auth, server: front, t: t, dpop: f.dpop, cfg: f.cfg}
 		as := authtest.Attach(t, f.auth, front)
 		u := f.user(t)
 		session := caller.signIn(t, u)

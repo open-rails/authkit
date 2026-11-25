@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/authflow"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
+	"github.com/open-rails/authkit/internal/jose"
 	"github.com/open-rails/authkit/internal/secret"
 )
 
@@ -206,7 +207,13 @@ func (s *Engine) finishFirstFactorTx(ctx context.Context, tx pgx.Tx, proof login
 				}
 			}
 			authTime, amr, acr := (authflow.SessionFreshness{LastAuthenticatedAt: proof.AuthenticatedAt, AuthMethods: proof.Input.AuthMethods}).AssuranceClaims(false)
-			token, expires, err := s.mintAccessTokenForUserWithAssurance(ctx, s.q, user, &status, map[string]any{"2fa_enrollment": true}, 10*time.Minute, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr, JTI: nonce})
+			// Bound to the sign-in's DPoP key, so the session the enrollment
+			// finishes is bound to it too.
+			extra := map[string]any{"2fa_enrollment": true}
+			if jkt := authflow.DPoPKey(ctx); jkt != "" {
+				extra["cnf"] = map[string]any{jose.JWKThumbprintMember: jkt}
+			}
+			token, expires, err := s.mintAccessTokenForUserWithAssurance(ctx, s.q, user, &status, extra, 10*time.Minute, &accessTokenAssurance{AuthTime: authTime, AMR: amr, ACR: acr, JTI: nonce})
 			if err != nil {
 				return authflow.LoginOutcome{}, err
 			}

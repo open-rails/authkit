@@ -201,13 +201,33 @@ func (f *fixture) requestHeaders(ctx context.Context, method, path, credential s
 		r.ContentLength = int64(len(data))
 		r.Header.Set("Content-Type", "application/json")
 	}
+	// A test's own headers are kept as it spelled them ("DPoP"); the
+	// fixture adds a credential and proof only where it brings none.
+	has := func(name string) bool {
+		for k := range headers {
+			if strings.EqualFold(k, name) {
+				return true
+			}
+		}
+		return false
+	}
 	for k, values := range headers {
 		r.Header[k] = append([]string(nil), values...)
 	}
-	if credential != "" && r.Header.Get("Authorization") == "" {
+	switch {
+	case credential == "" || has("Authorization"):
+	case has("DPoP"):
+		scheme := "Bearer "
+		if bound(credential) {
+			scheme = "DPoP "
+		}
+		r.Header.Set("Authorization", scheme+credential)
+	default:
 		authorize(f.t, r, credential)
 	}
-	if r.Header.Get("DPoP") == "" && !strings.HasPrefix(r.Header.Get("Authorization"), "DPoP ") {
+	// A request presenting no bound token that may open a session proves
+	// the fixture's key.
+	if method == http.MethodPost && credential == "" && !has("DPoP") {
 		f.prove(f.t, r)
 	}
 	c := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}

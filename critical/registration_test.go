@@ -164,7 +164,7 @@ func TestCriticalRegistration(t *testing.T) {
 		noError(t, err)
 		server := httptest.NewServer(view.Handler())
 		t.Cleanup(server.Close)
-		other := &fixture{auth: view, server: server}
+		other := &fixture{auth: view, server: server, t: t, dpop: f.dpop, cfg: f.cfg}
 		other.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusUnauthorized, "invalid_code")
 		g.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusOK, "")
 		g.confirmCode(t, "/verify/confirm", "", message).want(t, http.StatusUnauthorized, "invalid_code")

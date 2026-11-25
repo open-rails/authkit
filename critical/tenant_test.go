@@ -218,7 +218,7 @@ func TestCriticalTenantAuthority(t *testing.T) {
 		}
 		otherServer := httptest.NewServer(view.Handler())
 		t.Cleanup(otherServer.Close)
-		otherFixture := &fixture{auth: view, server: otherServer}
+		otherFixture := &fixture{auth: view, server: otherServer, t: t, dpop: f.dpop, cfg: f.cfg}
 		otherFixture.call(t, "GET", "/me", tokens.AccessToken, nil).want(t, http.StatusForbidden, "forbidden")
 		if err := view.Start(t.Context()); err == nil {
 			t.Fatal("borrowed view started the shared owner")

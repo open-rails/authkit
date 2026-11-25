@@ -128,7 +128,7 @@ func TestCriticalRetainedEvents(t *testing.T) {
 		noError(t, err)
 		server := httptest.NewServer(other.Handler())
 		t.Cleanup(server.Close)
-		g := &fixture{auth: other, server: server}
+		g := &fixture{auth: other, server: server, t: t, dpop: f.dpop, cfg: f.cfg}
 		g.call(t, "GET", "/events", session.AccessToken, nil).want(t, http.StatusForbidden, "forbidden")
 		page, err := f.auth.ListEvents(t.Context(), iam.EventQuery{})
 		noError(t, err)

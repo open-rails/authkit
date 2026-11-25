@@ -193,7 +193,7 @@ func TestCriticalPasswordless(t *testing.T) {
 		noError(t, err)
 		server := httptest.NewServer(view.Handler())
 		t.Cleanup(server.Close)
-		g := &fixture{auth: view, server: server}
+		g := &fixture{auth: view, server: server, t: t, dpop: f.dpop, cfg: f.cfg}
 		g.confirmCode(t, "/passwordless/confirm", "", proof).want(t, http.StatusUnauthorized, "invalid_code")
 		tokensFrom(t, f.confirmCode(t, "/passwordless/confirm", "", proof), u.ID)
 		reset := f.resetProof(t, u.Email)

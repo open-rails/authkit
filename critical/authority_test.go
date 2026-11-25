@@ -310,7 +310,7 @@ func TestCriticalGroupAuthority(t *testing.T) {
 		if !direct {
 			t.Fatal("explicit local grant was ignored")
 		}
-		v := verify.NewVerifier()
+		v := verify.NewVerifier(verify.WithPublicURL(authtest.Issuer))
 		defer v.Close()
 		noError(t, v.AddIssuer(authtest.Issuer, []string{authtest.Issuer}, verify.IssuerOptions{KeySource: f.deps.KeySource}))
 		r, err := http.NewRequestWithContext(t.Context(), "GET", f.server.URL+"/identity", nil)

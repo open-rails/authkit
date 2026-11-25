@@ -29,6 +29,24 @@ func newFixtureKey(t *testing.T) *authtest.DPoPKey {
 	return key
 }
 
+// bound reports a token bound to a DPoP key (cnf.jkt), whoever holds it.
+func bound(token string) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	var claims struct {
+		Cnf struct {
+			JKT string `json:"jkt"`
+		} `json:"cnf"`
+	}
+	return json.Unmarshal(raw, &claims) == nil && claims.Cnf.JKT != ""
+}
+
 // boundKey is the fixture key token is bound to (its cnf.jkt), and the
 // origin of its issuer, which a proof's htu names.
 func boundKey(token string) (*authtest.DPoPKey, string) {
@@ -93,9 +111,7 @@ func verifyToken(t testing.TB, c *authkit.Client, token string) (verify.Claims, 
 // sign-in, a refresh or a bearer credential, at the issuer's origin.
 func (f *fixture) prove(t testing.TB, r *http.Request) {
 	t.Helper()
-	if r.Header.Get("DPoP") == "" {
-		r.Header.Set("DPoP", f.dpop.Proof(t, r.Method, origin(f.cfg.Issuer)+r.URL.EscapedPath(), "", ""))
-	}
+	r.Header.Set("DPoP", f.dpop.Proof(t, r.Method, origin(f.cfg.Issuer)+r.URL.EscapedPath(), "", ""))
 }
 
 // The refresh token travels only in its HttpOnly cookie. The fixture keeps

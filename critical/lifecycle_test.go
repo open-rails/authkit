@@ -545,7 +545,7 @@ func checkNativeCallbackTenants(t *testing.T) {
 		noError(t, err)
 		handler := view.Handler()
 		selected.Store(&handler)
-		caller := &fixture{auth: view, server: front}
+		caller := &fixture{auth: view, server: front, t: t, dpop: f.dpop, cfg: f.cfg}
 		user := authtest.NewUser(t, view)
 		session := caller.signIn(t, user)
 		if firstToken == "" {

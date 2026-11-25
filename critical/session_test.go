@@ -805,7 +805,7 @@ func TestCriticalSessions(t *testing.T) {
 			noError(t, err)
 			server := httptest.NewServer(view.Handler())
 			t.Cleanup(server.Close)
-			outsider := &fixture{auth: view, server: server}
+			outsider := &fixture{auth: view, server: server, t: t, dpop: f.dpop, cfg: f.cfg}
 			u := outsider.user(t)
 			token := outsider.signIn(t, u).AccessToken
 			actor, err := member(t.Context(), token)

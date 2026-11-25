@@ -172,6 +172,7 @@ func TestCriticalCredentialLiveness(t *testing.T) {
 					delete(body, "nbf")
 					if profile.resource {
 						header["typ"] = "at+jwt"
+						delete(body, "cnf") // a bearer resource token
 						body["aud"], body["client_id"] = waitingResource, "waiting-client"
 					}
 					verified, _ := liveProofRequest(t, profile.provider, signJWT(t, f.deps.KeySource.ActiveSigner(), header, body), nil)
@@ -272,6 +273,7 @@ func TestCriticalCredentialLiveness(t *testing.T) {
 			noError(t, err)
 			header, claims := jwtParts(t, session.AccessToken)
 			header["typ"] = "at+jwt"
+			delete(claims, "cnf") // a bearer resource token
 			claims["aud"], claims["client_id"], claims["scope"] = resource, client.ClientID, "customer:self"
 			resourceToken := signJWT(t, f.deps.KeySource.ActiveSigner(), header, claims)
 			resourceVerified, _ := liveProofRequest(t, f.auth.Authenticator(), resourceToken, nil)

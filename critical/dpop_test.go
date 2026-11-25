@@ -32,7 +32,7 @@ func proofFixture(t *testing.T, rdb redis.UniversalClient) (*fixture, *authtest.
 func proofFixtureWith(t *testing.T, deps func(*authkit.Deps)) (*fixture, *authtest.DPoPKey, authtest.User, iam.TokenSet) {
 	t.Helper()
 	f := newFixture(t, authtest.WithDeps(deps))
-	key := authtest.NewDPoPKey(t)
+	key := newFixtureKey(t)
 	u := f.user(t)
 	headers := http.Header{"DPoP": {key.Proof(t, "POST", authtest.Issuer+f.auth.APIBase()+"/password/login", "", "")}}
 	r, err := f.requestHeaders(t.Context(), "POST", "/password/login", "", map[string]string{"identifier": u.Email, "password": u.Password}, headers)
