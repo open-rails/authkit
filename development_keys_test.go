@@ -20,9 +20,10 @@ import (
 	"github.com/open-rails/authkit/keys"
 )
 
-// Development keys are generated, persisted and reused only for a loopback
-// issuer; every other issuer needs provisioned keys and refuses marked ones.
-// No database: authkit.New resolves keys before it touches one.
+// Development-key cases beside AK-J01-C08, which proves a loopback issuer's
+// generated keys.json signs across restarts and refuses a real issuer, and
+// that provisioned keys serve any issuer. No database: authkit.New resolves
+// keys before it touches one.
 
 const (
 	localIssuer      = "http://localhost:4780"
@@ -105,23 +106,28 @@ func assertDevelopmentKeys(t *testing.T, dir string) {
 	}
 }
 
-func TestLoopbackIssuerGeneratesPersistsAndReusesDevelopmentKeys(t *testing.T) {
+// devDir is issuer's development key directory under state.
+func devDir(state, issuer string) string {
+	id := sha256.Sum256([]byte(issuer))
+	return filepath.Join(state, "authkit", "development", hex.EncodeToString(id[:]))
+}
+
+func TestDevelopmentKeysArePerIssuerMarkedAndKeepTOTP(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
-	id := sha256.Sum256([]byte(localIssuer))
-	dir := filepath.Join(state, "authkit", "development", hex.EncodeToString(id[:]))
+	dir := devDir(state, localIssuer)
 
 	first := mustBoot(t, bootKeys(t, localIssuer, nil))
 	assertDevelopmentKeys(t, dir)
 	if first.developmentLines() != 1 || !strings.Contains(first.logs, dir) {
 		t.Fatalf("want one INFO line naming %s, got:\n%s", dir, first.logs)
 	}
-	signing, totp := readKey(t, dir, "keys.json"), readKey(t, dir, "totp.key")
+	totp := readKey(t, dir, "totp.key")
 	noErr(t, first.client.Close(context.Background()))
 
 	again := mustBoot(t, bootKeys(t, localIssuer, nil))
-	if !bytes.Equal(signing, readKey(t, dir, "keys.json")) || !bytes.Equal(totp, readKey(t, dir, "totp.key")) {
-		t.Fatal("restart regenerated development keys")
+	if !bytes.Equal(totp, readKey(t, dir, "totp.key")) {
+		t.Fatal("restart regenerated totp.key")
 	}
 	if again.developmentLines() != 1 || !strings.Contains(again.logs, "generated=[]") {
 		t.Fatalf("restart should log reuse, not generation:\n%s", again.logs)
@@ -144,10 +150,10 @@ func watch(t *testing.T, dir string) keys.Source {
 	return src
 }
 
-func TestNonLoopbackIssuerNeverGenerates(t *testing.T) {
+func TestLoopbackLookalikesNeverGenerate(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
-	for _, issuer := range []string{productionIssuer, "https://10.0.0.5:8443", "https://localhost.example.com"} {
+	for _, issuer := range []string{"https://10.0.0.5:8443", "https://localhost.example.com"} {
 		b := bootKeys(t, issuer, nil)
 		if b.err == nil || !strings.Contains(b.err.Error(), "keys.json not found; mount keys.json or provide Deps.KeySource") {
 			t.Fatalf("%s: New = %v, want a missing keys.json refusal", issuer, b.err)
@@ -158,40 +164,32 @@ func TestNonLoopbackIssuerNeverGenerates(t *testing.T) {
 	}
 }
 
-func TestProvisionedKeysAreUsedNeverRegenerated(t *testing.T) {
+// A loopback issuer leaves provisioned keys as they are.
+func TestProvisionedKeysAreNeverRegenerated(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	for _, issuer := range []string{localIssuer, productionIssuer} {
-		dir := t.TempDir()
-		signing := provisionedKeysJSON(t, false)
-		writeKey(t, dir, "keys.json", signing)
-		writeKey(t, dir, "totp.key", []byte(hex.EncodeToString(make([]byte, 32))))
-		src := watch(t, dir)
-		if totp, ok := src.(keys.TOTPSource); !ok || len(totp.TOTPKey()) != 32 {
-			t.Fatalf("%s: keys.Watch does not serve totp.key", issuer)
-		}
-		b := mustBoot(t, bootKeys(t, issuer, src))
-		if b.developmentLines() != 0 || !bytes.Equal(signing, readKey(t, dir, "keys.json")) {
-			t.Fatalf("%s: provisioned keys were replaced or reported as development:\n%s", issuer, b.logs)
-		}
+	dir := t.TempDir()
+	signing := provisionedKeysJSON(t, false)
+	writeKey(t, dir, "keys.json", signing)
+	writeKey(t, dir, "totp.key", []byte(hex.EncodeToString(make([]byte, 32))))
+	src := watch(t, dir)
+	if totp, ok := src.(keys.TOTPSource); !ok || len(totp.TOTPKey()) != 32 {
+		t.Fatal("keys.Watch does not serve totp.key")
+	}
+	b := mustBoot(t, bootKeys(t, localIssuer, src))
+	if b.developmentLines() != 0 || !bytes.Equal(signing, readKey(t, dir, "keys.json")) {
+		t.Fatalf("provisioned keys were replaced or reported as development:\n%s", b.logs)
 	}
 }
 
-func TestDevelopmentKeysSignOnlyForLoopbackIssuers(t *testing.T) {
+// Each file is checked: a provisioned keys.json beside a generated totp.key
+// still refuses a real issuer.
+func TestDevelopmentTOTPKeyRefusesRealIssuer(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	mustBoot(t, bootKeys(t, localIssuer, nil))
-	id := sha256.Sum256([]byte(localIssuer))
-	dir := filepath.Join(state, "authkit", "development", hex.EncodeToString(id[:]))
-
-	b := bootKeys(t, productionIssuer, watch(t, dir))
-	if b.err == nil || !strings.Contains(b.err.Error(), "development keys cannot sign for "+productionIssuer+": provision real keys") {
-		t.Fatalf("New = %v, want development keys refused", b.err)
-	}
-
-	// Each file is checked: a provisioned keys.json beside a generated totp.key
-	// still refuses.
+	dir := devDir(state, localIssuer)
 	writeKey(t, dir, "keys.json", provisionedKeysJSON(t, false))
-	b = bootKeys(t, productionIssuer, watch(t, dir))
+	b := bootKeys(t, productionIssuer, watch(t, dir))
 	if b.err == nil || !strings.Contains(b.err.Error(), "development keys cannot sign") {
 		t.Fatalf("New = %v, want the development totp.key refused", b.err)
 	}

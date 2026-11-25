@@ -5,19 +5,15 @@ import (
 	"testing"
 )
 
-func TestValidateCommonIgnoresCaseAndSeparators(t *testing.T) {
+// Normalization edges beside AK-J03-C07, which refuses common passwords
+// whatever their case and separators.
+func TestValidateCommonNormalizationEdges(t *testing.T) {
 	for _, c := range []struct {
 		pw     string
 		common bool
 	}{
-		{"changeme", true},
-		{"change-me", true},
-		{"Change.Me", true},
-		{"CHANGE ME", true},
-		{"pass_word-1", true},
 		{"p@ssw0rd", true},            // on the list with its punctuation
 		{"x!y@z#w$", false},           // its core is shorter than MinLength
-		{"Tr4il-Mix-Quokka", false},   // not common
 		{"ünïcode-Pässwörd-7", false}, // letters of any script stay
 	} {
 		err := Validate(c.pw)
