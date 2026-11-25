@@ -197,6 +197,9 @@ func (f *fixture) startCountedFleet(t *testing.T) (*river.Client[pgx.Tx], *runCo
 	counter := &runCounter{runs: map[string]int{}}
 	go func() {
 		for e := range events {
+			if strings.Contains(string(e.Job.EncodedArgs), idleCanary) {
+				continue
+			}
 			counter.mu.Lock()
 			counter.runs[e.Job.Kind]++
 			counter.mu.Unlock()
@@ -212,6 +215,37 @@ func (f *fixture) startCountedFleet(t *testing.T) (*river.Client[pgx.Tx], *runCo
 	noError(t, f.auth.Start(context.Background(), authkit.WithRiverClient(fleet)))
 	return fleet, counter
 }
+
+// idleCanary is the target of riverCycled's run, which no fixture declares.
+const idleCanary = "idle-canary"
+
+// riverCycled schedules a provisioning run of an undeclared target, a no-op,
+// and waits for River to complete it: its scheduler and fetcher have then
+// passed over every run already queued, which outstanding still shows.
+func (f *fixture) riverCycled(t *testing.T, fleet *river.Client[pgx.Tx]) {
+	t.Helper()
+	runs := f.ownedJobs(t, fleet, "authkit_provisioning")
+	if len(runs) == 0 {
+		t.Fatal("no provisioning run names the queue")
+	}
+	canary, err := fleet.Insert(t.Context(), canaryArgs{Schema: f.schema, Issuer: f.cfg.Issuer, Target: idleCanary},
+		&river.InsertOpts{Queue: runs[0].Queue, ScheduledAt: time.Now().Add(time.Millisecond)})
+	noError(t, err)
+	eventually(t, "River running a scheduled run", func() bool {
+		job, err := fleet.JobGet(t.Context(), canary.Job.ID)
+		noError(t, err)
+		return job.State == rivertype.JobStateCompleted
+	})
+}
+
+// canaryArgs are a provisioning run's arguments.
+type canaryArgs struct {
+	Schema string `json:"schema"`
+	Issuer string `json:"issuer"`
+	Target string `json:"target"`
+}
+
+func (canaryArgs) Kind() string { return "authkit_provisioning" }
 
 func TestCriticalProvisioningRuns(t *testing.T) {
 	t.Run("AK-J41-C01_a_change_reaches_the_target_within_seconds_and_an_idle_target_runs_nothing", func(t *testing.T) {
@@ -232,9 +266,12 @@ func TestCriticalProvisioningRuns(t *testing.T) {
 			return len(outstanding(f.ownedJobs(t, fleet, "authkit_provisioning"))) == 0
 		})
 		before, requests := counter.count("authkit_provisioning"), len(target.requestTimes())
-		time.Sleep(6 * time.Second) // past River's 5 s scheduler interval
+		f.riverCycled(t, fleet)
 		if after := counter.count("authkit_provisioning"); after != before || len(target.requestTimes()) != requests {
 			t.Fatalf("idle target ran %d jobs", after-before)
+		}
+		if left := outstanding(f.ownedJobs(t, fleet, "authkit_provisioning")); len(left) != 0 {
+			t.Fatalf("an idle target has %d runs queued", len(left))
 		}
 		t.Logf("%d runs for the initial sync and 3 changes; none idle", before)
 	})
@@ -273,11 +310,17 @@ func TestCriticalProvisioningRuns(t *testing.T) {
 	t.Run("AK-J41-C03_an_idle_target_is_never_swept", func(t *testing.T) {
 		target := newSCIMTarget()
 		f := newFixture(t, withTarget(target)...)
-		f.startFleet(t)
+		fleet, _ := f.startCountedFleet(t)
 		f.user(t)
 		f.synced(t)
+		eventually(t, "no run left", func() bool {
+			return len(outstanding(f.ownedJobs(t, fleet, "authkit_provisioning"))) == 0
+		})
 		requests := len(target.requestTimes())
-		time.Sleep(6 * time.Second) // past River's 5 s scheduler interval
+		f.riverCycled(t, fleet)
+		if left := outstanding(f.ownedJobs(t, fleet, "authkit_provisioning")); len(left) != 0 {
+			t.Fatalf("an idle target has %d runs queued", len(left))
+		}
 		if got := len(target.requestTimes()) - requests; got != 0 {
 			t.Fatalf("an idle target got %d requests", got)
 		}
