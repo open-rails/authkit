@@ -83,6 +83,7 @@ func (f *fixture) wrongCode(t *testing.T, address string) string {
 }
 
 func TestCriticalPasswordless(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J33-C01_existing_email_and_SMS_codes_and_links_sign_in_the_owner", func(t *testing.T) {
 		f := newFixture(t)
 		email := f.user(t)

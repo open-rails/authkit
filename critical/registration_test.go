@@ -42,6 +42,7 @@ func (f *fixture) expireProofs(t *testing.T) {
 }
 
 func TestCriticalRegistration(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	t.Run("unproven_password_sign_in_keeps_new_registrations_pending", func(t *testing.T) {
 		g := newFixture(t)
@@ -296,6 +297,7 @@ func TestCriticalRegistration(t *testing.T) {
 }
 
 func TestCriticalRegistrationLockout(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J03-C08_one_address_cannot_lock_a_pending_sign_up_out_of_its_code", func(t *testing.T) {
 		defaults := httpapi.DefaultRateLimits()
 		request, confirm := defaults["verify_request"], defaults["verify_confirm"]

@@ -144,6 +144,7 @@ func holdSMS() (*heldSender[iam.SMSMessage], authtest.Option) {
 	return h, authtest.WithDeps(func(d *authkit.Deps) { h.deliver, d.SMS = d.SMS.Send, h })
 }
 
+// Serial: it times sender checks to within half a second.
 func TestCriticalSenderHealth(t *testing.T) {
 	outage := errors.New("owned sender outage")
 	t.Run("AK-J40-C01_one_failed_check_keeps_the_channel_two_in_a_row_close_it_and_only_the_first_is_rechecked_quickly", func(t *testing.T) {

@@ -22,6 +22,7 @@ func (f *fixture) resetProof(t *testing.T, address string) string {
 }
 
 func TestCriticalRecovery(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	t.Run("AK-J06-C01_email_and_sms_reset_preserve_admission_gates", func(t *testing.T) {
 		u := f.user(t)

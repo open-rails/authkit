@@ -135,6 +135,8 @@ func postgresReplays(t *testing.T) replayTable {
 	return replayTable{pool: pool, table: schema + ".spent"}
 }
 
+// Serial: its replicas share Redis, whose keys every fixture's issuer
+// prefixes alike.
 func TestCriticalSenderProofs(t *testing.T) {
 	t.Run("AK-J14-C01_bound_token_requires_proof_and_server_nonce", func(t *testing.T) {
 		f, key, _, tokens := proofFixture(t, nil)

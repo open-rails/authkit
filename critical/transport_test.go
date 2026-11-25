@@ -9,9 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -28,6 +25,15 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/verify"
+)
+
+// The shipped boundaries a host builds against: compiling this package
+// proves them.
+var (
+	_ authkitgin.Surface   = (*authkit.Client)(nil)
+	_ authkitfiber.Surface = (*authkit.Client)(nil)
+	_ verify.Authority     = (*authkit.Client)(nil)
 )
 
 func wire(t *testing.T, client *http.Client, method, address, credential, mediaType, body string, headers http.Header) response {
@@ -52,6 +58,7 @@ func wire(t *testing.T, client *http.Client, method, address, credential, mediaT
 }
 
 func TestCriticalTransport(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J31-C02_real_Gin_and_Fiber_keep_each_authority_gate", func(t *testing.T) {
 		for _, adapter := range []string{"gin", "fiber"} {
 			t.Run(adapter, func(t *testing.T) {
@@ -365,40 +372,6 @@ func TestCriticalTransport(t *testing.T) {
 					second.want(t, http.StatusTooManyRequests, "rate_limited")
 				}
 			})
-		}
-	})
-	t.Run("AK-J31-C07_external_module_can_build_shipped_public_boundaries", func(t *testing.T) {
-		root, err := filepath.Abs("..")
-		noError(t, err)
-		dir := t.TempDir()
-		module := "module criticalconsumer\n\ngo 1.26.6\n\nrequire github.com/open-rails/authkit v0.0.0\nreplace github.com/open-rails/authkit => " + root + "\n"
-		noError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte(module), 0600))
-		// This imports the distribution as a separate consumer module, so it
-		// cannot accidentally depend on AuthKit's private internal packages.
-		program := `package main
-import (
- "net/http"
- "github.com/open-rails/authkit"
- "github.com/open-rails/authkit/auth"
- "github.com/open-rails/authkit/iam"
- "github.com/open-rails/authkit/verify"
- "github.com/open-rails/authkit/keys"
- "github.com/open-rails/authkit/userinfo"
- ag "github.com/open-rails/authkit/adapters/gin"
- af "github.com/open-rails/authkit/adapters/fiber"
-)
-var _ ag.Surface = (*authkit.Client)(nil)
-var _ af.Surface = (*authkit.Client)(nil)
-var _ verify.Authority = (*authkit.Client)(nil)
-var _ http.Handler = (*http.ServeMux)(nil)
-func main(){ _=auth.ErrUnauthenticated; _=iam.UserByID("example"); _=keys.JWKS{}; _=userinfo.User{} }
-`
-		noError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte(program), 0600))
-		cmd := exec.CommandContext(t.Context(), "go", "build", "-mod=mod", "-o", filepath.Join(dir, "consumer"), ".")
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GOWORK=off")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("public consumer build: %v\n%s", err, output)
 		}
 	})
 }

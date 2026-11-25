@@ -30,6 +30,7 @@ func (v actorForwardingVerified) CheckRecentSignIn(ctx context.Context) error {
 }
 
 func TestCriticalVerifiedCredentialExpiry(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J13-C08_retained_verified_credentials_end_at_their_verified_deadline", func(t *testing.T) {
 		const resource = "https://expiry-resource.example"
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {

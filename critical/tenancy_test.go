@@ -55,6 +55,7 @@ func (f *fixture) rowCounts(t *testing.T) map[string]int64 {
 }
 
 func TestCriticalTenancy(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J02-C08_single_tenant_database_makes_and_keeps_one_tenant", func(t *testing.T) {
 		f := newFixture(t, unscoped)
 		ids := f.tenantIDs(t)

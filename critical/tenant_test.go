@@ -21,6 +21,7 @@ type actorIdentityOnly struct{ id auth.Identity }
 func (v actorIdentityOnly) Identity() auth.Identity { return v.id }
 
 func TestCriticalTenantAuthority(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t, multiTenant)
 	t.Run("AK-J02-C01_public_identity_is_scoped_and_redacted", func(t *testing.T) {
 		otherID := iam.NewTenantID()
@@ -299,6 +300,7 @@ func TestCriticalTenantAuthority(t *testing.T) {
 }
 
 func TestCriticalProviderReconciliation(t *testing.T) {
+	t.Parallel()
 	idp := authtest.NewIdP(t)
 	otherIDP := authtest.NewIdP(t)
 	first, second := idp.Provider("first"), otherIDP.Provider("second")
