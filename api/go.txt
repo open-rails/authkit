@@ -20,7 +20,6 @@ pkg authkit, func IfRole(iam.Role) Option
 pkg authkit, func InTx(pgx.Tx) Option
 pkg authkit, func IncludeDeleted() Option
 pkg authkit, func Migrate(context.Context, *pgxpool.Pool, DatabaseConfig, ...MigrationOptions) error
-pkg authkit, func MigrateNotifications(context.Context, *pgxpool.Pool, Config, *slog.Logger) error
 pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
 pkg authkit, func NewNotificationDelivery(*pgxpool.Pool, string, map[string]RemoteNotificationConfig, *slog.Logger) (*NotificationDelivery, error)
 pkg authkit, func NewRemoteEventReader(RemoteEventConfig) (eventlog.Reader, error)
@@ -100,7 +99,7 @@ pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.Acces
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
 pkg authkit, method (*Client) NewVerifier([]string, ...verify.VerifierOption) (*Verifier, error)
 pkg authkit, method (*Client) NotificationScope() (string, error)
-pkg authkit, method (*Client) Notifications(string) (notify.Publisher, error)
+pkg authkit, method (*Client) Notifications(NotificationProducer) (notify.Publisher, error)
 pkg authkit, method (*Client) OAuthConsents(context.Context, string) ([]iam.OAuthConsent, error)
 pkg authkit, method (*Client) PatchPublicMetadata(context.Context, auth.Identity, string, map[string]any, ...Option) error
 pkg authkit, method (*Client) Permission(string) (iam.Perm, error)
@@ -252,7 +251,6 @@ pkg authkit, type Config struct, FrontendURL string `yaml:"frontend_url"`
 pkg authkit, type Config struct, HTTP *config.HTTPConfig `yaml:"http"`
 pkg authkit, type Config struct, Issuer string `yaml:"issuer"`
 pkg authkit, type Config struct, Languages config.LanguageConfig `yaml:"languages"`
-pkg authkit, type Config struct, Notifications *config.NotificationsConfig `yaml:"notifications"`
 pkg authkit, type Config struct, Password config.PasswordPolicy `yaml:"password"`
 pkg authkit, type Config struct, PersonalAccessTokens config.PersonalAccessTokensConfig `yaml:"personal_access_tokens"`
 pkg authkit, type Config struct, Provisioning config.ProvisioningConfig `yaml:"provisioning"`
@@ -357,20 +355,11 @@ pkg authkit, type NotificationAdoption = notify.Adoption
 pkg authkit, type NotificationDelivery struct
 pkg authkit, type NotificationProducer = config.NotificationProducer
 pkg authkit, type NotificationProducer struct
-pkg authkit, type NotificationProducer struct, AppID string `yaml:"app_id"`
-pkg authkit, type NotificationProducer struct, Name string `yaml:"name"`
-pkg authkit, type NotificationProducer struct, Origin notify.OriginScope `yaml:"origin"`
-pkg authkit, type NotificationProducer struct, Permission string `yaml:"permission"`
-pkg authkit, type NotificationProducer struct, PermissionGroupID string `yaml:"permission_group_id"`
-pkg authkit, type NotificationProducer struct, TenantID iam.TenantID `yaml:"tenant_id"`
-pkg authkit, type NotificationProducer struct, Visibility notify.Visibility `yaml:"visibility"`
-pkg authkit, type NotificationsConfig = config.NotificationsConfig
-pkg authkit, type NotificationsConfig struct
-pkg authkit, type NotificationsConfig struct, AppID string `yaml:"app_id"`
-pkg authkit, type NotificationsConfig struct, LegacyOrigins []notify.OriginScope `yaml:"legacy_origins"`
-pkg authkit, type NotificationsConfig struct, Producers []config.NotificationProducer `yaml:"producers"`
-pkg authkit, type NotificationsConfig struct, Schema string `yaml:"schema"`
-pkg authkit, type NotificationsConfig struct, Scopes map[string]string `yaml:"scopes"`
+pkg authkit, type NotificationProducer struct, Name string
+pkg authkit, type NotificationProducer struct, Origin notify.OriginScope
+pkg authkit, type NotificationProducer struct, Permission string
+pkg authkit, type NotificationProducer struct, PermissionGroupID string
+pkg authkit, type NotificationProducer struct, Visibility notify.Visibility
 pkg authkit, type OAuthClientConfig = config.OAuthClientConfig
 pkg authkit, type OAuthClientConfig struct
 pkg authkit, type OAuthClientConfig struct, Agreements []string `yaml:"agreements"`
@@ -537,8 +526,6 @@ pkg authkit, type UsernameConfig struct, RenameInterval time.Duration `yaml:"ren
 pkg authkit, type UsernameConfig struct, Renames bool `yaml:"renames"`
 pkg authkit, type Verifier struct
 pkg authkit, var ErrMigrationsRequired error
-pkg authkit, var ErrNotificationScopeConflict error
-pkg authkit, var ErrNotificationsDisabled error
 pkg authkit/adapters/captcha, const HCaptcha Provider = "hcaptcha"
 pkg authkit/adapters/captcha, const Turnstile Provider = "turnstile"
 pkg authkit/adapters/captcha, func New(Config) (*Verifier, error)

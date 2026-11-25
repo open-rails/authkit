@@ -34,17 +34,16 @@ const (
 type Feature string
 
 const (
-	FeatureNotifications Feature = "notifications"
-	Always               Feature = ""
-	FeaturePasskeys      Feature = "passkeys"      // Passkeys.RPID set
-	FeatureRegistration  Feature = "registration"  // registration not closed
-	FeatureTwoFactor     Feature = "two_factor"    // two-factor authentication not disabled
-	FeatureSolana        Feature = "solana"        // a Solana network set
-	FeatureOIDC          Feature = "oidc"          // an identity provider configured
-	FeatureGroups        Feature = "groups"        // a persona besides root
-	FeatureAPIKeys       Feature = "api_keys"      // a persona whose groups hold API keys
-	FeatureCustomRoles   Feature = "custom_roles"  // a persona whose groups define roles
-	FeatureOAuthClients  Feature = "oauth_clients" // a persona whose groups register OAuth clients
+	Always              Feature = ""
+	FeaturePasskeys     Feature = "passkeys"      // Passkeys.RPID set
+	FeatureRegistration Feature = "registration"  // registration not closed
+	FeatureTwoFactor    Feature = "two_factor"    // two-factor authentication not disabled
+	FeatureSolana       Feature = "solana"        // a Solana network set
+	FeatureOIDC         Feature = "oidc"          // an identity provider configured
+	FeatureGroups       Feature = "groups"        // a persona besides root
+	FeatureAPIKeys      Feature = "api_keys"      // a persona whose groups hold API keys
+	FeatureCustomRoles  Feature = "custom_roles"  // a persona whose groups define roles
+	FeatureOAuthClients Feature = "oauth_clients" // a persona whose groups register OAuth clients
 	// FeatureRemoteApplications: a persona whose groups control remote
 	// applications, and so hold their users' directory.
 	FeatureRemoteApplications Feature = "remote_applications"
@@ -57,7 +56,7 @@ const (
 )
 
 // Features lists every Feature a route can be mounted under.
-var Features = []Feature{FeatureNotifications, FeaturePasskeys, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureGroups, FeatureAPIKeys, FeatureCustomRoles, FeatureOAuthClients, FeatureRemoteApplications, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
+var Features = []Feature{FeaturePasskeys, FeatureRegistration, FeatureTwoFactor, FeatureSolana, FeatureOIDC, FeatureGroups, FeatureAPIKeys, FeatureCustomRoles, FeatureOAuthClients, FeatureRemoteApplications, FeatureNewDevices, FeatureAuthorizationServer, FeatureTokenEndpoint}
 
 // Reply is one success outcome of a route: its status and body. Body is a
 // zero value of the body's type, nil for none.
@@ -354,20 +353,20 @@ func Catalog() []RouteSpec {
 
 		// Optional account inbox: current native account only. No arbitrary
 		// recipient or application selector is accepted on this surface.
-		{Method: GET, Path: "/me/notifications", Group: account, Auth: session, Bucket: RLNotificationsRead, MountedWhen: FeatureNotifications,
+		{Method: GET, Path: "/me/notifications", Group: account, Auth: session, Bucket: RLNotificationsRead,
 			Query: NotificationQuery{}, Responses: replyOK(notify.Page{}), serve: handle((*Service).handleNotificationsList)},
-		{Method: GET, Path: "/me/notifications/{notification_id}", Group: account, Auth: session, Bucket: RLNotificationsRead, MountedWhen: FeatureNotifications,
+		{Method: GET, Path: "/me/notifications/{notification_id}", Group: account, Auth: session, Bucket: RLNotificationsRead,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationGet)},
-		{Method: PUT, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+		{Method: PUT, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationRead)},
-		{Method: DELETE, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+		{Method: DELETE, Path: "/me/notifications/{notification_id}/read", Group: account, Auth: session, Bucket: RLNotificationsWrite,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationRead)},
-		{Method: PUT, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+		{Method: PUT, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationDismiss)},
-		{Method: DELETE, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite, MountedWhen: FeatureNotifications,
+		{Method: DELETE, Path: "/me/notifications/{notification_id}/dismiss", Group: account, Auth: session, Bucket: RLNotificationsWrite,
 			Responses: replyOK(notify.Item{}), serve: handle((*Service).handleNotificationDismiss)},
 		// Producer-specific authority is checked live by the operation.
-		{Method: POST, Path: "/notifications/{producer}", Group: admin, Auth: permission, Bucket: RLNotificationsPublish, MountedWhen: FeatureNotifications,
+		{Method: POST, Path: "/notifications/{producer}", Group: admin, Auth: permission, Bucket: RLNotificationsPublish,
 			Request: NotificationMutations{}, Responses: replyNoContent, serve: handle((*Service).handleNotificationsApply)},
 		// Other people, as anyone may see them, public metadata included:
 		// public profile pages need no sign-in.

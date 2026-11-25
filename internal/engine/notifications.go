@@ -2,9 +2,7 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 
 	"github.com/jackc/pgx/v5"
@@ -18,92 +16,96 @@ import (
 	notifypg "github.com/open-rails/authkit/notify/postgres"
 )
 
-var ErrNotificationsDisabled = errors.New("authkit: account notifications are disabled")
-
-// MigrateNotifications installs only the optional AuthKit inbox. It never moves
-// or merges account scopes. Explicit Config.Scopes mappings adopt existing rows.
-func MigrateNotifications(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, database config.DatabaseConfig, cfg *config.NotificationsConfig, defaultTenant ...iam.TenantID) error {
-	if cfg == nil {
-		return nil
-	}
-	normalized, err := config.NormalizeNotifications(database, cfg)
-	if err != nil {
-		return err
-	}
-	if pool == nil {
-		return errors.New("authkit: notifications need PostgreSQL")
-	}
-	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{normalized.Schema}.Sanitize()); err != nil {
-		return err
-	}
-	if err := notifypg.Migrate(ctx, pool, normalized.Schema); err != nil {
-		return err
-	}
-	if err := notificationBindingMigrations(ctx, log, pool, normalized.Schema, false); err != nil {
-		return err
-	}
-	var tenant iam.TenantID
-	if len(defaultTenant) > 0 {
-		tenant = defaultTenant[0]
-	}
-	schema, err := config.NormalizeSchema(database.Schema)
-	if err != nil {
-		return err
-	}
-	database.Schema = schema
-	return notificationConfiguredBindings(ctx, pool, database, normalized, tenant, true)
+// notificationProducer is a registered producer, bound to its tenant and,
+// with app visibility, to this deployment's app (its issuer).
+type notificationProducer struct {
+	config.NotificationProducer
+	TenantID iam.TenantID
+	AppID    string
 }
 
+// migrateNotifications installs the account inbox in AuthKit's schema.
+func migrateNotifications(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	return notifypg.Migrate(ctx, pool, schema)
+}
+
+// NotificationScope is the tenant's inbox namespace: authkit:<tenant ID>.
 func (s *Engine) NotificationScope(ctx context.Context) (string, error) {
-	if s.cfg.Notifications == nil {
-		return "", ErrNotificationsDisabled
-	}
 	tenant, err := s.tenantID(ctx)
 	if err != nil {
 		return "", err
 	}
-	return notificationScope(s.cfg.Notifications, tenant), nil
+	return "authkit:" + tenant.String(), nil
 }
 
+// notificationStore is the tenant's inbox; a view shows tenant-wide
+// notifications and this deployment's app's.
 func (s *Engine) notificationStore(ctx context.Context, view bool) (*notifypg.Store, error) {
 	scope, err := s.NotificationScope(ctx)
 	if err != nil {
 		return nil, err
 	}
+	c := notifypg.Config{Schema: s.schema, Scope: scope}
 	if view {
-		if err := s.checkNotificationScope(ctx, s.pg); err != nil {
-			return nil, err
-		}
-	}
-	c := notifypg.Config{Schema: s.cfg.Notifications.Schema, Scope: scope}
-	if view && s.cfg.Notifications.AppID != "" {
-		c.AppView = &notify.AppView{AppID: s.cfg.Notifications.AppID, LegacyOrigins: s.cfg.Notifications.LegacyOrigins}
+		c.AppView = &notify.AppView{AppID: s.cfg.Issuer}
 	}
 	return notifypg.New(s.pg, c)
 }
 
-// NotificationProducer resolves one trusted, immutable binding for the selected
-// account tenant. Native callers hold a host capability; HTTP also authorizes it.
-func (s *Engine) NotificationProducer(ctx context.Context, name string) (config.NotificationProducer, error) {
-	if s.cfg.Notifications == nil {
-		return config.NotificationProducer{}, ErrNotificationsDisabled
+// RegisterNotificationProducer registers p in the selected tenant, binding
+// its notifications to this deployment's app when they are app-visible.
+// Registering the same producer again is a no-op; another under its name is
+// refused.
+func (s *Engine) RegisterNotificationProducer(ctx context.Context, p config.NotificationProducer) error {
+	p, err := config.NormalizeNotificationProducer(p)
+	if err != nil {
+		return err
 	}
 	tenant, err := s.tenantID(ctx)
 	if err != nil {
-		return config.NotificationProducer{}, err
+		return err
 	}
-	for _, p := range s.cfg.Notifications.Producers {
-		if p.Name == name && p.TenantID == tenant {
-			return p, nil
+	r := notificationProducer{NotificationProducer: p, TenantID: tenant}
+	if p.Visibility == notify.VisibilityApp {
+		r.AppID = s.cfg.Issuer
+	}
+	key := tenant.String() + ":" + p.Name
+	s.producersMu.Lock()
+	defer s.producersMu.Unlock()
+	if have, ok := s.producers[key]; ok {
+		if have != r {
+			return fmt.Errorf("authkit notifications: producer %q is registered with another binding", p.Name)
 		}
+		return nil
 	}
-	return config.NotificationProducer{}, fmt.Errorf("%w: notification producer", auth.ErrForbidden)
+	if s.producers == nil {
+		s.producers = map[string]notificationProducer{}
+	}
+	s.producers[key] = r
+	return nil
+}
+
+// notificationProducer resolves one registered, immutable binding for the
+// selected tenant. Native callers hold a host capability; HTTP also
+// authorizes it.
+func (s *Engine) notificationProducer(ctx context.Context, name string) (notificationProducer, error) {
+	tenant, err := s.tenantID(ctx)
+	if err != nil {
+		return notificationProducer{}, err
+	}
+	s.producersMu.Lock()
+	p, ok := s.producers[tenant.String()+":"+name]
+	s.producersMu.Unlock()
+	if !ok {
+		return notificationProducer{}, fmt.Errorf("%w: notification producer", auth.ErrForbidden)
+	}
+	return p, nil
 }
 
 // AuthorizeNotifications rechecks the actor's current authority in exactly the
 // producer's configured group. Source metadata is never an authorization claim.
 func (s *Engine) AuthorizeNotifications(ctx context.Context, who auth.Identity, name string) error {
-	p, err := s.NotificationProducer(ctx, name)
+	p, err := s.notificationProducer(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -134,7 +136,7 @@ func (s *Engine) ApplyNotifications(ctx context.Context, name string, changes []
 	return pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error { return s.ApplyNotificationsTx(ctx, tx, name, changes) })
 }
 
-func bindNotifications(p config.NotificationProducer, changes []notify.Mutation) ([]notify.Mutation, error) {
+func bindNotifications(p notificationProducer, changes []notify.Mutation) ([]notify.Mutation, error) {
 	if len(changes) > notify.MaxMutations {
 		return nil, fmt.Errorf("%w: too many notification mutations", notify.ErrInvalid)
 	}
@@ -162,7 +164,7 @@ func bindNotifications(p config.NotificationProducer, changes []notify.Mutation)
 // transaction and joins the durable inbox write. Account erasure and delayed
 // publication serialize through the inbox recipient guard.
 func (s *Engine) ApplyNotificationsTx(ctx context.Context, host pgx.Tx, name string, changes []notify.Mutation) error {
-	p, err := s.NotificationProducer(ctx, name)
+	p, err := s.notificationProducer(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -185,9 +187,6 @@ func (s *Engine) ApplyNotificationsTx(ctx context.Context, host pgx.Tx, name str
 		return err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	if err := s.checkNotificationScope(ctx, tx); err != nil {
-		return err
-	}
 	ids := make([]string, 0, len(batch))
 	for _, m := range batch {
 		ids = append(ids, m.Recipient.ID)
@@ -210,8 +209,8 @@ func (s *Engine) ApplyNotificationsTx(ctx context.Context, host pgx.Tx, name str
 	// Existing account/app fences are terminal even if an older restore has
 	// left an account row. Serialize their publication checks through the store.
 	scope, _ := s.NotificationScope(ctx)
-	recipients := pgx.Identifier{s.cfg.Notifications.Schema, "notify_recipients"}.Sanitize()
-	appFences := pgx.Identifier{s.cfg.Notifications.Schema, "notify_app_erasures"}.Sanitize()
+	recipients := pgx.Identifier{s.schema, "notify_recipients"}.Sanitize()
+	appFences := pgx.Identifier{s.schema, "notify_app_erasures"}.Sanitize()
 	// Match the generic recipient guard lock order before inspecting legacy
 	// app fences. A concurrent erasure cannot slip between the filter and write.
 	ids = ids[:0]
@@ -294,14 +293,8 @@ func (s *Engine) SetNotificationDismissed(ctx context.Context, userID, id string
 }
 
 func (s *Engine) eraseNotificationsTx(ctx context.Context, tx pgx.Tx, userID string) error {
-	if s.cfg.Notifications == nil {
-		return nil
-	}
 	store, err := s.notificationStore(ctx, false)
 	if err != nil {
-		return err
-	}
-	if err := s.checkNotificationScope(ctx, tx); err != nil {
 		return err
 	}
 	return store.EraseRecipientTx(ctx, tx, notify.Recipient{Audience: notify.AudienceUser, ID: userID})

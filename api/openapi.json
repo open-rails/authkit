@@ -3417,8 +3417,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "notifications_read",
-        "x-authkit-mounted-when": "notifications"
+        "x-authkit-rate-limit": "notifications_read"
       }
     },
     "/auth/v1/me/notifications/{notification_id}": {
@@ -3464,8 +3463,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "notifications_read",
-        "x-authkit-mounted-when": "notifications"
+        "x-authkit-rate-limit": "notifications_read"
       }
     },
     "/auth/v1/me/notifications/{notification_id}/read": {
@@ -3511,8 +3509,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "notifications_write",
-        "x-authkit-mounted-when": "notifications"
+        "x-authkit-rate-limit": "notifications_write"
       },
       "delete": {
         "tags": [
@@ -3556,8 +3553,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "notifications_write",
-        "x-authkit-mounted-when": "notifications"
+        "x-authkit-rate-limit": "notifications_write"
       }
     },
     "/auth/v1/me/notifications/{notification_id}/dismiss": {
@@ -3603,8 +3599,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "notifications_write",
-        "x-authkit-mounted-when": "notifications"
+        "x-authkit-rate-limit": "notifications_write"
       },
       "delete": {
         "tags": [
@@ -3648,8 +3643,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "notifications_write",
-        "x-authkit-mounted-when": "notifications"
+        "x-authkit-rate-limit": "notifications_write"
       }
     },
     "/auth/v1/notifications/{producer}": {
@@ -3698,8 +3692,7 @@
           }
         ],
         "x-authkit-auth": "permission",
-        "x-authkit-rate-limit": "notifications_publish",
-        "x-authkit-mounted-when": "notifications"
+        "x-authkit-rate-limit": "notifications_publish"
       }
     },
     "/auth/v1/users": {

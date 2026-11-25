@@ -2,8 +2,6 @@ package config
 
 import (
 	"fmt"
-	"maps"
-	"slices"
 
 	"github.com/open-rails/authkit/iam"
 )
@@ -16,8 +14,8 @@ func (c *Config) tenantPending() bool {
 
 // BindDefaultTenant makes id the default tenant of a normalized Config, as
 // New does with a single-tenant database's sole tenant: unscoped operations,
-// and the provisioning targets, OAuth clients and notification producers that
-// name no tenant, act in it. Single-tenant, nothing may name another.
+// and the provisioning targets and OAuth clients that name no tenant, act in
+// it. Single-tenant, nothing may name another.
 func BindDefaultTenant(c *Config, id iam.TenantID) error {
 	if id.IsZero() {
 		return iam.ErrTenantRequired
@@ -38,25 +36,6 @@ func BindDefaultTenant(c *Config, id iam.TenantID) error {
 	}
 	for i := range c.AuthorizationServer.Clients {
 		bind(&c.AuthorizationServer.Clients[i].TenantID)
-	}
-	if n := c.Notifications; n != nil {
-		producers := map[string]bool{}
-		for i := range n.Producers {
-			p := &n.Producers[i]
-			bind(&p.TenantID)
-			key := p.TenantID.String() + ":" + p.Name
-			if producers[key] {
-				return fmt.Errorf("authkit notifications: unique producer name per tenant required: %q", p.Name)
-			}
-			producers[key] = true
-		}
-		for _, tenant := range slices.Sorted(maps.Keys(n.Scopes)) {
-			parsed, err := iam.ParseTenantID(tenant)
-			if err != nil {
-				return err
-			}
-			named = append(named, parsed)
-		}
 	}
 	if c.Tenancy == TenancySingle {
 		for _, t := range named {

@@ -49,8 +49,6 @@ type Config struct {
 	// in. New creates or upgrades them.
 	Database DatabaseConfig `yaml:"database"`
 
-	// Notifications enables the optional durable account inbox.
-	Notifications *NotificationsConfig `yaml:"notifications"`
 
 	// Token is the JWT issuing/verification contract and session limits.
 	Token TokenConfig `yaml:"token"`
@@ -408,9 +406,9 @@ type DatabaseConfig struct {
 	// ^[a-z_][a-z0-9_]*$ (max 63 bytes).
 	Schema string `yaml:"schema"`
 	// RiverSchema holds the River tables AuthKit's jobs (account lifecycle,
-	// events, cleanup) run in; empty defaults to "public". Start runs AuthKit's
-	// own River client there, and a host fleet passed to Start with
-	// WithRiverClient must use the same schema.
+	// events, cleanup) run in; empty is Schema. Start runs AuthKit's own
+	// River client there; set it to a host fleet's schema to pass that fleet
+	// to Start (WithRiverClient), which must use it.
 	RiverSchema string `yaml:"river_schema"`
 }
 

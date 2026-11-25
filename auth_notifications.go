@@ -4,34 +4,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/engine"
-	"github.com/open-rails/authkit/internal/logx"
 	"github.com/open-rails/authkit/notify"
 )
 
-// ErrNotificationsDisabled means the optional account inbox is not configured.
-var ErrNotificationsDisabled = engine.ErrNotificationsDisabled
-
-// ErrNotificationScopeConflict refuses inconsistent account-inbox ownership.
-var ErrNotificationScopeConflict = engine.ErrNotificationScopeConflict
-
-// Notifications returns the declared producer's fixed-tenant publisher. Pass
-// it to ContentKit, OpenRails or application code. Its transaction method must
-// use the account database; it never opens another transaction behind the caller.
-func (a *Client) Notifications(producer string) (notify.Publisher, error) {
+// Notifications registers producer in this Client's tenant and returns its
+// publisher: the account inbox's one way in, for AuthKit's host and the
+// engines it embeds (ContentKit, OpenRails), each registering its own.
+// Registering the same producer again returns its publisher; another under
+// its name is refused. Remote publication (POST {api}/notifications/{name})
+// needs the producer registered, with its permission, on the replica
+// serving it. The publisher's transaction method must use the account
+// database; it never opens another transaction behind the caller.
+func (a *Client) Notifications(producer NotificationProducer) (notify.Publisher, error) {
 	if a == nil || a.engine == nil {
 		return nil, errors.New("authkit: notification publisher needs a client")
 	}
-	p, err := a.engine.NotificationProducer(a.operationContext(context.Background()), producer)
-	if err != nil {
+	ctx := a.operationContext(context.Background())
+	if err := a.engine.RegisterNotificationProducer(ctx, producer); err != nil {
 		return nil, err
 	}
-	return &accountNotificationPublisher{engine: a.engine, tenant: p.TenantID, producer: producer}, nil
+	return &accountNotificationPublisher{engine: a.engine, tenant: a.TenantID(), producer: producer.Name}, nil
 }
 
 type accountNotificationPublisher struct {
@@ -123,31 +119,6 @@ func (a *Client) SetNotificationRead(ctx context.Context, userID, id string, rea
 }
 func (a *Client) SetNotificationDismissed(ctx context.Context, userID, id string, dismissed bool) (notify.Item, error) {
 	return a.ops.SetNotificationDismissed(a.operationContext(ctx), userID, id, dismissed)
-}
-
-// MigrateNotifications explicitly prepares the optional inbox tables, even when
-// Database.SkipMigrations is true. Scope mappings preserve existing receipts in
-// place; they are deployment identity, not an instruction to merge account data.
-// Run it after Migrate: producers that name no tenant use the default tenant,
-// single-tenant the database's one tenant. It logs on log (nil is
-// slog.Default()).
-func MigrateNotifications(ctx context.Context, pool *pgxpool.Pool, cfg Config, log *slog.Logger) error {
-	if cfg.Notifications == nil {
-		return nil
-	}
-	log = logx.Or(log)
-	tenant, err := engine.DefaultTenant(ctx, log, pool, cfg)
-	if err != nil {
-		return err
-	}
-	n := *cfg.Notifications
-	n.Producers = append([]NotificationProducer(nil), n.Producers...)
-	for i := range n.Producers {
-		if n.Producers[i].TenantID.IsZero() {
-			n.Producers[i].TenantID = tenant
-		}
-	}
-	return engine.MigrateNotifications(ctx, log, pool, cfg.Database, &n, tenant)
 }
 
 // NotificationAdoption maps exact legacy receipt origins to one current issue.

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	notifypg "github.com/open-rails/authkit/notify/postgres"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
@@ -95,21 +94,6 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 				return nil, err
 			}
 			s.cfg = norm
-		}
-	}
-	if norm.Notifications != nil {
-		if norm.Database.SkipMigrations {
-			if err := notifypg.Validate(ctx, deps.Postgres, norm.Notifications.Schema); err != nil {
-				return nil, err
-			}
-			if err := notificationBindingMigrations(ctx, log, deps.Postgres, norm.Notifications.Schema, true); err != nil {
-				return nil, err
-			}
-			if err := notificationConfiguredBindings(ctx, deps.Postgres, norm.Database, norm.Notifications, norm.DefaultTenantID, false); err != nil {
-				return nil, err
-			}
-		} else if err := MigrateNotifications(ctx, log, deps.Postgres, norm.Database, norm.Notifications, norm.DefaultTenantID); err != nil {
-			return nil, err
 		}
 	}
 	if err := s.applyDeps(deps); err != nil {

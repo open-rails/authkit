@@ -169,9 +169,6 @@ func (s *Engine) createTenantIn(ctx context.Context, st *permissionGroupStore, i
 	if row.Slug != slug {
 		return iam.ErrTenantConflict
 	}
-	if err := bindNotificationScope(ctx, st.q, s.cfg.Database, s.cfg.Notifications, id, true); err != nil {
-		return err
-	}
 	g, err := st.groupByID(ctx, id.String())
 	if err == nil {
 		if g.Persona != iam.TenantPersona() || g.TenantID != id {

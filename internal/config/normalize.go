@@ -51,9 +51,6 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.Database.Schema, err = NormalizeSchema(c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}
-	if err := normalizeNotifications(&c); err != nil {
-		return Config{}, nil, err
-	}
 	if err := normalizeIssuer(&c); err != nil {
 		return Config{}, nil, err
 	}
@@ -136,7 +133,7 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	}
 	normalizeLanguages(&c.Languages, degrade)
 
-	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema); err != nil {
+	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema, c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}
 	if c.CleanupInterval == 0 {
@@ -510,11 +507,12 @@ func NormalizeSchema(raw string) (string, error) {
 	return schema, nil
 }
 
-// NormalizeRiverSchema defaults River's schema to public.
-func NormalizeRiverSchema(raw string) (string, error) {
-	schema := strings.TrimSpace(raw)
-	if schema == "" {
-		schema = "public"
+// NormalizeRiverSchema defaults River's schema to AuthKit's own, the
+// normalized schema.
+func NormalizeRiverSchema(raw, schema string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw != "" {
+		schema = raw
 	}
 	if !db.ValidSchemaName(schema) {
 		return "", fmt.Errorf("authkit: invalid Database.RiverSchema %q", raw)

@@ -77,7 +77,7 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 //     address. The session cap stays (LiftLimits lifts it too).
 //   - Deps.KeySource: an RSA key generated once per test binary, and a
 //     random TOTP key, so authenticator apps can enroll.
-//   - Database.Schema and Database.RiverSchema: the scratch schema, unless set.
+//   - Database.Schema: the scratch schema, unless set (River's follows it).
 //
 // The Client is not started: call Start when a test needs River's work, such
 // as account deletion cleanup. Cleanup closes the Client and drops
@@ -119,9 +119,6 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	}
 	if cfg.Database.Schema == "" {
 		cfg.Database.Schema = scratchSchema(t, deps.Postgres)
-	}
-	if cfg.Database.RiverSchema == "" {
-		cfg.Database.RiverSchema = cfg.Database.Schema
 	}
 	auth, err := authkit.New(ctx, cfg, deps)
 	if err != nil {

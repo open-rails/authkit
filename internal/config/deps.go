@@ -146,7 +146,7 @@ type Deps struct {
 	// never changes the default. What the host builds, and the functions that
 	// need no Client, take their own: keys.Watch, provider.WithLogger,
 	// verify.WithLogger, twilio.SMSConfig.Logger, MigrationOptions.Logger,
-	// MigrateNotifications, EnsureGroups, NewNotificationDelivery and
+	// EnsureGroups, NewNotificationDelivery and
 	// ParseBootstrapManifestYAML.
 	Logger *slog.Logger
 }

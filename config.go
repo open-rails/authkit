@@ -13,7 +13,6 @@ type (
 	// outside the process is in Deps.
 	Config                     = config.Config
 	DatabaseConfig             = config.DatabaseConfig
-	NotificationsConfig        = config.NotificationsConfig
 	NotificationProducer       = config.NotificationProducer
 	TokenConfig                = config.TokenConfig
 	SignInConfig               = config.SignInConfig

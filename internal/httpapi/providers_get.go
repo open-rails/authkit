@@ -39,7 +39,7 @@ func (s *Service) Capabilities() Capabilities {
 	}
 	return Capabilities{
 		Captcha:       captcha,
-		Notifications: cfg.Notifications != nil,
+		Notifications: true,
 		DPoP:          string(cfg.SignIn.DPoP),
 		Registration: RegistrationCapabilities{
 			Mode:                string(cfg.Registration.NativeUserMode),

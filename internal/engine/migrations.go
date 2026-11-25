@@ -71,7 +71,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 	if err != nil {
 		return err
 	}
-	riverSchema, err := config.NormalizeRiverSchema(db.RiverSchema)
+	riverSchema, err := config.NormalizeRiverSchema(db.RiverSchema, normalized)
 	if err != nil {
 		return err
 	}
@@ -89,6 +89,10 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 	migrator = migrator.WithSchema(normalized).WithStrictIntegrity().WithWarnFunc(migrationWarnings(ctx, log))
 	if err := migrator.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
+	}
+	// The account inbox lives beside the accounts.
+	if err := migrateNotifications(ctx, pool, normalized); err != nil {
+		return fmt.Errorf("authkit: migrate the account inbox in schema %q: %w", normalized, err)
 	}
 	// River's tables, under the lock River initializers share; every insert
 	// notifies its queue, so AuthKit's own fleet polls only as a backstop (#477).

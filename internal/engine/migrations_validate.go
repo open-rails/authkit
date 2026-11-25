@@ -8,6 +8,8 @@ import (
 	"net"
 	"strings"
 
+	notifypg "github.com/open-rails/authkit/notify/postgres"
+
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -30,7 +32,7 @@ func validateMigrations(ctx context.Context, log *slog.Logger, pool *pgxpool.Poo
 	if err != nil {
 		return err
 	}
-	riverSchema, err := config.NormalizeRiverSchema(db.RiverSchema)
+	riverSchema, err := config.NormalizeRiverSchema(db.RiverSchema, schema)
 	if err != nil {
 		return err
 	}
@@ -57,6 +59,9 @@ func validateMigrations(ctx context.Context, log *slog.Logger, pool *pgxpool.Poo
 		}
 	}
 	if err := riverhelpers.ValidateMigrations(ctx, pool, riverhelpers.MigrationOptions{Schema: riverSchema, Logger: log}); err != nil {
+		return migrationValidationError(err)
+	}
+	if err := notifypg.Validate(ctx, pool, schema); err != nil {
 		return migrationValidationError(err)
 	}
 	return nil

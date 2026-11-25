@@ -78,6 +78,9 @@ type Engine struct {
 	emailHealth        senderHealth
 	smsHealth          senderHealth
 	healthMu           sync.Mutex
+	// producers are the registered notification producers, by tenant and name.
+	producersMu sync.Mutex
+	producers   map[string]notificationProducer
 	stopHealth         context.CancelFunc
 	entitlements       func(context.Context, []string) (map[string][]string, error)
 	entitlementHolders func(context.Context, string) ([]string, error)

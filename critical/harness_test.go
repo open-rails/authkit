@@ -47,6 +47,8 @@ type fixture struct {
 	teamWrite    iam.Perm
 	teamReader   iam.Role
 	teamWriter   iam.Role
+	// notify is the notification fixture's remote-publication permission.
+	notify iam.Perm
 }
 
 func newFixture(t *testing.T, options ...authtest.Option) *fixture {

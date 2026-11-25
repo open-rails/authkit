@@ -17,7 +17,7 @@ func (s *Engine) AdoptNotifications(ctx context.Context, producer string, adopti
 	if len(adoptions) > notify.MaxMutations {
 		return fmt.Errorf("%w: too many notification adoptions", notify.ErrInvalid)
 	}
-	p, err := s.NotificationProducer(ctx, producer)
+	p, err := s.notificationProducer(ctx, producer)
 	if err != nil {
 		return err
 	}
@@ -51,13 +51,10 @@ func (s *Engine) AdoptNotifications(ctx context.Context, producer string, adopti
 	if err != nil {
 		return err
 	}
-	items := pgx.Identifier{s.cfg.Notifications.Schema, "notify_items"}.Sanitize()
-	recipients := pgx.Identifier{s.cfg.Notifications.Schema, "notify_recipients"}.Sanitize()
-	appFences := pgx.Identifier{s.cfg.Notifications.Schema, "notify_app_erasures"}.Sanitize()
+	items := pgx.Identifier{s.schema, "notify_items"}.Sanitize()
+	recipients := pgx.Identifier{s.schema, "notify_recipients"}.Sanitize()
+	appFences := pgx.Identifier{s.schema, "notify_app_erasures"}.Sanitize()
 	return pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error {
-		if err := s.checkNotificationScope(ctx, tx); err != nil {
-			return err
-		}
 		// Writers are stopped by the cutover owner. These short locks also keep a
 		// concurrent receipt update/erasure from observing half an adoption batch.
 		if _, err := tx.Exec(ctx, "LOCK TABLE "+recipients+", "+items+", "+appFences+" IN SHARE ROW EXCLUSIVE MODE"); err != nil {

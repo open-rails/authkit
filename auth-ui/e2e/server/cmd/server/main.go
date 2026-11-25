@@ -141,7 +141,7 @@ func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime, isolated *authki
 			reply(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
-		publisher, err := rt.Notifications("application")
+		publisher, err := rt.Notifications(authkit.NotificationProducer{Name: "application", Origin: notify.OriginScope{System: "application", Scope: "critical-browser"}})
 		if err == nil {
 			if in.Withdrawn {
 				err = publisher.Withdraw(r.Context(), []notify.Withdrawal{{RecipientID: in.UserID, ID: in.ID, Revision: in.Revision}})
