@@ -57,7 +57,7 @@ func (s *Engine) FinishPasskeyMFAEnrollment(ctx context.Context, in authflow.Two
 	if err != nil {
 		return authflow.LoginOutcome{}, err
 	}
-	credential, err := s.createCredential(user, session, parsed)
+	credential, err := s.createCredential(ctx, user, session, parsed)
 	if err != nil {
 		return authflow.LoginOutcome{}, errmodel.E(errmodel.CodeInvalidRequest)
 	}

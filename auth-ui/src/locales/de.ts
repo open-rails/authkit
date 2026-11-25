@@ -175,6 +175,8 @@ export const de: AuthUiMessageBundle = {
       "Füge einen Passkey hinzu, um dich ohne Code mit Fingerabdruck, Gesicht oder Displaysperre anzumelden.",
     add: "Passkey hinzufügen",
     skip: "Nicht jetzt",
+    window: "Dein Browser fügt Passkeys in einem neuen Fenster hinzu.",
+    openWindow: "In neuem Fenster fortfahren",
   },
   register: {
     passwordHint: "Mindestens {min} Zeichen.",
@@ -640,6 +642,10 @@ export const de: AuthUiMessageBundle = {
     errorTitle: "Anmeldung fehlgeschlagen",
   },
   oauth: {
+    framedTitle: "In einem neuen Fenster zu {client} fortfahren",
+    framed:
+      "Zu deiner Sicherheit finden Anmeldung und Zustimmung in einem eigenen Fenster statt, nicht innerhalb einer anderen Website.",
+    openWindow: "In neuem Fenster fortfahren",
     signInTo: "Melden Sie sich an, um mit {client} fortzufahren",
     continuing: "Weiter zu {client}…",
   },
@@ -659,6 +665,12 @@ export const de: AuthUiMessageBundle = {
     consent_revocation_refused: "Diese App kann noch nicht getrennt werden.",
     phone_country_not_allowed:
       "An Nummern in diesem Land können keine SMS gesendet werden.",
+    phone_number_not_allowed:
+      "An diese Nummer können keine SMS gesendet werden. Verwende eine Mobilnummer oder deine E-Mail-Adresse.",
+    captcha_failed:
+      "Bestätige, dass du kein Roboter bist, und versuche es erneut.",
+    captcha_unavailable:
+      "Die Prüfung, dass du kein Roboter bist, ist gerade nicht verfügbar. Versuche es gleich noch einmal.",
     authorization_request_not_found:
       "Diese Anmeldeanfrage ist abgelaufen. Kehren Sie zur App zurück und versuchen Sie es erneut.",
     network_error:
@@ -873,6 +885,8 @@ export const de: AuthUiMessageBundle = {
     renames_disabled: "Änderungen des Benutzernamens sind deaktiviert.",
     session_revoked:
       "Ihre Sitzung wurde beendet. Bitte melden Sie sich erneut an.",
+    single_tenant:
+      "Diese Bereitstellung hat einen Mandanten. Weitere erfordern den Mehrmandantenmodus.",
     sms_delivery_failed:
       "Die Verifizierungs-SMS konnte nicht zugestellt werden. Bitte versuchen Sie es stattdessen per E-Mail oder wenden Sie sich an den Support.",
     sms_unavailable:

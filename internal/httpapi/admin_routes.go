@@ -58,12 +58,12 @@ func (s *Service) userQuery(r *http.Request) (iam.UserQuery, error) {
 func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request) {
 	q, err := s.userQuery(r)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	page, err := s.svc.ListUsers(r.Context(), q)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	list(w, page)
@@ -72,25 +72,25 @@ func (s *Service) handleAdminUsersListGET(w http.ResponseWriter, r *http.Request
 func (s *Service) handleAdminUserGET(w http.ResponseWriter, r *http.Request) {
 	u, err := s.svc.UserEntry(r.Context(), r.PathValue("user_id"))
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, u)
 }
 
 // accountActor is the signed-in user acting on an account route.
-func accountTarget(w http.ResponseWriter, r *http.Request) (auth.Identity, string, bool) {
+func (s *Service) accountTarget(w http.ResponseWriter, r *http.Request) (auth.Identity, string, bool) {
 	who, ok := verify.IdentityFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return auth.Identity{}, "", false
 	}
-	if _, ok := userSubjectID(w, who); !ok {
+	if _, ok := s.userSubjectID(w, who); !ok {
 		return auth.Identity{}, "", false
 	}
 	target := strings.TrimSpace(r.PathValue("user_id"))
 	if target == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return auth.Identity{}, "", false
 	}
 	return who, target, true
@@ -101,16 +101,16 @@ func accountTarget(w http.ResponseWriter, r *http.Request) (auth.Identity, strin
 func (s *Service) handleAdminUserPATCH(w http.ResponseWriter, r *http.Request) {
 	var req AdminUserUpdateRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	who, target, ok := accountTarget(w, r)
+	who, target, ok := s.accountTarget(w, r)
 	if !ok {
 		return
 	}
 	update := iam.UserUpdate{Email: req.Email, Phone: req.PhoneNumber, Username: req.Username, PreferredLanguage: req.PreferredLanguage, MFARequired: req.MFARequired}
 	if _, err := s.svc.UpdateUser(r.Context(), who, target, update); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	s.handleAdminUserGET(w, r)
@@ -120,15 +120,15 @@ func (s *Service) handleAdminUserPATCH(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleAdminUserBanPUT(w http.ResponseWriter, r *http.Request) {
 	var req BanRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
-	who, target, ok := accountTarget(w, r)
+	who, target, ok := s.accountTarget(w, r)
 	if !ok {
 		return
 	}
 	if req.Until != nil && !req.Until.After(time.Now()) {
-		fail(w, errmodel.CodeInvalidUntil)
+		s.fail(w, errmodel.CodeInvalidUntil)
 		return
 	}
 	ban := iam.Ban{Until: req.Until}
@@ -136,38 +136,38 @@ func (s *Service) handleAdminUserBanPUT(w http.ResponseWriter, r *http.Request) 
 		ban.Reason = *req.Reason
 	}
 	if err := s.svc.Ban(r.Context(), who, target, ban); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
 }
 
 func (s *Service) handleAdminUserBanDELETE(w http.ResponseWriter, r *http.Request) {
-	who, target, ok := accountTarget(w, r)
+	who, target, ok := s.accountTarget(w, r)
 	if !ok {
 		return
 	}
 	if err := s.svc.Unban(r.Context(), who, target); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
 }
 
 func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Request) {
-	who, target, ok := accountTarget(w, r)
+	who, target, ok := s.accountTarget(w, r)
 	if !ok {
 		return
 	}
 	// One's own account is deleted through DELETE /me, behind its recent
 	// sign-in and second factor (ak#417).
 	if strings.EqualFold(target, state(who).ID()) {
-		writeError(w, iam.ErrCannotTargetSelf)
+		s.writeError(w, iam.ErrCannotTargetSelf)
 		return
 	}
 	res, err := s.svc.DeleteUsers(r.Context(), who, []string{target})
 	if err := opErr(res, err); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -178,7 +178,7 @@ func (s *Service) handleAdminUserDeleteDELETE(w http.ResponseWriter, r *http.Req
 func (s *Service) handleAdminUserSessionsGET(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.svc.Sessions(r.Context(), r.PathValue("user_id"))
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	all(w, sessions)
@@ -187,25 +187,25 @@ func (s *Service) handleAdminUserSessionsGET(w http.ResponseWriter, r *http.Requ
 // handleAdminUserSessionsDELETE revokes every session and device key of the
 // account.
 func (s *Service) handleAdminUserSessionsDELETE(w http.ResponseWriter, r *http.Request) {
-	who, target, ok := accountTarget(w, r)
+	who, target, ok := s.accountTarget(w, r)
 	if !ok {
 		return
 	}
 	if _, err := s.svc.RevokeAccountSessions(r.Context(), who, target); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
 }
 
 func (s *Service) handleAdminUserRestorePOST(w http.ResponseWriter, r *http.Request) {
-	who, target, ok := accountTarget(w, r)
+	who, target, ok := s.accountTarget(w, r)
 	if !ok {
 		return
 	}
 	res, err := s.svc.RestoreUsers(r.Context(), who, []string{target})
 	if err := opErr(res, err); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -222,7 +222,7 @@ func opErr(res []iam.OpResult, err error) error {
 func (s *Service) handleAdminProvisioningTargetsGET(w http.ResponseWriter, r *http.Request) {
 	targets, err := s.svc.ProvisioningTargets(r.Context())
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	all(w, targets)

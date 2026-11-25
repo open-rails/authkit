@@ -34,7 +34,7 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		who, ok := verify.IdentityFromContext(r.Context())
 		if !ok {
-			fail(w, errmodel.CodeUnauthenticated)
+			s.fail(w, errmodel.CodeUnauthenticated)
 			return
 		}
 		g, err := s.svc.Group(r.Context(), groupRef(r.PathValue("group_id")))
@@ -42,12 +42,12 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			err = iam.ErrGroupNotFound
 		}
 		if err != nil {
-			writeError(w, remap(err, groupScopeCodes))
+			s.writeError(w, remap(err, groupScopeCodes))
 			return
 		}
 		persona, ok := s.svc.PermissionGroupSchema().Persona(g.Persona)
 		if !ok || !op.Available(persona) {
-			fail(w, errmodel.CodeForbidden)
+			s.fail(w, errmodel.CodeForbidden)
 			return
 		}
 		group := iam.GroupByID(g.ID)
@@ -63,15 +63,15 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 			globalAccountInvite = allowed
 		}
 		if errors.Is(err, iam.ErrSessionRevoked) {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		if err != nil {
-			serverErr(w, "database_error", err)
+			s.serverErr(w, "database_error", err)
 			return
 		}
 		if !allowed {
-			fail(w, errmodel.CodeForbidden)
+			s.fail(w, errmodel.CodeForbidden)
 			return
 		}
 		if op.Mutates() && (g.Persona == iam.RootPersona() || op.SignInFresh() || globalAccountInvite) && !s.recentUserSignIn(w, r, who) {
@@ -128,7 +128,7 @@ func (s *Service) GroupHandler(op GroupOp) http.HandlerFunc {
 		case OpRemoteAppDelete:
 			s.groupRemoteAppDelete(w, r, g, who)
 		default:
-			fail(w, errmodel.CodeNotImplemented)
+			s.fail(w, errmodel.CodeNotImplemented)
 		}
 	}
 }
@@ -150,7 +150,7 @@ func groupRef(id string) iam.GroupRef {
 // up. It answers the refusal itself.
 func (s *Service) recentUserSignIn(w http.ResponseWriter, r *http.Request, who auth.Identity) bool {
 	if !state(who).IsUser() {
-		fail(w, errmodel.CodeForbidden)
+		s.fail(w, errmodel.CodeForbidden)
 		return false
 	}
 	claims, err := callerClaims(r)
@@ -158,7 +158,7 @@ func (s *Service) recentUserSignIn(w http.ResponseWriter, r *http.Request, who a
 		err = s.svc.CheckRecentSignIn(r.Context(), claims)
 	}
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return false
 	}
 	return true
@@ -166,9 +166,9 @@ func (s *Service) recentUserSignIn(w http.ResponseWriter, r *http.Request, who a
 
 // userSubjectID is the user behind identity, for operations only a user may
 // perform; any other identity gets 403.
-func userSubjectID(w http.ResponseWriter, who auth.Identity) (string, bool) {
+func (s *Service) userSubjectID(w http.ResponseWriter, who auth.Identity) (string, bool) {
 	if !state(who).IsUser() {
-		fail(w, errmodel.CodeForbidden)
+		s.fail(w, errmodel.CodeForbidden)
 		return "", false
 	}
 	return state(who).ID(), true

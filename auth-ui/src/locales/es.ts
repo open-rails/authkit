@@ -171,6 +171,8 @@ export const es: AuthUiMessageBundle = {
       "Añade una llave de acceso para iniciar sesión con tu huella, tu cara o el bloqueo de pantalla, sin código.",
     add: "Añadir una llave de acceso",
     skip: "Ahora no",
+    window: "Tu navegador añade llaves de acceso en una ventana nueva.",
+    openWindow: "Continuar en una ventana nueva",
   },
   register: {
     passwordHint: "Usa al menos {min} caracteres.",
@@ -636,6 +638,10 @@ export const es: AuthUiMessageBundle = {
     errorTitle: "Error al iniciar sesión",
   },
   oauth: {
+    framedTitle: "Continúa a {client} en una ventana nueva",
+    framed:
+      "Por tu seguridad, el inicio de sesión y el permiso de acceso se hacen en su propia ventana, no dentro de otro sitio.",
+    openWindow: "Continuar en una ventana nueva",
     signInTo: "Inicia sesión para continuar en {client}",
     continuing: "Continuando a {client}…",
   },
@@ -655,6 +661,12 @@ export const es: AuthUiMessageBundle = {
     consent_revocation_refused: "Esta aplicación aún no se puede desconectar.",
     phone_country_not_allowed:
       "No se pueden enviar mensajes de texto a números de este país.",
+    phone_number_not_allowed:
+      "No se pueden enviar mensajes de texto a este número. Usa un número móvil o tu correo electrónico.",
+    captcha_failed:
+      "Completa la verificación de que no eres un robot e inténtalo de nuevo.",
+    captcha_unavailable:
+      "La verificación de que no eres un robot no está disponible ahora. Inténtalo de nuevo en un momento.",
     authorization_request_not_found:
       "Esta solicitud de inicio de sesión ha caducado. Vuelve a la aplicación e inténtalo de nuevo.",
     network_error:
@@ -854,6 +866,8 @@ export const es: AuthUiMessageBundle = {
       "Demasiados cambios de nombre de usuario. Inténtalo más tarde.",
     renames_disabled: "Los cambios de nombre de usuario están deshabilitados.",
     session_revoked: "Tu sesión terminó. Inicia sesión de nuevo.",
+    single_tenant:
+      "Esta implementación tiene un solo tenant. Para tener más se necesita el modo multitenant.",
     sms_delivery_failed:
       "No pudimos enviar el mensaje de texto de verificación. Prueba con el correo electrónico o contacta con soporte.",
     sms_unavailable:

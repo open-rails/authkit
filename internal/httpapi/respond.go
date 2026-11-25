@@ -94,9 +94,9 @@ func (q PageQuery) Page() (iam.PageRequest, error) {
 
 // readQuery decodes a route's query string, answering 400 for a malformed
 // one.
-func readQuery(w http.ResponseWriter, r *http.Request, dst any) bool {
+func (s *Service) readQuery(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if err := decodeQuery(r, dst); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return false
 	}
 	return true
@@ -104,14 +104,14 @@ func readQuery(w http.ResponseWriter, r *http.Request, dst any) bool {
 
 // readPage reads a list route's ?cursor= and ?limit=, answering 400 for a
 // bad limit.
-func readPage(w http.ResponseWriter, r *http.Request) (iam.PageRequest, bool) {
+func (s *Service) readPage(w http.ResponseWriter, r *http.Request) (iam.PageRequest, bool) {
 	var q PageQuery
-	if !readQuery(w, r, &q) {
+	if !s.readQuery(w, r, &q) {
 		return iam.PageRequest{}, false
 	}
 	page, err := q.Page()
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return page, false
 	}
 	return page, true

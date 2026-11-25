@@ -72,6 +72,7 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 		PersonalAccessTokens: authkit.PersonalAccessTokensConfig{Enabled: true},
 	}
 	if profile == "main" {
+		cfg.Tenancy = authkit.TenancyMulti // and an isolated directory
 		cfg.AuthorizationServer = authkit.AuthorizationServerConfig{Clients: []authkit.OAuthClientConfig{{
 			ID: "critical-issuer", Name: "Critical issuer proof", RedirectURIs: []string{origin + "/issuer-return"},
 		}}}

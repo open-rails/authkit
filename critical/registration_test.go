@@ -158,7 +158,7 @@ func TestCriticalRegistration(t *testing.T) {
 		}
 	})
 	t.Run("AK-J03-C04_verification_is_scoped_expiring_and_single_use", func(t *testing.T) {
-		g := newFixture(t, proofRegistration())
+		g := newFixture(t, multiTenant, proofRegistration())
 		const email = "scoped-proof@example.com"
 		message := g.registered(t, email, "scopedproof")
 		g.call(t, "POST", "/verify/confirm", "", map[string]string{"identifier": "wrong-person@example.com", "challenge": message.Challenge, "code": message.Code}).want(t, http.StatusUnauthorized, "invalid_code")

@@ -13,18 +13,20 @@ pkg authkit, const NameRetentionImmediate config.NameRetentionMode = "immediate"
 pkg authkit, const NotificationDeliveryQueue untyped string = "authkit_notifications"
 pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
+pkg authkit, const TenancyMulti config.Tenancy = 1
+pkg authkit, const TenancySingle config.Tenancy = 0
 pkg authkit, func DefaultRateLimits() map[string]RateLimit
-pkg authkit, func EnsureGroups(context.Context, *pgxpool.Pool, Config, []iam.NewGroup) ([]iam.Group, error)
+pkg authkit, func EnsureGroups(context.Context, *pgxpool.Pool, Config, []iam.NewGroup, *slog.Logger) ([]iam.Group, error)
 pkg authkit, func IfRole(iam.Role) Option
 pkg authkit, func InTx(pgx.Tx) Option
 pkg authkit, func IncludeDeleted() Option
 pkg authkit, func Migrate(context.Context, *pgxpool.Pool, DatabaseConfig, ...MigrationOptions) error
-pkg authkit, func MigrateNotifications(context.Context, *pgxpool.Pool, Config) error
+pkg authkit, func MigrateNotifications(context.Context, *pgxpool.Pool, Config, *slog.Logger) error
 pkg authkit, func New(context.Context, Config, Deps) (*Client, error)
-pkg authkit, func NewNotificationDelivery(*pgxpool.Pool, string, map[string]RemoteNotificationConfig) (*NotificationDelivery, error)
+pkg authkit, func NewNotificationDelivery(*pgxpool.Pool, string, map[string]RemoteNotificationConfig, *slog.Logger) (*NotificationDelivery, error)
 pkg authkit, func NewRemoteEventReader(RemoteEventConfig) (eventlog.Reader, error)
 pkg authkit, func NewRoles(...PersonaOption) *Roles
-pkg authkit, func ParseBootstrapManifestYAML([]byte) (iam.BootstrapManifest, error)
+pkg authkit, func ParseBootstrapManifestYAML([]byte, *slog.Logger) (iam.BootstrapManifest, error)
 pkg authkit, func ScheduleAccountResync(context.Context, *pgxpool.Pool, string, string, time.Time) error
 pkg authkit, func TenantFromContext(context.Context) (iam.TenantID, bool)
 pkg authkit, func WithRiverClient(*river.Client[pgx.Tx]) StartOption
@@ -93,6 +95,7 @@ pkg authkit, method (*Client) ListPersonalAccessTokens(context.Context, auth.Ide
 pkg authkit, method (*Client) ListRemoteApplications(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.RemoteApplication], error)
 pkg authkit, method (*Client) ListSessionEvents(context.Context, string, iam.SessionEventQuery) (iam.ListPage[iam.SessionEvent], error)
 pkg authkit, method (*Client) ListUsers(context.Context, iam.UserQuery) (iam.ListPage[iam.UserEntry], error)
+pkg authkit, method (*Client) Logger() *slog.Logger
 pkg authkit, method (*Client) MigrateGroupPersona(context.Context, iam.GroupPersonaMigration) (iam.GroupPersonaMigrationReport, error)
 pkg authkit, method (*Client) MintAccessToken(context.Context, string, iam.AccessTokenOptions, ...Option) (iam.Token, error)
 pkg authkit, method (*Client) Mount(*http.ServeMux) error
@@ -146,6 +149,7 @@ pkg authkit, method (*Client) SetNotificationRead(context.Context, string, strin
 pkg authkit, method (*Client) Start(context.Context, ...StartOption) error
 pkg authkit, method (*Client) StartAccountEvents(context.Context, AccountEventOptions) (*AccountEventLoop, error)
 pkg authkit, method (*Client) Tenant(context.Context, iam.TenantID) (iam.Tenant, error)
+pkg authkit, method (*Client) TenantID() iam.TenantID
 pkg authkit, method (*Client) TwoFactorMethods() []iam.TwoFactorMethod
 pkg authkit, method (*Client) Unban(context.Context, auth.Identity, string, ...Option) error
 pkg authkit, method (*Client) UpdateGroupOAuthClient(context.Context, auth.Identity, iam.GroupRef, string, iam.OAuthClientUpdate, ...Option) (iam.OAuthClient, error)
@@ -178,6 +182,7 @@ pkg authkit, method (*Verifier) CheckCredential(context.Context, verify.Claims) 
 pkg authkit, method (*Verifier) CheckRecentSignIn(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) CheckSession(context.Context, verify.Claims) error
 pkg authkit, method (*Verifier) KnownPermission(iam.Perm) bool
+pkg authkit, method (*Verifier) Logger() *slog.Logger
 pkg authkit, method (*Verifier) Verify(context.Context, string) (verify.Claims, error)
 pkg authkit, method (*Verifier) VerifyRequest(*http.Request) (verify.Claims, error)
 pkg authkit, method (CredentialPerms) All() iam.Perm
@@ -194,6 +199,7 @@ pkg authkit, method (RootDef) Permissions() []iam.Perm
 pkg authkit, method (RootDef) RequireMFA(...iam.Perm)
 pkg authkit, method (RootDef) Resource(string) config.Resource
 pkg authkit, method (RootDef) Role(string, ...iam.Grant) iam.Role
+pkg authkit, method (Tenancy) String() string
 pkg authkit, method (TenantDef) All() iam.Perm
 pkg authkit, method (TenantDef) Declare(...string) []iam.Perm
 pkg authkit, method (TenantDef) Expand([]iam.Perm) []iam.Perm
@@ -230,6 +236,10 @@ pkg authkit, type AuthorizationServerConfig struct, Clients []config.OAuthClient
 pkg authkit, type AuthorizationServerConfig struct, GroupClients config.GroupClientsConfig `yaml:"group_clients"`
 pkg authkit, type AuthorizationServerConfig struct, RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl"`
 pkg authkit, type AuthorizationServerConfig struct, Resources []config.ResourceServerConfig `yaml:"resources"`
+pkg authkit, type CaptchaVerifier = config.CaptchaVerifier
+pkg authkit, type CaptchaVerifier interface
+pkg authkit, type CaptchaVerifier interface, Verify(context.Context, string, string) error
+pkg authkit, type CaptchaVerifier interface, Widget() iam.CaptchaWidget
 pkg authkit, type Client struct
 pkg authkit, type Config = config.Config
 pkg authkit, type Config struct
@@ -261,6 +271,7 @@ pkg authkit, type Config struct, SenderHealthRecheck time.Duration `yaml:"sender
 pkg authkit, type Config struct, SessionEventRetention time.Duration `yaml:"session_event_retention"`
 pkg authkit, type Config struct, SignIn config.SignInConfig `yaml:"sign_in"`
 pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork `yaml:"solana_network"`
+pkg authkit, type Config struct, Tenancy config.Tenancy `yaml:"-"`
 pkg authkit, type Config struct, Tenants config.TenantsConfig `yaml:"tenants"`
 pkg authkit, type Config struct, Token config.TokenConfig `yaml:"token"`
 pkg authkit, type Config struct, TwoFactor config.TwoFactorConfig `yaml:"two_factor"`
@@ -279,6 +290,7 @@ pkg authkit, type DatabaseConfig struct, Schema string `yaml:"schema"`
 pkg authkit, type DatabaseConfig struct, SkipMigrations bool `yaml:"skip_migrations"`
 pkg authkit, type Deps = config.Deps
 pkg authkit, type Deps struct
+pkg authkit, type Deps struct, Captcha config.CaptchaVerifier
 pkg authkit, type Deps struct, ClientIP func(*http.Request) string
 pkg authkit, type Deps struct, ConsentRevocationCheck func(context.Context, string, string) error
 pkg authkit, type Deps struct, DeletionCheck func(context.Context, string) error
@@ -287,13 +299,16 @@ pkg authkit, type Deps struct, EntitlementHolders func(context.Context, string) 
 pkg authkit, type Deps struct, Entitlements func(context.Context, []string) (map[string][]string, error)
 pkg authkit, type Deps struct, GroupName func(context.Context, string) (string, error)
 pkg authkit, type Deps struct, KeySource keys.Source
+pkg authkit, type Deps struct, Logger *slog.Logger
 pkg authkit, type Deps struct, NameAdmission func(context.Context, iam.NameAdmissionRequest) error
 pkg authkit, type Deps struct, OAuthGrants iam.OAuthGrantAuthorizer
 pkg authkit, type Deps struct, OnPurge func(context.Context, iam.UserDeletion) error
+pkg authkit, type Deps struct, PasskeyTopOrigin func(context.Context, string) (bool, error)
 pkg authkit, type Deps struct, Postgres *pgxpool.Pool
 pkg authkit, type Deps struct, Providers []provider.Provider
 pkg authkit, type Deps struct, Redis redis.UniversalClient
 pkg authkit, type Deps struct, Replays verify.ReplayStore
+pkg authkit, type Deps struct, RequestClient func(*http.Request) string
 pkg authkit, type Deps struct, RequestTenant func(*http.Request) (iam.TenantID, error)
 pkg authkit, type Deps struct, ResourceHosts func(context.Context, string) (bool, error)
 pkg authkit, type Deps struct, SMS config.SMSSender
@@ -327,6 +342,7 @@ pkg authkit, type GroupClientScope struct, Resource string `yaml:"resource"`
 pkg authkit, type GroupClientsConfig = config.GroupClientsConfig
 pkg authkit, type GroupClientsConfig struct
 pkg authkit, type GroupClientsConfig struct, Agreements []string `yaml:"agreements"`
+pkg authkit, type GroupClientsConfig struct, PairwiseSubjects bool `yaml:"pairwise_subjects"`
 pkg authkit, type GroupClientsConfig struct, Scopes []config.GroupClientScope `yaml:"scopes"`
 pkg authkit, type HTTPConfig = config.HTTPConfig
 pkg authkit, type HTTPConfig struct
@@ -347,7 +363,6 @@ pkg authkit, type InvitationsConfig struct
 pkg authkit, type InvitationsConfig struct, Disabled bool `yaml:"disabled"`
 pkg authkit, type KeysConfig = config.KeysConfig
 pkg authkit, type KeysConfig struct
-pkg authkit, type KeysConfig struct, AllowEphemeralDevKeys bool `yaml:"allow_ephemeral_dev_keys"`
 pkg authkit, type KeysConfig struct, Path string `yaml:"path"`
 pkg authkit, type KeysConfig struct, VerifyOnly bool `yaml:"verify_only"`
 pkg authkit, type LanguageConfig = config.LanguageConfig
@@ -362,6 +377,8 @@ pkg authkit, type MemberPerms struct, embedded config.Resource
 pkg authkit, type MigrationOptions = engine.MigrationOptions
 pkg authkit, type MigrationOptions struct
 pkg authkit, type MigrationOptions struct, LegacyTenantID iam.TenantID
+pkg authkit, type MigrationOptions struct, Logger *slog.Logger
+pkg authkit, type MigrationOptions struct, Tenancy config.Tenancy
 pkg authkit, type NameRetention = config.NameRetention
 pkg authkit, type NameRetention struct
 pkg authkit, type NameRetention struct, Duration time.Duration `yaml:"duration"`
@@ -532,6 +549,8 @@ pkg authkit, type SignInConfig struct, AccountsPerDevice int `yaml:"accounts_per
 pkg authkit, type SignInConfig struct, DPoP config.DPoPMode `yaml:"dpop"`
 pkg authkit, type SignInConfig struct, NewDevicesPerAccount int `yaml:"new_devices_per_account"`
 pkg authkit, type StartOption func(*startOptions)
+pkg authkit, type Tenancy = config.Tenancy
+pkg authkit, type Tenancy uint8
 pkg authkit, type TenantDef = config.TenantDef
 pkg authkit, type TenantDef struct
 pkg authkit, type TenantDef struct, Users config.UserPerms
@@ -587,6 +606,20 @@ pkg authkit, type Verifier struct
 pkg authkit, var ErrMigrationsRequired error
 pkg authkit, var ErrNotificationScopeConflict error
 pkg authkit, var ErrNotificationsDisabled error
+pkg authkit/adapters/captcha, const HCaptcha Provider = "hcaptcha"
+pkg authkit/adapters/captcha, const Turnstile Provider = "turnstile"
+pkg authkit/adapters/captcha, func New(Config) (*Verifier, error)
+pkg authkit/adapters/captcha, method (*Verifier) Verify(context.Context, string, string) error
+pkg authkit/adapters/captcha, method (*Verifier) Widget() iam.CaptchaWidget
+pkg authkit/adapters/captcha, type Config struct
+pkg authkit/adapters/captcha, type Config struct, Client *http.Client
+pkg authkit/adapters/captcha, type Config struct, Hostnames []string
+pkg authkit/adapters/captcha, type Config struct, Provider Provider
+pkg authkit/adapters/captcha, type Config struct, Secret string
+pkg authkit/adapters/captcha, type Config struct, SiteKey string
+pkg authkit/adapters/captcha, type Config struct, VerifyURL string
+pkg authkit/adapters/captcha, type Provider string
+pkg authkit/adapters/captcha, type Verifier struct
 pkg authkit/adapters/fiber, const RouteNamePrefix untyped string = "authkit."
 pkg authkit/adapters/fiber, func Mount(*fiber.App, Surface) error
 pkg authkit/adapters/fiber, func Optional(verify.Authenticator) fiber.Handler
@@ -635,6 +668,7 @@ pkg authkit/adapters/twilio, type SMSConfig struct, AppName string
 pkg authkit/adapters/twilio, type SMSConfig struct, AuthToken string
 pkg authkit/adapters/twilio, type SMSConfig struct, Client *http.Client
 pkg authkit/adapters/twilio, type SMSConfig struct, DeliveryPollInterval time.Duration
+pkg authkit/adapters/twilio, type SMSConfig struct, Logger *slog.Logger
 pkg authkit/adapters/twilio, type SMSConfig struct, MessagingServiceSID string
 pkg authkit/adapters/twilio, type SMSConfig struct, Render func(context.Context, iam.SMSMessage) (string, bool)
 pkg authkit/auth, const CredentialAPIKey CredentialKind = "api_key"
@@ -1106,6 +1140,7 @@ pkg authkit/iam, func PinnedTo(auth.Identity, string) auth.Identity
 pkg authkit/iam, func PublicDisplayName(map[string]PublicUser, string) string
 pkg authkit/iam, func RefuseConsentRevocation(string) error
 pkg authkit/iam, func RefuseDeletion(string) error
+pkg authkit/iam, func RefuseSMSDestination(string) error
 pkg authkit/iam, func RemoteApplicationSubject(string) Subject
 pkg authkit/iam, func RootGroup() GroupRef
 pkg authkit/iam, func RootPersona() Persona
@@ -1271,6 +1306,9 @@ pkg authkit/iam, type BootstrapUserPassword struct, Enforce bool `json:"enforce"
 pkg authkit/iam, type BootstrapUserPassword struct, Plaintext string `json:"plaintext" yaml:"plaintext"`
 pkg authkit/iam, type BootstrapUserPassword struct, ResetRequired bool `json:"reset_required" yaml:"reset_required"`
 pkg authkit/iam, type BootstrapUserPassword struct, embedded PasswordHash
+pkg authkit/iam, type CaptchaWidget struct
+pkg authkit/iam, type CaptchaWidget struct, Provider string `json:"provider"`
+pkg authkit/iam, type CaptchaWidget struct, SiteKey string `json:"site_key"`
 pkg authkit/iam, type ContactChange struct
 pkg authkit/iam, type ContactChange struct, Field ContactField
 pkg authkit/iam, type ContactChange struct, NewValue string
@@ -1412,6 +1450,7 @@ pkg authkit/iam, type IDToken struct, IssuedAt time.Time
 pkg authkit/iam, type IDToken struct, Nonce string
 pkg authkit/iam, type IDToken struct, SessionID string
 pkg authkit/iam, type IDToken struct, Subject string
+pkg authkit/iam, type IDToken struct, UserID string
 pkg authkit/iam, type ImportConflict string
 pkg authkit/iam, type ImportMatch string
 pkg authkit/iam, type ImportOptions struct
@@ -1869,6 +1908,7 @@ pkg authkit/iam, var ErrAccountRecoveryExpired Error
 pkg authkit/iam, var ErrAgreementRequired Error
 pkg authkit/iam, var ErrCannotTargetSelf Error
 pkg authkit/iam, var ErrCannotUnlinkLastLoginMethod Error
+pkg authkit/iam, var ErrCaptchaFailed Error
 pkg authkit/iam, var ErrConsentRequired Error
 pkg authkit/iam, var ErrConsentRevocationRefused Error
 pkg authkit/iam, var ErrContactNotVerified Error
@@ -1910,8 +1950,10 @@ pkg authkit/iam, var ErrRoleLimitReached Error
 pkg authkit/iam, var ErrRoleNotAssignable Error
 pkg authkit/iam, var ErrRoleNotEditable Error
 pkg authkit/iam, var ErrRoleNotFound Error
+pkg authkit/iam, var ErrSMSDestinationRefused Error
 pkg authkit/iam, var ErrSessionRevoked Error
 pkg authkit/iam, var ErrSigningNotConfigured Error
+pkg authkit/iam, var ErrSingleTenant Error
 pkg authkit/iam, var ErrSubjectMFARequired Error
 pkg authkit/iam, var ErrTenantConflict Error
 pkg authkit/iam, var ErrTenantMismatch error
@@ -1934,9 +1976,10 @@ pkg authkit/keys, func PublicKeys(JWKS) (map[string]crypto.PublicKey, error)
 pkg authkit/keys, func SignerFromKey(string, crypto.Signer) (Signer, error)
 pkg authkit/keys, func SignerFromPEM(string, []byte) (Signer, error)
 pkg authkit/keys, func StaticFromPEM(string, string, map[string]string) (Static, error)
-pkg authkit/keys, func Watch(string) (*FileSource, error)
+pkg authkit/keys, func Watch(string, *slog.Logger) (*FileSource, error)
 pkg authkit/keys, method (*FileSource) ActiveSigner() Signer
 pkg authkit/keys, method (*FileSource) Close()
+pkg authkit/keys, method (*FileSource) Development() bool
 pkg authkit/keys, method (*FileSource) PublicKeys() map[string]crypto.PublicKey
 pkg authkit/keys, method (*FileSource) Reload() error
 pkg authkit/keys, method (Static) ActiveSigner() Signer
@@ -2055,6 +2098,7 @@ pkg authkit/provider, func OIDC(string, string, string, string, ...Option) Provi
 pkg authkit/provider, func WithAuthParams(map[string]string) Option
 pkg authkit/provider, func WithDisplayName(string) Option
 pkg authkit/provider, func WithHTTPClient(*http.Client) Option
+pkg authkit/provider, func WithLogger(*slog.Logger) Option
 pkg authkit/provider, func WithPKCE(bool) Option
 pkg authkit/provider, func WithScopes(...string) Option
 pkg authkit/provider, func WithSecret(Secret) Option
@@ -2147,6 +2191,7 @@ pkg authkit/verify, func WithDPoP(redis.UniversalClient) VerifierOption
 pkg authkit/verify, func WithDPoPNonce([]byte) VerifierOption
 pkg authkit/verify, func WithGroup(context.Context, iam.GroupRef) context.Context
 pkg authkit/verify, func WithHTTPClient(*http.Client) VerifierOption
+pkg authkit/verify, func WithLogger(*slog.Logger) VerifierOption
 pkg authkit/verify, func WithPublicHosts(func(context.Context, string) (bool, error)) VerifierOption
 pkg authkit/verify, func WithPublicURL(string) VerifierOption
 pkg authkit/verify, func WithReplayStore(ReplayStore) VerifierOption

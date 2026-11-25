@@ -3,7 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
-	stdlog "log"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +28,8 @@ import (
 type Engine struct {
 	closeOnce sync.Once
 	closeErr  error
+	// log is Deps.Logger, which authkit.New resolved.
+	log *slog.Logger
 
 	maintenance *riverMaintenance
 	onPurge     func(context.Context, iam.UserDeletion) error
@@ -38,6 +40,9 @@ type Engine struct {
 	consentRevocationCheck func(ctx context.Context, userID, clientID string) error
 	// groupNameHook is Deps.GroupName: a group's name on consent screens.
 	groupNameHook func(context.Context, string) (string, error)
+	// passkeyTopOrigin is Deps.PasskeyTopOrigin: the pages that may frame a
+	// passkey ceremony.
+	passkeyTopOrigin func(context.Context, string) (bool, error)
 	// clientAssertions verifies group clients' RFC 7523 client assertions
 	// against their jwks_uri.
 	clientAssertions     *clientAssertionVerifier
@@ -137,7 +142,7 @@ func (s *Engine) listEntitlements(ctx context.Context, userID string) []string {
 	}
 	m, err := s.entitlements(ctx, []string{userID})
 	if err != nil {
-		stdlog.Printf("authkit: error: entitlements provider failed for user %q; reporting no entitlements: %v", userID, err)
+		s.log.ErrorContext(ctx, "authkit: entitlements provider failed; reporting no entitlements", "user_id", userID, "error", err)
 		return nil
 	}
 	return m[userID]

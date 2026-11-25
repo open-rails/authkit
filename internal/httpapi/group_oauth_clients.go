@@ -20,7 +20,7 @@ type OAuthClientSecret struct {
 func (s *Service) groupOAuthClientsList(w http.ResponseWriter, r *http.Request, g iam.Group) {
 	clients, err := s.svc.GroupOAuthClients(r.Context(), iam.GroupByID(g.ID))
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	all(w, clients)
@@ -29,7 +29,7 @@ func (s *Service) groupOAuthClientsList(w http.ResponseWriter, r *http.Request, 
 func (s *Service) groupOAuthClientGet(w http.ResponseWriter, r *http.Request, g iam.Group) {
 	c, err := s.svc.GroupOAuthClient(r.Context(), iam.GroupByID(g.ID), r.PathValue("client_id"))
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, c)
@@ -38,12 +38,12 @@ func (s *Service) groupOAuthClientGet(w http.ResponseWriter, r *http.Request, g 
 func (s *Service) groupOAuthClientCreate(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	var body iam.NewOAuthClient
 	if err := decodeJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	out, err := s.svc.CreateGroupOAuthClient(r.Context(), who, iam.GroupByID(g.ID), body)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, out)
@@ -52,12 +52,12 @@ func (s *Service) groupOAuthClientCreate(w http.ResponseWriter, r *http.Request,
 func (s *Service) groupOAuthClientUpdate(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	var body iam.OAuthClientUpdate
 	if err := decodeJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	out, err := s.svc.UpdateGroupOAuthClient(r.Context(), who, iam.GroupByID(g.ID), r.PathValue("client_id"), body)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -66,7 +66,7 @@ func (s *Service) groupOAuthClientUpdate(w http.ResponseWriter, r *http.Request,
 func (s *Service) groupOAuthClientSecret(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	secret, err := s.svc.RotateGroupOAuthClientSecret(r.Context(), who, iam.GroupByID(g.ID), r.PathValue("client_id"))
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, OAuthClientSecret{ClientSecret: secret})
@@ -74,7 +74,7 @@ func (s *Service) groupOAuthClientSecret(w http.ResponseWriter, r *http.Request,
 
 func (s *Service) groupOAuthClientDelete(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	if err := s.svc.DeleteGroupOAuthClient(r.Context(), who, iam.GroupByID(g.ID), r.PathValue("client_id")); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -84,12 +84,12 @@ func (s *Service) groupOAuthClientDelete(w http.ResponseWriter, r *http.Request,
 func (s *Service) handleMeOAuthConsentsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	consents, err := s.svc.OAuthConsents(r.Context(), claims.UserID)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	all(w, consents)
@@ -101,11 +101,11 @@ func (s *Service) handleMeOAuthConsentDELETE(w http.ResponseWriter, r *http.Requ
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	who, hasIdentity := verify.IdentityFromContext(r.Context())
 	if !ok || !hasIdentity || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if err := s.svc.WithdrawConsent(r.Context(), who, claims.UserID, r.PathValue("client_id")); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)

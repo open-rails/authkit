@@ -19,7 +19,7 @@ import (
 func (s *Service) handleMeGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	s.writeProfile(w, r, claims)
@@ -31,19 +31,19 @@ func (s *Service) handleMePATCH(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	who, hasIdentity := verify.IdentityFromContext(r.Context())
 	if !ok || !hasIdentity || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var body ProfileUpdateRequest
 	if err := decodeJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	var update iam.UserUpdate
 	if body.Username != nil {
 		name := strings.TrimSpace(*body.Username)
 		if name == "" {
-			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("username"))
+			s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("username"))
 			return
 		}
 		update.Username = &name
@@ -51,13 +51,13 @@ func (s *Service) handleMePATCH(w http.ResponseWriter, r *http.Request) {
 	if body.PreferredLanguage != nil {
 		language, err := authflow.NormalizePreferredLanguage(strings.TrimSpace(*body.PreferredLanguage))
 		if err != nil || !acceptable(s.cfg.Languages, language) {
-			fail(w, errmodel.CodeInvalidPreferredLanguage)
+			s.fail(w, errmodel.CodeInvalidPreferredLanguage)
 			return
 		}
 		update.PreferredLanguage = &language
 	}
 	if _, err := s.svc.UpdateUser(r.Context(), who, claims.UserID, update); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	s.writeProfile(w, r, claims)
@@ -66,12 +66,12 @@ func (s *Service) handleMePATCH(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleMeSecurityGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	security, err := s.svc.UserSecurity(r.Context(), s.profileInput(claims))
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, security)
@@ -83,16 +83,16 @@ func (s *Service) handleMeDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	who, hasIdentity := verify.IdentityFromContext(r.Context())
 	if !ok || !hasIdentity || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	res, err := s.svc.DeleteUsers(r.Context(), who, []string{claims.UserID})
 	if err := opErr(res, err); err != nil {
 		if errmodel.As(err) == nil {
-			serverErr(w, "failed_to_delete", err)
+			s.serverErr(w, "failed_to_delete", err)
 			return
 		}
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -104,16 +104,16 @@ func (s *Service) handleMeDELETE(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleMeProviderDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
 	if provider == "" {
-		fail(w, errmodel.CodeInvalidProvider)
+		s.fail(w, errmodel.CodeInvalidProvider)
 		return
 	}
 	if err := s.svc.UnlinkProvider(r.Context(), claims.UserID, provider); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -123,7 +123,7 @@ func (s *Service) handleMeProviderDELETE(w http.ResponseWriter, r *http.Request)
 func (s *Service) writeProfile(w http.ResponseWriter, r *http.Request, claims verify.Claims) {
 	profile, err := s.svc.UserProfile(r.Context(), s.profileInput(claims))
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, profile)

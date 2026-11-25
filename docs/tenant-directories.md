@@ -14,24 +14,23 @@ storage path, role or authentication credential.
 
 ## Select a directory
 
-For an app serving one tenant, set its persisted tenant ID in configuration:
+`Config.Tenancy` says how many directories a deployment has. It is set in code; it has no YAML key.
+
+### Single-tenant (the default)
+
+An app serving one business sets nothing: no tenant ID, no `CreateTenant` call (one for its own tenant is a harmless no-op). `Migrate` (and `New`, which runs it) gives a fresh database its one tenant, a new UUIDv7 with its canonical permission group, and adopts the tenant an existing database already holds. Every account operation acts in it, and `Client.TenantID` reports it, for example to hand to ContentKit or OpenRails.
+
+- An existing app upgrades with its `DefaultTenantID` setting or without it, then deletes it. A setting that names another tenant than the database's refuses to start.
+- A fresh database whose tenant ID must match another system's (a ContentKit business UUID) keeps `DefaultTenantID` (or `MigrationOptions.LegacyTenantID` for a separate `Migrate` step) for its first start: the tenant is created under that ID.
+- A database holding more than one tenant refuses to start and to migrate: the data contradicts the mode. Such a deployment is multi-tenant.
+- `CreateTenant` of another ID is refused with `iam.ErrSingleTenant` (HTTP 403 `single_tenant`); of the deployment's own ID it is the idempotent no-op matching provisioning always is. `ForTenant` or `Deps.RequestTenant` selects only the deployment's tenant.
+
+### Multi-tenant
+
+A deployment serving several businesses sets `Tenancy: authkit.TenancyMulti`, also in `MigrationOptions.Tenancy` when it runs `Migrate` itself. `DefaultTenantID` is optional: when set, it names an existing tenant that operations selecting none act in; when zero, such operations are refused with `iam.ErrTenantRequired` and write nothing, never falling back to some tenant. Create tenants explicitly and select one for each operation:
 
 ```go
-tenantID, err := iam.ParseTenantID(configuredTenantID)
-if err != nil {
-	return err
-}
-cfg.DefaultTenantID = tenantID
-```
-
-Use an existing ID from trusted provisioning or configuration. Do not call
-`iam.NewTenantID()` on every startup. Changing a default does not move accounts
-to a new business.
-
-A deployment serving several tenants can leave `DefaultTenantID` zero, create
-tenants explicitly, and select an existing directory for each operation:
-
-```go
+tenantID := iam.NewTenantID() // store it: it is the business's identity
 if err := authority.CreateTenant(ctx, iam.Tenant{ID: tenantID, Slug: "acme"}); err != nil {
 	return err
 }
@@ -41,6 +40,8 @@ if err != nil {
 }
 user, err := directory.User(ctx, iam.UserByEmail(email))
 ```
+
+Keep a tenant's ID: create it once and store it, never once per startup. Changing a default does not move accounts to another business.
 
 `CreateTenant` creates the tenant and its canonical permission group, without
 an account, owner assignment, app or key. Repeating matching provisioning is
@@ -85,7 +86,7 @@ framework mounts the route catalog. The original URL and headers stay intact.
 `Deps.Wrap` runs inside those guards and must not recursively dispatch to a
 tenant handler.
 
-Return zero when no selector is present: this keeps `DefaultTenantID` or an
+Return zero when no selector is present: this keeps the default tenant or an
 explicit `ForTenant` view. Unknown nonzero IDs return 404; an attempt to select
 a different directory on a fixed view returns 403. `auth.ErrForbidden` refuses
 a host selector with 403, and other errors use AuthKit's error envelope without
@@ -105,8 +106,8 @@ account. A configured OAuth client or an existing authorization request also
 keeps its own tenant selection rather than following the shared hint.
 
 For AuthKit's authorization server, `OAuthClientConfig.TenantID` selects the
-client's native account directory. An omitted value uses only the explicitly
-configured `DefaultTenantID`. A static SCIM client is not a global directory
+client's native account directory. An omitted value uses the default tenant: the
+single-tenant deployment's own, or the explicitly configured `DefaultTenantID`. A static SCIM client is not a global directory
 reader merely because several tenants share an issuer. Dynamic group clients
 use their group's recorded ownership. Shared callbacks recover their tenant
 from immutable proof state; an explicitly mounted directory still rejects a
@@ -212,15 +213,16 @@ events have a zero tenant rather than inheriting a worker's default directory.
 The event's subject and invoker fields still identify the acting operator;
 they must not be substituted for the affected tenant.
 
-## Upgrade an existing directory
+## Upgrade a directory from before tenants
 
-Take a verified backup and coordinate the writer upgrade first. Migration adds
+This concerns a database last migrated by AuthKit before v1.30, whose accounts have no tenant. Take a verified backup and coordinate the writer upgrade first. Migration adds
 non-null tenant ownership and tenant-scoped uniqueness; old unscoped writers
 must be retired before serving the upgraded schema or provisioning additional
 businesses.
 
-Choose the tenant that already owns the accounts. Pass it explicitly to the
-migration entry point:
+A single-tenant deployment gives the accounts a new tenant. To choose its ID,
+or for a multi-tenant deployment, which refuses a populated directory without
+that choice, pass it to the migration entry point:
 
 ```go
 err := authkit.Migrate(ctx, pool, database, authkit.MigrationOptions{
@@ -228,11 +230,10 @@ err := authkit.Migrate(ctx, pool, database, authkit.MigrationOptions{
 })
 ```
 
-The migration refuses a populated unowned directory without that choice. It
-preserves account and group IDs, password hashes, enrolled factors and existing
-role/key bindings. Repeating the same migration is safe. Runtime configuration
-then uses that same `DefaultTenantID`; hosts running migrations through a
-separate command set `Database.SkipMigrations = true` for normal startup.
+It preserves account and group IDs, password hashes, enrolled factors and
+existing role/key bindings. Repeating the same migration is safe. Hosts running
+migrations through a separate command set `Database.SkipMigrations = true` for
+normal startup.
 
 Account ownership and permission-persona names are separate changes. The SQL
 migration does not silently rename a legacy app or tenant group. During an

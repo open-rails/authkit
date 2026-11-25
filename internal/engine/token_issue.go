@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	stdlog "log"
 	"strings"
 	"time"
 
@@ -174,7 +173,7 @@ func (s *Engine) mintAccessTokenForUserWithAssurance(ctx context.Context, q *db.
 			// provider must not block login, but it must be LOUD — the user is
 			// getting a token without entitlement claims (no premium access)
 			// until the next refresh.
-			stdlog.Printf("authkit: error: entitlements provider failed during access-token issuance for user %s; token issued WITHOUT entitlement claims: %v", userID, entErr)
+			s.log.ErrorContext(ctx, "authkit: entitlements provider failed; access token issued without entitlement claims", "user_id", userID, "error", entErr)
 		} else {
 			ents = selectedTokenEntitlements(s.cfg.Token.EntitlementAllowlist, m[userID])
 		}

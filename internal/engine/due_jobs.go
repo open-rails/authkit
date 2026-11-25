@@ -9,7 +9,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -37,7 +36,7 @@ type dueArgs interface {
 
 // scheduleDue makes args' job run by at, committing with tx. A later one is
 // moved up; a running one gets a follow-up, since it may have read before tx.
-func scheduleDue(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], args dueArgs, at time.Time) error {
+func (s *Engine) scheduleDue(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], args dueArgs, at time.Time) error {
 	for range 8 {
 		opts := args.InsertOpts()
 		if at.After(time.Now()) {
@@ -61,7 +60,7 @@ func scheduleDue(ctx context.Context, tx pgx.Tx, client *river.Client[pgx.Tx], a
 	}
 	// Never fail the caller's change: the work is in the database, where the
 	// runs in flight read their next instant.
-	slog.WarnContext(ctx, "authkit: due job not scheduled; runs in flight take it", "kind", args.Kind())
+	s.log.WarnContext(ctx, "authkit: due job not scheduled; runs in flight take it", "kind", args.Kind())
 	return nil
 }
 
@@ -100,7 +99,7 @@ func (s *Engine) afterRun(ctx context.Context, args dueArgs, base dueArgs, next 
 		return river.JobSnooze(max(time.Until(*next), dueFloor))
 	}
 	client := river.ClientFromContext[pgx.Tx](ctx)
-	return pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error { return scheduleDue(ctx, tx, client, base, *next) })
+	return pgx.BeginFunc(ctx, s.pg, func(tx pgx.Tx) error { return s.scheduleDue(ctx, tx, client, base, *next) })
 }
 
 // earliest keeps the earlier of next and t.

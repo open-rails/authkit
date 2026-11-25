@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -272,7 +271,7 @@ func (s *Engine) verificationGate(ctx context.Context, in authflow.PasswordLogin
 	if u.EmailVerified && u.Email != nil || u.PhoneVerified && u.PhoneNumber != nil {
 		return authflow.LoginOutcome{}, false, nil
 	}
-	slog.Warn("password sign-in refused: no channel can send the required verification code", "user_id", u.ID, "email_available", s.EmailAvailable(), "sms_available", s.SMSAvailable())
+	s.log.Warn("password sign-in refused: no channel can send the required verification code", "user_id", u.ID, "email_available", s.EmailAvailable(), "sms_available", s.SMSAvailable())
 	s.loginFailed(ctx, in, u.ID, "verification_unavailable")
 	return authflow.LoginOutcome{}, true, errmodel.ErrVerificationUnavailable
 }

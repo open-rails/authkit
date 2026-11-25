@@ -29,6 +29,8 @@ export type AuthErrorCode =
   | "cannot_remove_last_contact"
   | "cannot_target_self"
   | "cannot_unlink_last_login_method"
+  | "captcha_failed"
+  | "captcha_unavailable"
   | "challenge_expired"
   | "challenge_mismatch"
   | "challenge_not_found"
@@ -125,6 +127,7 @@ export type AuthErrorCode =
   | "phone_country_not_allowed"
   | "phone_in_use"
   | "phone_number_must_be_e164"
+  | "phone_number_not_allowed"
   | "phone_number_required"
   | "provider_already_linked"
   | "provider_change_requires_unlink"
@@ -148,6 +151,7 @@ export type AuthErrorCode =
   | "sender_proof_required"
   | "server_busy"
   | "session_revoked"
+  | "single_tenant"
   | "sms_delivery_failed"
   | "sms_unavailable"
   | "step_up_required"
@@ -208,6 +212,8 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   cannot_remove_last_contact: 409,
   cannot_target_self: 403,
   cannot_unlink_last_login_method: 400,
+  captcha_failed: 400,
+  captcha_unavailable: 503,
   challenge_expired: 401,
   challenge_mismatch: 401,
   challenge_not_found: 401,
@@ -304,6 +310,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   phone_country_not_allowed: 400,
   phone_in_use: 400,
   phone_number_must_be_e164: 400,
+  phone_number_not_allowed: 400,
   phone_number_required: 400,
   provider_already_linked: 409,
   provider_change_requires_unlink: 409,
@@ -327,6 +334,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   sender_proof_required: 401,
   server_busy: 503,
   session_revoked: 401,
+  single_tenant: 403,
   sms_delivery_failed: 502,
   sms_unavailable: 503,
   step_up_required: 401,
@@ -388,6 +396,8 @@ export const AUTH_ERROR_MESSAGES = {
   cannot_remove_last_contact: "Verify an email address before removing your phone number.",
   cannot_target_self: "You cannot perform this action on yourself.",
   cannot_unlink_last_login_method: "You can't unlink your last way to sign in.",
+  captcha_failed: "Complete the check that you're not a robot, then try again.",
+  captcha_unavailable: "The check that you're not a robot is unavailable right now. Please try again shortly.",
   challenge_expired: "Your verification session has expired. Start again.",
   challenge_mismatch: "Authentication failed.",
   challenge_not_found: "Your verification session has expired. Start again.",
@@ -484,6 +494,7 @@ export const AUTH_ERROR_MESSAGES = {
   phone_country_not_allowed: "Text messages can't be sent to numbers in this country.",
   phone_in_use: "This phone number is already in use.",
   phone_number_must_be_e164: "Enter the phone number in international format, e.g. +1234567890.",
+  phone_number_not_allowed: "Text messages can't be sent to this number. Use a mobile number, or your email.",
   phone_number_required: "A phone number is required.",
   provider_already_linked: "This provider account is already linked to a different user.",
   provider_change_requires_unlink: "Unlink the current account before linking another.",
@@ -507,6 +518,7 @@ export const AUTH_ERROR_MESSAGES = {
   sender_proof_required: "The token requires sender proof.",
   server_busy: "The server is busy. Try again in a moment.",
   session_revoked: "Your session has ended. Please sign in again.",
+  single_tenant: "This deployment has one tenant. More need multi-tenant mode.",
   sms_delivery_failed: "We couldn't deliver the text message. Please try again, or contact support.",
   sms_unavailable: "SMS is currently unavailable. Please use email instead.",
   step_up_required: "Please confirm it's you to continue.",
@@ -554,6 +566,7 @@ export type AuthErrorMetadata = {
   password_too_long: LengthBounds
   password_too_short: LengthBounds
   phone_country_not_allowed: PhoneCountry
+  phone_number_not_allowed: Refusal
   provider_error: ProviderError
   rate_limited: ActionAvailability
   rename_rate_limited: ActionAvailability

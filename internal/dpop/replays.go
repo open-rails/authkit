@@ -3,6 +3,7 @@ package dpop
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"reflect"
 	"sync"
 	"time"
@@ -45,15 +46,16 @@ type Replays struct {
 	swept time.Time
 }
 
-// NewReplays spends proofs in store, else in rdb, else in memory.
-func NewReplays(rdb redis.UniversalClient, store Store) *Replays {
+// NewReplays spends proofs in store, else in rdb, else in memory; log hears
+// of rdb failing and recovering.
+func NewReplays(rdb redis.UniversalClient, store Store, log *slog.Logger) *Replays {
 	if isNil(rdb) {
 		rdb = nil
 	}
 	if isNil(store) {
 		store = nil
 	}
-	return &Replays{store: store, rdb: rdb, spent: map[string]time.Time{}, swept: time.Now(), gate: redisfallback.New(
+	return &Replays{store: store, rdb: rdb, spent: map[string]time.Time{}, swept: time.Now(), gate: redisfallback.New(log,
 		"authkit: Redis replay store failed; single-use proofs are refused until Redis recovers",
 		"authkit: Redis replay store recovered")}
 }

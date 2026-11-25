@@ -42,6 +42,7 @@ func ErrorMetadata() map[errmodel.Code]any {
 		errmodel.CodeDeletionRefused:           errmodel.Refusal{},
 		errmodel.CodeConsentRevocationRefused:  errmodel.Refusal{},
 		errmodel.CodePhoneCountryNotAllowed:    errmodel.PhoneCountry{},
+		errmodel.CodePhoneNumberNotAllowed:     errmodel.Refusal{},
 		errmodel.CodeConsentRequired:           errmodel.ConsentRequired{},
 	}
 }

@@ -42,13 +42,8 @@ import (
 )
 
 func newAuth(ctx context.Context, db *pgxpool.Pool) (*authkit.Client, error) {
-	tenantID, err := iam.ParseTenantID(os.Getenv("TENANT_ID")) // persist this business UUID in configuration
-	if err != nil {
-		return nil, err
-	}
 	cfg := authkit.Config{
-		DefaultTenantID: tenantID,
-		Database:        authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
+		Database: authkit.DatabaseConfig{Schema: "profiles"}, // the Postgres schema AuthKit's tables go in
 		// Configure JWTs; authkit issues these to users; users then send them back with requests to prove who they are!
 		Token: authkit.TokenConfig{
 			Issuer:          "https://myapp.com", // who issued this; that's you!
@@ -263,7 +258,7 @@ Mounting gives your users the routes below under `/api/v1`, plus the public keys
 
 Sign-ins are limited per device over 24 hours (`Config.SignIn`): 5 accounts per browser (20 per address for a client without AuthKit's device cookie), and 10 new devices per account. Signing back into a counted account, or from a device the account used in the last 30 days, is never limited by these counts. Failed passwords are also limited per identifier (`password_login_identifier`, see [HTTP](docs/http.md#client-addresses-and-rate-limits)). Past the device limit, a new device enters a code sent to the owner's email or phone, which a posted password doesn't get you.
 
-With `Registration.PasswordlessLogin`, people sign in contact-first: an email or phone, then the 6-digit code sent there, confirmed with the challenge its start answered, or a passkey (the routes `/passwordless/start` and `/confirm`). Nobody else's starts or wrong guesses spend that code ([HTTP](docs/http.md#client-addresses-and-rate-limits)). `PasswordlessAutoRegistration` signs up whoever proves a new contact; with `Registration.Agreements` set, that sign-up, like every other, first accepts your terms (`agreement_required` names them, and the code stays good for the retry). An account whose only proof is a phone proves it again on every new device. Text messages go only to `SMS.AllowedCountries` and pass send limits per number, account, address and country; each code ends with an origin-bound line (`@example.com #123456`) so browsers autofill it only on your site. See [identity](docs/identity.md#network-accounts).
+With `Registration.PasswordlessLogin`, people sign in contact-first: an email or phone, then the 6-digit code sent there, confirmed with the challenge its start answered, or a passkey (the routes `/passwordless/start` and `/confirm`). Nobody else's starts or wrong guesses spend that code ([HTTP](docs/http.md#client-addresses-and-rate-limits)). `PasswordlessAutoRegistration` signs up whoever proves a new contact; with `Registration.Agreements` set, that sign-up, like every other, first accepts your terms (`agreement_required` names them, and the code stays good for the retry). An account whose only proof is a phone proves it again on every new device. Text messages go only to `SMS.AllowedCountries` and numbers a person texts from, and pass send limits per number, account, address, country, number range and client; with `Deps.Captcha` (Turnstile or hCaptcha) a code start needs a solved challenge. Each code ends with an origin-bound line (`@example.com #123456`) so browsers autofill it only on your site. See [identity](docs/identity.md#network-accounts).
 
 **MFA upgrades after promotion**
 
@@ -426,7 +421,7 @@ func mountForum(r *gin.Engine, auth *authkit.Client, db *pgxpool.Pool) {
 The rest is ordinary app code (our channel and post handlers), not AuthKit. The whole program is one file: [examples/reddit/main.go](examples/reddit/main.go).
 
 For groups declared by application configuration, an explicit migration command
-can call `authkit.EnsureGroups(ctx, pool, cfg, groups)` after `authkit.Migrate`.
+can call `authkit.EnsureGroups(ctx, pool, cfg, groups, logger)` after `authkit.Migrate`.
 Supply the usual database, roles and default tenant in `cfg`, and stable IDs in
 `[]iam.NewGroup`. It creates missing ownerless groups without an AuthKit runtime,
 signing keys, senders or workers. Existing live groups and their assignments stay

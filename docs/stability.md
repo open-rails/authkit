@@ -21,7 +21,7 @@ The covered API is every exported identifier of the packages below, with its doc
 | `devicekey` | the device-key client, its signing domains and capabilities |
 | `notify` | account notification types and the scoped `Publisher` contract |
 | `adapters/gin`, `adapters/fiber` | mounting on Gin or Fiber, and the middleware |
-| `adapters/smtp`, `adapters/twilio` | the email (SMTP) and SMS (Twilio) senders |
+| `adapters/smtp`, `adapters/twilio`, `adapters/captcha` | the email (SMTP) and SMS (Twilio) senders, and the bot challenge (Turnstile, hCaptcha) |
 | `auth`, `userinfo` | provider-neutral authentication and user-directory contracts; standard library only |
 | `auth/authtest`, `userinfo/userinfotest` | conformance checks for custom host implementations |
 | `authtest` | test helpers for hosts |
@@ -73,7 +73,7 @@ New claims may be added, so verifiers ignore claims they don't know; `verify` al
 - `Config` and `Deps` are Go values without serialization tags, and AuthKit reads no config file or environment variable. Their field names, types and documented defaults are part of the Go API.
 - Rate-limit bucket names, the keys of `HTTPConfig.RateLimits` and `DefaultRateLimits()`, are covered. Their default values are not.
 - The bootstrap manifest's YAML and JSON keys (`iam.BootstrapManifest`, `ParseBootstrapManifestYAML`) are covered. An unknown key is a warning, never an error.
-- The key directory, `KeysConfig.Path`, holds `keys.json` (`active_key_id`, `active_private_key_pem`, `public_keys`) and `totp.key`. Both formats are covered; see [keys](keys.md).
+- The key directory, `KeysConfig.Path`, holds `keys.json` (`active_key_id`, `active_private_key_pem`, `public_keys`, `development`) and `totp.key` (with its `development:` prefix). Both formats are covered; see [keys](keys.md).
 
 ## Database
 

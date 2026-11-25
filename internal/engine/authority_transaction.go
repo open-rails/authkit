@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -219,7 +218,7 @@ func (s *Engine) credentialStands(ctx context.Context, st *permissionGroupStore,
 // and logs a group it leaves without a usable owner.
 func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore, c sweptCredential) error {
 	if st.reconcile {
-		slog.InfoContext(ctx, "authkit: credential sweep retired a credential", "kind", c.table, "id", c.id, "group_id", c.group.ID, "role", c.role)
+		s.log.InfoContext(ctx, "authkit: credential sweep retired a credential", "kind", c.table, "id", c.id, "group_id", c.group.ID, "role", c.role)
 	}
 	if c.table == "group_remote_application_roles" {
 		app := iam.RemoteApplicationSubject(c.id)
@@ -234,7 +233,7 @@ func (s *Engine) retireCredential(ctx context.Context, st *permissionGroupStore,
 		if c.role.IsOwner() && st.reconcile {
 			err := s.requireRemainingOwner(ctx, st, c.group.ID, iam.Subject{})
 			if errors.Is(err, iam.ErrLastOwner) {
-				slog.WarnContext(ctx, "authkit: the credential sweep left a group without a usable owner; assign one (ListGroups with GroupQuery.Ownerless lists them)", "group_id", c.group.ID, "remote_application_id", c.id)
+				s.log.WarnContext(ctx, "authkit: the credential sweep left a group without a usable owner; assign one (ListGroups with GroupQuery.Ownerless lists them)", "group_id", c.group.ID, "remote_application_id", c.id)
 				return nil
 			}
 			return err

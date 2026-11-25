@@ -19,13 +19,13 @@ const oidcStepUpClockSkew = 2 * time.Minute
 // handlePasswordStepUpPOST re-authenticates the session with the account's
 // password, for an account without a second factor.
 func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := stepUpCaller(w, r)
+	claims, ok := s.stepUpCaller(w, r)
 	if !ok {
 		return
 	}
 	var body PasswordRequest
 	if err := decodeJSON(r, &body); err != nil || body.Password == "" {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	// MFA-if-enrolled: a password never re-proves an account with a second
@@ -37,11 +37,11 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 	if verr := s.svc.CheckUserPassword(r.Context(), claims.UserID, body.Password); verr != nil {
 		// A legacy reset-required hash can never verify: the user must reset
 		// it before stepping up with a password.
-		passwordRejected(w, verr)
+		s.passwordRejected(w, verr)
 		return
 	}
 	if err := s.svc.MarkSessionAuthenticated(r.Context(), claims.UserID, claims.SessionID); err != nil {
-		serverErr(w, "step_up_failed", err)
+		s.serverErr(w, "step_up_failed", err)
 		return
 	}
 	s.writeFresh(w, r, claims.UserID, claims.SessionID)
@@ -50,20 +50,20 @@ func (s *Service) handlePasswordStepUpPOST(w http.ResponseWriter, r *http.Reques
 // handleTwoFactorStepUpSendPOST sends a step-up code to a second factor (the
 // default one when no factor_id is named); an authenticator app needs none.
 func (s *Service) handleTwoFactorStepUpSendPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := stepUpCaller(w, r)
+	claims, ok := s.stepUpCaller(w, r)
 	if !ok {
 		return
 	}
 	var body TwoFactorSendRequest
 	if err := decodeOptionalJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if !s.requireSecondFactor(w, r, claims.UserID) || s.rateLimitedByIdentifier(w, r, RLStepUp2FASend, claims.UserID) {
 		return
 	}
 	if err := s.svc.Send2FAStepUpCode(r.Context(), claims.UserID, claims.SessionID, body.FactorID); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	accepted(w)
@@ -73,7 +73,7 @@ func (s *Service) handleTwoFactorStepUpSendPOST(w http.ResponseWriter, r *http.R
 // code (sent by /me/step-up/2fa/send, or an authenticator app's) or a backup
 // code.
 func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Request) {
-	claims, ok := stepUpCaller(w, r)
+	claims, ok := s.stepUpCaller(w, r)
 	if !ok {
 		return
 	}
@@ -82,16 +82,16 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 	}
 	var body TwoFactorStepUpRequest
 	if err := decodeJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	code := strings.TrimSpace(body.Code)
 	if code == "" {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("code"))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("code"))
 		return
 	}
 	if err := s.svc.CompleteTwoFactorStepUp(r.Context(), claims.UserID, claims.SessionID, body.FactorID, code, body.BackupCode); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 
@@ -100,10 +100,10 @@ func (s *Service) handleTwoFactorStepUpPOST(w http.ResponseWriter, r *http.Reque
 
 // stepUpCaller is the signed-in caller of a step-up route: a step-up
 // re-authenticates a refresh session.
-func stepUpCaller(w http.ResponseWriter, r *http.Request) (verify.Claims, bool) {
+func (s *Service) stepUpCaller(w http.ResponseWriter, r *http.Request) (verify.Claims, bool) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return verify.Claims{}, false
 	}
 	return claims, true
@@ -114,11 +114,11 @@ func stepUpCaller(w http.ResponseWriter, r *http.Request) (verify.Claims, bool) 
 func (s *Service) requireSecondFactor(w http.ResponseWriter, r *http.Request, userID string) bool {
 	enrolled, err := s.svc.HasUsableMFA(r.Context(), userID)
 	if err != nil {
-		serverErr(w, "load_2fa", err)
+		s.serverErr(w, "load_2fa", err)
 		return false
 	}
 	if !enrolled {
-		fail(w, errmodel.CodeInvalidTwoFAMethod)
+		s.fail(w, errmodel.CodeInvalidTwoFAMethod)
 		return false
 	}
 	return true
@@ -128,7 +128,7 @@ func (s *Service) requireSecondFactor(w http.ResponseWriter, r *http.Request, us
 func (s *Service) writeFresh(w http.ResponseWriter, r *http.Request, userID, sessionID string) {
 	res, err := s.freshAuthResult(w, r, userID, sessionID)
 	if err != nil {
-		serverErr(w, "token_issue_failed", err)
+		s.serverErr(w, "token_issue_failed", err)
 		return
 	}
 	writeAuthResult(w, res)
@@ -138,7 +138,7 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	provider := strings.TrimSpace(r.PathValue("provider"))
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || strings.TrimSpace(claims.UserID) == "" || strings.TrimSpace(claims.SessionID) == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 
@@ -150,15 +150,15 @@ func (s *Service) handleOIDCStepUpStartPOST(w http.ResponseWriter, r *http.Reque
 	// silently re-authorize an approved app, so completing them proves nothing.
 	p, known := s.provider(provider)
 	if !known {
-		fail(w, errmodel.CodeUnknownProvider)
+		s.fail(w, errmodel.CodeUnknownProvider)
 		return
 	}
 	if !p.SupportsStepUp() {
-		fail(w, errmodel.CodeInvalidTwoFAMethod)
+		s.fail(w, errmodel.CodeInvalidTwoFAMethod)
 		return
 	}
 	if !s.userHasLinkedIssuerProvider(r, claims.UserID, p.Issuer(), p.Name()) {
-		fail(w, errmodel.CodeProviderNotLinked)
+		s.fail(w, errmodel.CodeProviderNotLinked)
 		return
 	}
 	if s.hasUsableMFA(r, claims.UserID) {
@@ -220,7 +220,7 @@ func validOIDCStepUpTime(startedAt, authTime, now time.Time) bool {
 
 // requireStepUp answers step_up_required with how userID can step up.
 func (s *Service) requireStepUp(w http.ResponseWriter, r *http.Request, userID string) {
-	writeError(w, s.svc.StepUpRequired(r.Context(), userID))
+	s.writeError(w, s.svc.StepUpRequired(r.Context(), userID))
 }
 
 // hasUsableMFA reports whether the account has an enabled second factor. A
@@ -279,7 +279,7 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 			err = s.svc.CheckSession(r.Context(), claims)
 		}
 		if err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -288,14 +288,14 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 
 // passwordRejected answers a failed CheckUserPassword: password_reset_required
 // and server_busy as themselves, anything else invalid_password.
-func passwordRejected(w http.ResponseWriter, err error) {
+func (s *Service) passwordRejected(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errmodel.ErrPasswordResetRequired):
-		fail(w, errmodel.CodePasswordResetRequired)
+		s.fail(w, errmodel.CodePasswordResetRequired)
 	case errmodel.CodeOf(err) == errmodel.CodeServerBusy:
-		writeError(w, err)
+		s.writeError(w, err)
 	default:
-		fail(w, errmodel.CodeInvalidPassword)
+		s.fail(w, errmodel.CodeInvalidPassword)
 	}
 }
 
@@ -305,7 +305,7 @@ func passwordRejected(w http.ResponseWriter, err error) {
 // code with POST /verify/request and confirms it at POST /verify/confirm.
 func (s *Service) requireProvenContact(w http.ResponseWriter, r *http.Request, userID string) bool {
 	if err := s.svc.RequireProvenContact(r.Context(), userID); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return false
 	}
 	return true

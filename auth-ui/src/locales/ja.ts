@@ -169,6 +169,8 @@ export const ja: AuthUiMessageBundle = {
       "パスキーを追加すると、コードなしで指紋、顔、画面ロックでログインできます。",
     add: "パスキーを追加",
     skip: "今はしない",
+    window: "このブラウザでは新しいウィンドウでパスキーを追加します。",
+    openWindow: "新しいウィンドウで続ける",
   },
   register: {
     passwordHint: "{min}文字以上にしてください。",
@@ -615,6 +617,9 @@ export const ja: AuthUiMessageBundle = {
     errorTitle: "ログインに失敗しました",
   },
   oauth: {
+    framedTitle: "新しいウィンドウで{client}に進む",
+    framed: "安全のため、ログインとアクセスの許可は他のサイトの中ではなく、専用のウィンドウで行います。",
+    openWindow: "新しいウィンドウで続ける",
     signInTo: "{client} に進むにはログインしてください",
     continuing: "{client} に移動しています…",
   },
@@ -633,6 +638,9 @@ export const ja: AuthUiMessageBundle = {
     deletion_refused: "このアカウントはまだ削除できません。",
     consent_revocation_refused: "このアプリはまだ連携を解除できません。",
     phone_country_not_allowed: "この国の番号にはSMSを送信できません。",
+    phone_number_not_allowed: "この番号にはSMSを送信できません。携帯電話番号かメールアドレスを使用してください。",
+    captcha_failed: "ロボットでないことの確認を完了してから、もう一度お試しください。",
+    captcha_unavailable: "ロボットでないことの確認は現在利用できません。しばらくしてからもう一度お試しください。",
     authorization_request_not_found:
       "このログインリクエストは期限切れです。アプリに戻ってもう一度お試しください。",
     network_error:
@@ -833,6 +841,8 @@ export const ja: AuthUiMessageBundle = {
       "ユーザー名の変更回数が多すぎます。しばらくしてからもう一度お試しください。",
     renames_disabled: "ユーザー名の変更は無効になっています。",
     session_revoked: "セッションが終了しました。もう一度ログインしてください。",
+    single_tenant:
+      "このデプロイのテナントは1つです。追加するにはマルチテナントモードが必要です。",
     sms_delivery_failed:
       "認証SMSを配信できませんでした。メールをお試しいただくか、サポートにお問い合わせください。",
     sms_unavailable: "現在SMSはご利用いただけません。メールをご利用ください。",

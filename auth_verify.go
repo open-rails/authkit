@@ -2,6 +2,7 @@ package authkit
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/open-rails/authkit/auth"
@@ -58,6 +59,9 @@ type Verifier struct {
 }
 
 var _ verify.Authority = (*Verifier)(nil)
+
+// Logger is the Client's Logger.
+func (v *Verifier) Logger() *slog.Logger { return v.client.Logger() }
 
 // VerifyRequest authenticates r (Client.VerifyRequest, for this Verifier's
 // audiences).

@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	stdlog "log"
 	"slices"
 	"strings"
 	"time"
@@ -363,7 +362,7 @@ func (s *Engine) notifyDeviceKeyEnrolled(ctx context.Context, u *db.User, key ia
 	}
 	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageDeviceKeyEnrolled, To: *u.Email, Username: deref(u.Username),
 		Language: s.userLanguage(ctx, u.ID), DeviceKey: &iam.DeviceKeyNotice{Label: deref(key.Label), CreatedAt: key.CreatedAt}}); err != nil {
-		stdlog.Printf("[authkit/security] device-key enrollment notice failed for user %s: %v", u.ID, err)
+		s.log.ErrorContext(ctx, "authkit: device-key enrollment notice failed", "user_id", u.ID, "error", err)
 	}
 }
 

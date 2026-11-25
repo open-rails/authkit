@@ -16,7 +16,7 @@ import (
 func (s *Service) handleMeEmailPUT(w http.ResponseWriter, r *http.Request) {
 	var req EmailChangeRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	s.requestContactChange(w, r, s.emailChannel(), req.Email, "email")
@@ -25,7 +25,7 @@ func (s *Service) handleMeEmailPUT(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleMePhonePUT(w http.ResponseWriter, r *http.Request) {
 	var req PhoneChangeRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	s.requestContactChange(w, r, s.phoneChannel(), req.PhoneNumber, "phone_number")
@@ -37,11 +37,11 @@ func (s *Service) handleMePhoneDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	who, hasIdentity := verify.IdentityFromContext(r.Context())
 	if !ok || !hasIdentity || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if err := s.svc.RemovePhone(r.Context(), who, claims.UserID); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -50,26 +50,26 @@ func (s *Service) handleMePhoneDELETE(w http.ResponseWriter, r *http.Request) {
 func (s *Service) requestContactChange(w http.ResponseWriter, r *http.Request, ch contactChannel, value, param string) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	value = strings.TrimSpace(value)
 	if value == "" {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam(param))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam(param))
 		return
 	}
 	if err := ch.validate(value); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	id := ch.normalize(value)
 	if !ch.senderAvailable() {
-		writeError(w, errmodel.E(ch.errUnavailable))
+		s.writeError(w, errmodel.E(ch.errUnavailable))
 		return
 	}
 	challenge, err := ch.requestChange(r.Context(), claims.UserID, id)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, CodeChallenge{Challenge: challenge})

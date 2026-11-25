@@ -33,60 +33,60 @@ func siwsDomain(baseURL, issuer string) string {
 func (s *Service) handleSolanaChallengePOST(w http.ResponseWriter, r *http.Request) {
 	var req SolanaChallengeRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 
 	address := strings.TrimSpace(req.Address)
 	if address == "" {
-		fail(w, errmodel.CodeAddressRequired)
+		s.fail(w, errmodel.CodeAddressRequired)
 		return
 	}
 	if err := siws.ValidateAddress(address); err != nil {
-		fail(w, errmodel.CodeInvalidAddress)
+		s.fail(w, errmodel.CodeInvalidAddress)
 		return
 	}
 
 	if strings.TrimSpace(req.Username) != "" {
 		if err := s.svc.ValidateUsername(req.Username); err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 	}
 
 	domain := siwsDomain(s.cfg.Frontend.BaseURL, s.cfg.Token.Issuer)
 	if domain == "" {
-		serverErr(w, "challenge_failed", errors.New("authkit: no SIWS domain: set Frontend.BaseURL or a URL Token.Issuer"))
+		s.serverErr(w, "challenge_failed", errors.New("authkit: no SIWS domain: set Frontend.BaseURL or a URL Token.Issuer"))
 		return
 	}
 
 	input, err := s.svc.GenerateSIWSChallenge(r.Context(), domain, address, req.Username)
 	if err != nil {
-		serverErr(w, "challenge_failed", err)
+		s.serverErr(w, "challenge_failed", err)
 		return
 	}
-	writeSolanaChallenge(w, input)
+	s.writeSolanaChallenge(w, input)
 }
 
 // writeSolanaChallenge answers input as the message a wallet signs.
-func writeSolanaChallenge(w http.ResponseWriter, input siws.SignInInput) {
+func (s *Service) writeSolanaChallenge(w http.ResponseWriter, input siws.SignInInput) {
 	issuedAt, err := time.Parse(time.RFC3339Nano, input.IssuedAt)
 	if err != nil {
-		serverErr(w, "challenge_failed", err)
+		s.serverErr(w, "challenge_failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, SolanaChallenge{Nonce: input.Nonce, IssuedAt: issuedAt, Message: siws.ConstructMessage(input)})
 }
 
 func (s *Service) handleSolanaLoginPOST(w http.ResponseWriter, r *http.Request) {
-	output, ok := decodeSIWSOutput(w, r)
+	output, ok := s.decodeSIWSOutput(w, r)
 	if !ok {
 		return
 	}
 
 	out, err := s.svc.VerifySIWSAndLogin(r.Context(), output, nil)
 	if err != nil {
-		writeError(w, fallback(err, errmodel.CodeAuthenticationFailed))
+		s.writeError(w, fallback(err, errmodel.CodeAuthenticationFailed))
 		return
 	}
 
@@ -103,13 +103,13 @@ func (s *Service) handleMeSolanaWalletPUT(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	output, ok := decodeSIWSOutput(w, r)
+	output, ok := s.decodeSIWSOutput(w, r)
 	if !ok {
 		return
 	}
 	linked, err := s.svc.LinkSolanaWallet(r.Context(), claims.UserID, output)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, linked)
@@ -127,20 +127,20 @@ func decodeSIWSB64(s string) ([]byte, error) {
 // decodeSIWSOutput decodes the shared `{output:{account,signature,signedMessage}}`
 // SIWS request body used by both the login and link handlers. On a decode failure
 // it writes the appropriate 400 and returns ok=false (the caller just returns).
-func decodeSIWSOutput(w http.ResponseWriter, r *http.Request) (siws.SignInOutput, bool) {
+func (s *Service) decodeSIWSOutput(w http.ResponseWriter, r *http.Request) (siws.SignInOutput, bool) {
 	var req SolanaSignInRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return siws.SignInOutput{}, false
 	}
 	signature, err := decodeSIWSB64(req.Output.Signature)
 	if err != nil {
-		fail(w, errmodel.CodeInvalidSignatureEncoding)
+		s.fail(w, errmodel.CodeInvalidSignatureEncoding)
 		return siws.SignInOutput{}, false
 	}
 	signedMessage, err := decodeSIWSB64(req.Output.SignedMessage)
 	if err != nil {
-		fail(w, errmodel.CodeInvalidMessageEncoding)
+		s.fail(w, errmodel.CodeInvalidMessageEncoding)
 		return siws.SignInOutput{}, false
 	}
 	// Public key is optional and best-effort (the address is authoritative).

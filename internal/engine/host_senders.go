@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -159,7 +158,7 @@ func (s *Engine) watchSender(ctx context.Context, channel string, check func(con
 		closed := h.record(started, err)
 		wait := s.cfg.SenderHealthInterval
 		if err != nil {
-			slog.WarnContext(ctx, "authkit: "+channel+" health check failed; a second failed check in a row closes its flows until a check passes", "error", err, "flows_closed", closed)
+			s.log.WarnContext(ctx, "authkit: "+channel+" health check failed; a second failed check in a row closes its flows until a check passes", "error", err, "flows_closed", closed)
 			if !closed {
 				wait = s.cfg.SenderHealthRecheck
 			}
@@ -193,9 +192,11 @@ func emailDeliveryError(err error) error {
 	return fmt.Errorf("%w: %w", errmodel.ErrEmailDeliveryFailed, err)
 }
 
+// smsDeliveryError is a failed send's answer: the number's refusal as it
+// is, any other failure sms_delivery_failed.
 func smsDeliveryError(err error) error {
-	if err == nil {
-		return nil
+	if err == nil || errors.Is(err, iam.ErrSMSDestinationRefused) {
+		return err
 	}
 	return fmt.Errorf("%w: %w", errmodel.ErrSMSDeliveryFailed, err)
 }

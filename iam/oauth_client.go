@@ -143,12 +143,17 @@ func RefuseConsentRevocation(reason string) error {
 // IDToken is a verified ID token of this deployment's authorization server
 // (Client.VerifyIDToken): who signed in, to which client, and how.
 type IDToken struct {
-	// Subject is the user's id.
+	// Subject is the sub the client knows the user by: the user's id, or
+	// with GroupClients.PairwiseSubjects the user's pairwise id at the
+	// client's group.
 	Subject string
+	// UserID is the user's id, whichever subject the client got.
+	UserID string
 	// ClientID is the client it was issued to (its aud and azp); GroupID
 	// the group that owns it, "" for a client of Config.AuthorizationServer.
-	ClientID  string
-	GroupID   string
+	ClientID string
+	GroupID  string
+	// SessionID is the sign-in's session, as this deployment knows it.
 	SessionID string
 	Nonce     string
 	AuthTime  time.Time

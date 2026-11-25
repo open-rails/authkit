@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -413,7 +412,7 @@ func (r *provisioningRun) apply(ctx context.Context, asOf time.Time, results []p
 				}
 				msg := fmt.Sprintf("user %s: %v", op.userID, cause)
 				r.lastError = msg
-				slog.WarnContext(ctx, "authkit: provisioning target refused a user; will retry", "target", name, "user_id", op.userID, "error", cause)
+				r.engine.log.WarnContext(ctx, "authkit: provisioning target refused a user; will retry", "target", name, "user_id", op.userID, "error", cause)
 				if err := q.ProvisioningRetry(ctx, db.ProvisioningRetryParams{
 					Issuer: issuer, Target: name, UserID: op.userID, Through: op.through, AsOf: asOf, LastError: &msg,
 					BaseSeconds: provisioningMinBackoff.Seconds(), MaxSeconds: provisioningMaxBackoff.Seconds(),

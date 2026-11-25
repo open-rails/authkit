@@ -25,21 +25,21 @@ func (s *Service) writeDeviceKeySignIn(w http.ResponseWriter, r *http.Request, r
 func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.Request) {
 	var req DeviceKeyEnrollBeginRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	email := contact.NormalizeEmail(req.Email)
 	if len(email) > 320 || contact.ValidateEmail(email) != nil || len(strings.TrimSpace(req.PublicKey)) != 43 || len(strings.TrimSpace(req.Label)) > 128 {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	result, err := s.svc.BeginDeviceKeyEnrollment(r.Context(), email, req.PublicKey, req.Label)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenUnverifiable) {
-			fail(w, errmodel.CodeInvalidRequest)
+			s.fail(w, errmodel.CodeInvalidRequest)
 			return
 		}
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, DeviceKeyEnrollment{EnrollmentID: result.ID, Challenge: result.Challenge, ExpiresAt: result.ExpiresAt})
@@ -48,11 +48,11 @@ func (s *Service) handleDeviceKeyEnrollBeginPOST(w http.ResponseWriter, r *http.
 func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http.Request) {
 	var req DeviceKeyEnrollFinishRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if len(strings.TrimSpace(req.EnrollmentID)) != 43 || len(strings.TrimSpace(req.Code)) != 6 || len(strings.TrimSpace(req.Signature)) != 86 || len(strings.TrimSpace(req.SecondFactor)) > 32 {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyEnrollFinish, req.EnrollmentID) {
@@ -66,16 +66,16 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 		case errors.As(err, &recovery):
 			// Nothing enrolled, and the ceremony stays live: once the token is
 			// confirmed, the same finish succeeds.
-			fail(w, errmodel.CodeAccountRecoveryRequired, errmodel.WithDetails(recovery.Confirmation))
+			s.fail(w, errmodel.CodeAccountRecoveryRequired, errmodel.WithDetails(recovery.Confirmation))
 		case errors.As(err, &secondFactor):
 			// Email code and key proof are valid; the ceremony stays live for a
 			// retry that carries the second factor in code_2fa.
-			fail(w, errmodel.CodeTwoFARequired, errmodel.WithParam("code_2fa"), errmodel.WithDetails(TwoFactorRequired{Method: secondFactor.Method}))
+			s.fail(w, errmodel.CodeTwoFARequired, errmodel.WithParam("code_2fa"), errmodel.WithDetails(TwoFactorRequired{Method: secondFactor.Method}))
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims):
 			s.svc.RecordFailedDeviceKeyEnrollment(r.Context(), req.EnrollmentID)
-			fail(w, errmodel.CodeInvalidCode)
+			s.fail(w, errmodel.CodeInvalidCode)
 		default:
-			writeError(w, remap(err, map[error]errmodel.Code{errmodel.ErrUserBanned: errmodel.CodeInvalidCredentials}))
+			s.writeError(w, remap(err, map[error]errmodel.Code{errmodel.ErrUserBanned: errmodel.CodeInvalidCredentials}))
 		}
 		return
 	}
@@ -85,11 +85,11 @@ func (s *Service) handleDeviceKeyEnrollFinishPOST(w http.ResponseWriter, r *http
 func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.Request) {
 	var req DeviceKeyLoginBeginRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if len(strings.TrimSpace(req.DeviceKeyID)) != 36 {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyLoginBegin, req.DeviceKeyID) {
@@ -98,10 +98,10 @@ func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.R
 	result, err := s.svc.BeginDeviceKeyLogin(r.Context(), req.DeviceKeyID)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenUnverifiable) {
-			fail(w, errmodel.CodeInvalidRequest)
+			s.fail(w, errmodel.CodeInvalidRequest)
 			return
 		}
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, DeviceKeyLoginChallenge{ChallengeID: result.ID, Challenge: result.Challenge, ExpiresAt: result.ExpiresAt})
@@ -110,11 +110,11 @@ func (s *Service) handleDeviceKeyLoginBeginPOST(w http.ResponseWriter, r *http.R
 func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.Request) {
 	var req DeviceKeyLoginFinishRequest
 	if err := decodeJSON(r, &req); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if len(strings.TrimSpace(req.ChallengeID)) != 43 || len(strings.TrimSpace(req.Signature)) != 86 {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if s.rateLimitedByIdentifier(w, r, RLDeviceKeyLoginFinish, req.ChallengeID) {
@@ -124,15 +124,15 @@ func (s *Service) handleDeviceKeyLoginFinishPOST(w http.ResponseWriter, r *http.
 	if err != nil {
 		switch {
 		case errors.Is(err, iam.ErrDeviceKeysDisabled):
-			fail(w, errmodel.CodeDeviceKeysDisabled)
+			s.fail(w, errmodel.CodeDeviceKeysDisabled)
 		// An unknown, revoked or banned key, or a challenge that is spent or
 		// badly signed: one refusal for all. No password was asked for.
 		case errors.Is(err, jwt.ErrTokenUnverifiable), errors.Is(err, jwt.ErrTokenInvalidClaims), errors.Is(err, errmodel.ErrUserBanned):
-			fail(w, errmodel.CodeAuthenticationFailed)
+			s.fail(w, errmodel.CodeAuthenticationFailed)
 		// A second factor the key never proved (re-enroll it with code_2fa), or a
 		// proof that could not be checked: a logged 5xx the client retries.
 		default:
-			writeError(w, err)
+			s.writeError(w, err)
 		}
 		return
 	}
@@ -149,15 +149,15 @@ func deviceKeyCaller(r *http.Request) (verify.Claims, bool) {
 func (s *Service) handleDeviceKeysDELETE(w http.ResponseWriter, r *http.Request) {
 	claims, ok := deviceKeyCaller(r)
 	if !ok {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	if !claims.HasAMR("email") {
-		fail(w, errmodel.CodeForbidden)
+		s.fail(w, errmodel.CodeForbidden)
 		return
 	}
 	if err := s.svc.RevokeOtherDeviceKeys(r.Context(), claims.UserID, claims.DeviceKeyID); err != nil {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	noContent(w)

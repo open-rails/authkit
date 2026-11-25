@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/open-rails/authkit/internal/config"
@@ -37,13 +36,17 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 	}
 	h := *cfg.HTTP
 	s := &Service{
+		log:       deps.Logger,
 		svc:       client,
 		cfg:       cfg,
 		http:      h,
 		clientIP:  DefaultClientIP(), // DirectPeerIP
 		wrap:      deps.Wrap,
-		replays:   dpop.NewReplays(deps.Redis, deps.Replays),
+		replays:   dpop.NewReplays(deps.Redis, deps.Replays, deps.Logger),
 		smsSender: deps.SMS != nil,
+		captcha:   deps.Captcha,
+
+		requestClient: deps.RequestClient,
 	}
 	// Normalize admitted exactly one client-IP posture.
 	s.trustedProxies, _ = config.ParseCIDRs("trusted proxy", h.TrustedProxies)
@@ -52,7 +55,7 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 	case deps.ClientIP != nil:
 		s.clientIP = deps.ClientIP
 	case len(s.trustedProxies) > 0 || len(s.cloudflareProxies) > 0:
-		s.clientIP = ClientIPFromForwardedHeaders(s.trustedProxies, s.cloudflareProxies)
+		s.clientIP = ClientIPFromForwardedHeaders(s.trustedProxies, s.cloudflareProxies, s.log)
 	}
 
 	s.providers = providerRegistry(deps.Providers)
@@ -70,10 +73,10 @@ func New(client Backend, cfg config.Config, deps config.Deps) (*Service, error) 
 	}
 	var err error
 	if deps.Redis != nil {
-		rl, err = redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:")
+		rl, err = redislimiter.New(deps.Redis, limits, h.RedisKeyPrefix+"ratelimit:", s.log)
 	} else {
 		rl, err = memorylimiter.New(limits)
-		slog.Warn("authkit: Redis not configured; rate limits are per-process, so each replica counts separately")
+		s.log.Warn("authkit: Redis not configured; rate limits are per-process, so each replica counts separately")
 	}
 	if err != nil {
 		return nil, err

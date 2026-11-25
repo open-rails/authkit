@@ -37,7 +37,7 @@ func (s *Engine) applyDeps(d config.Deps) error {
 		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool), tenant: s.tenantID}
 	}
 	s.redis = d.Redis
-	s.replays = dpop.NewReplays(d.Redis, d.Replays)
+	s.replays = dpop.NewReplays(d.Redis, d.Replays, s.log)
 	s.replayStore = d.Replays
 	s.resourceHosts = d.ResourceHosts
 	s.applyProviders(d.Providers)
@@ -52,6 +52,7 @@ func (s *Engine) applyDeps(d config.Deps) error {
 	s.deletionCheck = d.DeletionCheck
 	s.consentRevocationCheck = d.ConsentRevocationCheck
 	s.groupNameHook = d.GroupName
+	s.passkeyTopOrigin = d.PasskeyTopOrigin
 	return nil
 }
 

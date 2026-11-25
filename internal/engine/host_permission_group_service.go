@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -77,7 +76,7 @@ func (s *Engine) initializeGroups(ctx context.Context) error {
 
 func (s *Engine) logRBACDrift(ctx context.Context) {
 	if report, err := s.driftReport(ctx); err == nil && report.Total() > 0 {
-		slog.Default().Warn("authkit: rbac drift detected",
+		s.log.Warn("authkit: rbac drift detected",
 			"group_user_roles", report.GroupUserRoles,
 			"api_keys", report.APIKeys,
 		)

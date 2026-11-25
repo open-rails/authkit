@@ -19,6 +19,7 @@ import (
 
 // Service wraps the internal AuthKit engine with net/http mounting helpers.
 type Service struct {
+	log                 *slog.Logger // Deps.Logger, which authkit.New resolved
 	svc                 Backend
 	cfg                 config.Config     // normalized
 	http                config.HTTPConfig // *cfg.HTTP
@@ -33,6 +34,8 @@ type Service struct {
 	cloudflareProxies   []netip.Prefix               // Config.CloudflareProxies: + CF-Connecting-IP fallback
 	providers           map[string]provider.Provider // validated, keyed by Name()
 	smsSender           bool                         // Deps.SMS set: phone-only accounts' devices are recognized
+	captcha             config.CaptchaVerifier       // Deps.Captcha: code starts prove a human
+	requestClient       func(*http.Request) string   // Deps.RequestClient: sms_client's key
 }
 
 // rateLimited spends one request of bucket's budget for the client address
@@ -70,7 +73,7 @@ func (s *Service) spendByIdentifier(w http.ResponseWriter, r *http.Request, buck
 	}
 	result := s.rl.Allow(r.Context(), bucket, key)
 	if !result.Allowed {
-		tooMany(w, availabilityFromRateLimit(bucket, result, time.Now()))
+		s.tooMany(w, availabilityFromRateLimit(bucket, result, time.Now()))
 		return nil, true
 	}
 	return func() { s.rl.Refund(r.Context(), bucket, key, result) }, false
@@ -83,7 +86,7 @@ func (s *Service) limited(w http.ResponseWriter, r *http.Request, bucket, key st
 	if result.Allowed {
 		return false
 	}
-	tooMany(w, availabilityFromRateLimit(bucket, result, time.Now()))
+	s.tooMany(w, availabilityFromRateLimit(bucket, result, time.Now()))
 	return true
 }
 
@@ -93,7 +96,7 @@ func (s *Service) addressKey(r *http.Request) string {
 	ip := strings.TrimSpace(s.requestIP(r))
 	if ip == "" {
 		s.unknownAddressOnce.Do(func() {
-			slog.Default().Warn("authkit: a request has no client address, so every such request shares one rate-limit budget; declare what sits in front of AuthKit (HTTPConfig.TrustedProxies, CloudflareProxies, DirectPeerIP or ClientIP)")
+			s.log.Warn("authkit: a request has no client address, so every such request shares one rate-limit budget; declare what sits in front of AuthKit (HTTPConfig.TrustedProxies, CloudflareProxies, DirectPeerIP or ClientIP)")
 		})
 		return "unknown"
 	}
@@ -127,7 +130,7 @@ func (s *Service) undeclaredProxyTripwire(r *http.Request, ip string) {
 		return
 	}
 	s.undeclaredProxyOnce.Do(func() {
-		slog.Default().Error("authkit: rate-limit key is a private peer that carries forwarded headers; an undeclared proxy is in front and every client shares one bucket; declare it in HTTPConfig.TrustedProxies or CloudflareProxies",
+		s.log.Error("authkit: rate-limit key is a private peer that carries forwarded headers; an undeclared proxy is in front and every client shares one bucket; declare it in HTTPConfig.TrustedProxies or CloudflareProxies",
 			slog.String("peer", ip))
 	})
 }

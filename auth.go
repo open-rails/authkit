@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/internal/builtwith"
 	"github.com/open-rails/authkit/internal/engine"
 	"github.com/open-rails/authkit/internal/httpapi"
+	"github.com/open-rails/authkit/internal/logx"
 	"github.com/open-rails/authkit/internal/ops"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/verify"
@@ -70,6 +72,7 @@ var _ verify.Authority = (*Client)(nil)
 // optional dependency (an identity provider, a remote application, a sender,
 // Redis) is logged and switches off only what needs it; Probes reports it.
 func New(ctx context.Context, cfg Config, deps Deps) (_ *Client, err error) {
+	deps.Logger = logx.Or(deps.Logger)
 	e, err := engine.New(ctx, cfg, deps)
 	if err != nil {
 		return nil, err
@@ -156,6 +159,10 @@ func (a *Client) Close(ctx context.Context) error {
 	a.http.Close()
 	return a.engine.Close(ctx)
 }
+
+// Logger is what AuthKit logs through: Deps.Logger, or slog.Default() when
+// it was nil. verify's gates over the Client log through it.
+func (a *Client) Logger() *slog.Logger { return a.deps.Logger }
 
 // EmailAvailable reports whether email flows are offered: Deps.Email is set
 // and its health verdict (EmailHealth) is not a failure.

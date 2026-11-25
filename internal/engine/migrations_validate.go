@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
 
@@ -18,9 +19,10 @@ import (
 
 var ErrMigrationsRequired = errors.New("authkit: database migrations are required")
 
-// validateMigrations reads the existing ledger and River schema. Unlike
-// MigrateKit.Status it does not create or upgrade migration tracking tables.
-func validateMigrations(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig) error {
+// validateMigrations reads the existing ledger and River schema, logging on
+// log. Unlike MigrateKit.Status it does not create or upgrade migration
+// tracking tables.
+func validateMigrations(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, db config.DatabaseConfig) error {
 	if pool == nil {
 		return errors.New("authkit: validating migrations needs Deps.Postgres")
 	}
@@ -54,7 +56,7 @@ func validateMigrations(ctx context.Context, pool *pgxpool.Pool, db config.Datab
 			return migrationValidationError(fmt.Errorf("schema %q has migration %q where %q is required", schema, record.Filename, migration.Name))
 		}
 	}
-	if err := riverhelpers.ValidateMigrations(ctx, pool, riverSchema); err != nil {
+	if err := riverhelpers.ValidateMigrations(ctx, pool, riverhelpers.MigrationOptions{Schema: riverSchema, Logger: log}); err != nil {
 		return migrationValidationError(err)
 	}
 	return nil

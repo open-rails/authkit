@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/logx"
 )
 
 const (
@@ -40,6 +42,8 @@ type SMSConfig struct {
 	// Render returns the body for msg, or false to use the built-in template
 	// for msg.Kind.
 	Render func(ctx context.Context, msg iam.SMSMessage) (string, bool)
+	// Logger receives CheckHealth's warnings (default slog.Default()).
+	Logger *slog.Logger
 }
 
 // SMS delivers AuthKit's text messages through the Twilio Messaging API and
@@ -53,6 +57,7 @@ type SMS struct {
 	client              *http.Client
 	pollInterval        time.Duration
 	render              func(context.Context, iam.SMSMessage) (string, bool)
+	log                 *slog.Logger
 
 	refusedWarning, unknownWarning changeWarner
 }
@@ -83,6 +88,7 @@ func NewSMS(cfg SMSConfig) (*SMS, error) {
 		client:              httpClient(cfg.Client),
 		pollInterval:        poll,
 		render:              cfg.Render,
+		log:                 logx.Or(cfg.Logger),
 	}, nil
 }
 
@@ -149,11 +155,39 @@ func (s *SMS) deliver(ctx context.Context, to, body string) error {
 		Message string `json:"message"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
+		if refusal := destinationRefusal(errResp.Code); refusal != nil {
+			return refusal
+		}
 		if errResp.Code != 0 || strings.TrimSpace(errResp.Message) != "" {
 			return fmt.Errorf("twilio messaging error %d: %s", errResp.Code, errResp.Message)
 		}
 	}
 	return fmt.Errorf("twilio messaging error: status %d", resp.StatusCode)
+}
+
+// destinationRefusal is Twilio's refusal of the number itself, at create or
+// as the message's delivery error, as iam.RefuseSMSDestination; nil for any
+// other code. The account's Geo Permissions and SMS Pumping Protection are
+// set in the Twilio console.
+func destinationRefusal(code int) error {
+	reason := ""
+	switch code {
+	case 30450, 30453: // SMS Pumping Protection (Advanced, Basic)
+		reason = "provider_blocked"
+	case 21408: // Geo Permissions: the region is not enabled
+		reason = "region_not_enabled"
+	case 21610: // the recipient replied STOP
+		reason = "opted_out"
+	case 21614: // not a mobile number
+		reason = "not_mobile"
+	case 21211: // not a valid number
+		reason = "invalid_number"
+	case 21612, 30005, 30006: // no route, unknown handset, landline or unreachable carrier
+		reason = "unreachable"
+	default:
+		return nil
+	}
+	return iam.RefuseSMSDestination(reason)
 }
 
 // messageResource is the subset of a Twilio Message read from create/fetch.
@@ -185,6 +219,9 @@ func deliveryFailureError(m messageResource) error {
 	if m.ErrorCode != nil {
 		code = *m.ErrorCode
 	}
+	if refusal := destinationRefusal(code); refusal != nil {
+		return refusal
+	}
 	detail := strings.TrimSpace(m.ErrorMessage)
 	if detail == "" {
 		detail = twilioErrorHint(code)
@@ -201,8 +238,6 @@ func twilioErrorHint(code int) string {
 		return "A2P 10DLC campaign is not registered/approved for this number"
 	case 30007:
 		return "message filtered/blocked by carrier"
-	case 21408, 21211:
-		return "destination number is not permitted or invalid"
 	default:
 		return "see Twilio message error code"
 	}

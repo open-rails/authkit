@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	stdlog "log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -28,7 +27,7 @@ import (
 // semantics, not a flow outcome.
 func (s *Service) failBrowserFlow(w http.ResponseWriter, r *http.Request, sd *oidcstate.StateData, provider string, err error) {
 	if wantsJSONResponse(r) {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	code := browserErrorCode(err)
@@ -122,13 +121,13 @@ func browserErrorCode(err error) string {
 // a callback URL), so they are %q-quoted and truncated — logged, never
 // reflected: the wire code the user sees is providerCallbackError's
 // output.
-func logIdPCallbackError(provider string, r *http.Request) {
+func (s *Service) logIdPCallbackError(provider string, r *http.Request) {
 	q := callbackParams(r)
-	stdlog.Printf("[authkit/oidc] provider callback error (provider=%q): error=%q error_description=%q error_uri=%q",
-		truncateForLog(provider, 64),
-		truncateForLog(q.Get("error"), 200),
-		truncateForLog(q.Get("error_description"), 200),
-		truncateForLog(q.Get("error_uri"), 200))
+	s.log.WarnContext(r.Context(), "authkit: identity provider callback error",
+		"provider", truncateForLog(provider, 64),
+		"error", truncateForLog(q.Get("error"), 200),
+		"error_description", truncateForLog(q.Get("error_description"), 200),
+		"error_uri", truncateForLog(q.Get("error_uri"), 200))
 }
 
 func truncateForLog(s string, max int) string {

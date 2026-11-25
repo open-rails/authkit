@@ -5,6 +5,7 @@
 package cachepolicy
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/open-rails/helpers/cache"
@@ -36,8 +37,10 @@ func IssuerMetadata() cache.Options {
 // signature forces, so forged tokens cannot hammer an issuer.
 const IssuerKeysRefetchMin = 30 * time.Second
 
-// New is cache.New for a policy above; an invalid one is a programming error.
-func New[K comparable, V any](o cache.Options, load cache.Load[K, V]) *cache.Cache[K, V] {
+// New is cache.New for a policy above, logging failed reloads on log; an
+// invalid policy is a programming error.
+func New[K comparable, V any](o cache.Options, log *slog.Logger, load cache.Load[K, V]) *cache.Cache[K, V] {
+	o.Logger = log
 	c, err := cache.New(o, load)
 	if err != nil {
 		panic("authkit: " + err.Error())

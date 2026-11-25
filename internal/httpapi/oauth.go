@@ -91,6 +91,10 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 			algs = append(algs, k.Alg)
 		}
 	}
+	subjectTypes := []string{"public"}
+	if groups && s.cfg.AuthorizationServer.GroupClients.PairwiseSubjects {
+		subjectTypes = append(subjectTypes, "pairwise")
+	}
 	// A public document every browser client reads first.
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	writeJSON(w, http.StatusOK, OAuthServerMetadata{
@@ -105,7 +109,7 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 		ResponseTypesSupported:           []string{"code"},
 		ResponseModesSupported:           []string{"query"},
 		GrantTypesSupported:              grants,
-		SubjectTypesSupported:            []string{"public"},
+		SubjectTypesSupported:            subjectTypes,
 		IDTokenSigningAlgValuesSupported: algs,
 		TokenEndpointAuthMethods:         authMethods,
 		CodeChallengeMethodsSupported:    []string{"S256"},
@@ -128,28 +132,28 @@ func (s *Service) handleOAuthMetadata(w http.ResponseWriter, _ *http.Request) {
 func (s *Service) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	params, err := oauthParams(r, false)
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	client, ok, err := s.svc.OAuthClient(r.Context(), params.Get("client_id"))
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	if !ok {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "unknown client_id"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "unknown client_id"))
 		return
 	}
 	redirectURI := params.Get("redirect_uri")
 	if redirectURI == "" || !slices.Contains(client.RedirectURIs, redirectURI) {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "redirect_uri is missing or not registered for the client"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "redirect_uri is missing or not registered for the client"))
 		return
 	}
 	state := params.Get("state")
 	back := func(code, description string) {
 		target, err := redirectWith(redirectURI, url.Values{"error": {code}, "error_description": {description}, "state": nonEmpty(state), "iss": {s.cfg.Token.Issuer}})
 		if err != nil {
-			oauthFail(w, err)
+			s.oauthFail(w, err)
 			return
 		}
 		http.Redirect(w, r, target, http.StatusSeeOther)
@@ -161,12 +165,12 @@ func (s *Service) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := s.svc.BeginOAuthAuthorization(r.Context(), a)
 	if err != nil {
-		serverErr(w, "oauth_authorize", err)
+		s.serverErr(w, "oauth_authorize", err)
 		return
 	}
 	target, err := redirectWith(s.cfg.Frontend.BaseURL+s.cfg.Frontend.AuthorizePath, url.Values{"authorization": {id}})
 	if err != nil {
-		serverErr(w, "oauth_authorize", err)
+		s.serverErr(w, "oauth_authorize", err)
 		return
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
@@ -323,7 +327,7 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache") // RFC 6749 §5.1, beside the mount's no-store
 	params, err := oauthParams(r, true)
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	if s.remoteAssertion(params, r) {
@@ -332,38 +336,38 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	}
 	client, oerr := s.authenticateOAuthClient(r, params)
 	if oerr != nil {
-		oauthClientFail(w, r, oerr)
+		s.oauthClientFail(w, r, oerr)
 		return
 	}
 	grant := config.OAuthGrantType(params.Get("grant_type"))
 	switch grant {
 	case "":
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "grant_type is required"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "grant_type is required"))
 		return
 	case config.GrantAuthorizationCode, config.GrantRefreshToken, config.GrantTokenExchange, config.GrantClientCredentials, config.GrantJWTBearer:
 	default:
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnsupportedGrantType, "unsupported grant_type"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnsupportedGrantType, "unsupported grant_type"))
 		return
 	}
 	if !config.OAuthClientAllows(client.OAuthClientConfig, grant) {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnauthorizedClient, "the client may not use this grant"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthUnauthorizedClient, "the client may not use this grant"))
 		return
 	}
 	if len(params["resource"]) > 1 {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "request one resource at a time"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidTarget, "request one resource at a time"))
 		return
 	}
 	if len(params["group_id"]) > 1 || params.Has("group_id") && grant != config.GrantTokenExchange {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "group_id names one group, in a token exchange"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "group_id names one group, in a token exchange"))
 		return
 	}
 	if params.Has("authorization_details") {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "authorization_details are granted only by a jwt-bearer capability"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "authorization_details are granted only by a jwt-bearer capability"))
 		return
 	}
 	jkt, err := s.oauthTokenDPoP(r, grant)
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	var tokens authflow.OAuthTokens
@@ -395,7 +399,7 @@ func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, tokens)
@@ -437,20 +441,20 @@ func (s *Service) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
 	s.oauthCORS(w, r)
 	params, err := oauthParams(r, true)
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	client, oerr := s.authenticateOAuthClient(r, params)
 	if oerr != nil {
-		oauthClientFail(w, r, oerr)
+		s.oauthClientFail(w, r, oerr)
 		return
 	}
 	if params.Get("token") == "" {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "token is required"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "token is required"))
 		return
 	}
 	if err := s.svc.RevokeOAuthToken(r.Context(), client.ID, params.Get("token")); err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -458,11 +462,11 @@ func (s *Service) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
 
 // oauthClientFail answers a failed client authentication; one that used
 // the Authorization header gets its Basic challenge (RFC 6749 §5.2).
-func oauthClientFail(w http.ResponseWriter, r *http.Request, oerr *authflow.OAuthError) {
+func (s *Service) oauthClientFail(w http.ResponseWriter, r *http.Request, oerr *authflow.OAuthError) {
 	if _, _, basic := r.BasicAuth(); basic && oerr.Code == authflow.OAuthInvalidClient {
 		w.Header().Set("WWW-Authenticate", `Basic realm="authkit"`)
 	}
-	oauthFail(w, oerr)
+	s.oauthFail(w, oerr)
 }
 
 // authenticateOAuthClient applies RFC 6749 §2.3: a confidential client
@@ -540,7 +544,7 @@ func (s *Service) handleOAuthUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	refuse := func(code, description string, status int) {
 		w.Header().Set("WWW-Authenticate", scheme+` error="`+code+`"`)
-		oauthFail(w, &authflow.OAuthError{Code: code, Description: description, Status: status})
+		s.oauthFail(w, &authflow.OAuthError{Code: code, Description: description, Status: status})
 	}
 	if token == "" {
 		refuse(authflow.OAuthInvalidToken, "an access token is required", http.StatusUnauthorized)
@@ -552,7 +556,7 @@ func (s *Service) handleOAuthUserInfo(w http.ResponseWriter, r *http.Request) {
 		jkt, err = dpop.Verify(r, dpop.Check{URL: s.oauthURL(iam.OAuthUserInfoPath), AccessToken: token, Replay: s.replays.Claim})
 		switch {
 		case errors.Is(err, dpop.ErrReplayUnavailable):
-			oauthFail(w, err)
+			s.oauthFail(w, err)
 			return
 		case err != nil:
 			refuse(authflow.OAuthInvalidDPoPProof, "the DPoP proof is invalid or already used", http.StatusUnauthorized)
@@ -570,7 +574,7 @@ func (s *Service) handleOAuthUserInfo(w http.ResponseWriter, r *http.Request) {
 			refuse(oe.Code, oe.Description, status)
 			return
 		}
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, claims)
@@ -582,7 +586,7 @@ func (s *Service) handleOAuthUserInfo(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleOAuthEndSession(w http.ResponseWriter, r *http.Request) {
 	params, err := oauthParams(r, false)
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	target, err := s.svc.EndOAuthSession(r.Context(), authflow.OAuthEndSession{
@@ -590,7 +594,7 @@ func (s *Service) handleOAuthEndSession(w http.ResponseWriter, r *http.Request) 
 		PostLogoutRedirectURI: params.Get("post_logout_redirect_uri"), State: params.Get("state"),
 	})
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	if target == "" {
@@ -638,19 +642,19 @@ func (s *Service) remoteAssertion(params url.Values, r *http.Request) bool {
 // proof when it sends one.
 func (s *Service) handleRemoteAssertion(w http.ResponseWriter, r *http.Request, params url.Values) {
 	if len(params["resource"]) > 1 || params.Has("authorization_details") {
-		oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "one resource, and no authorization_details"))
+		s.oauthFail(w, authflow.NewOAuthError(authflow.OAuthInvalidRequest, "one resource, and no authorization_details"))
 		return
 	}
 	jkt, err := s.oauthTokenDPoP(r, config.GrantJWTBearer)
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	tokens, err := s.svc.OAuthRemoteAssertion(r.Context(), authflow.OAuthJWTBearer{
 		Assertion: params.Get("assertion"), Resource: params.Get("resource"), Scopes: strings.Fields(params.Get("scope")), JKT: jkt,
 	})
 	if err != nil {
-		oauthFail(w, err)
+		s.oauthFail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, tokens)
@@ -730,13 +734,13 @@ func oauthParams(r *http.Request, bodyOnly bool) (url.Values, error) {
 
 // oauthFail answers an OAuth error ({error, error_description}, and reason
 // when set); any other error is a server_error, logged.
-func oauthFail(w http.ResponseWriter, err error) {
+func (s *Service) oauthFail(w http.ResponseWriter, err error) {
 	var oe *authflow.OAuthError
 	if !errors.As(err, &oe) {
 		if e := errmodel.As(err); e != nil && e.Status() < 500 {
 			oe = authflow.NewOAuthError(authflow.OAuthInvalidRequest, e.Error())
 		} else {
-			slog.Default().Error("authkit: oauth request failed", slog.String("error", errorString(err)))
+			s.log.Error("authkit: oauth request failed", slog.String("error", errorString(err)))
 			oe = &authflow.OAuthError{Code: authflow.OAuthServerError, Description: "the request could not be completed", Status: http.StatusInternalServerError}
 		}
 	}

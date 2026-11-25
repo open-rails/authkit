@@ -4,18 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
+	"log/slog"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
-	sqlc "github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/logx"
 	internalmigrations "github.com/open-rails/authkit/internal/migrations/postgres"
 	riverhelpers "github.com/open-rails/helpers/river"
 	"github.com/open-rails/migratekit"
-	"github.com/riverqueue/river/riverdriver/riverpgxv5"
-	"github.com/riverqueue/river/rivermigrate"
 )
 
 // Migrate creates or upgrades AuthKit's tables in db.Schema and River's in
@@ -25,9 +22,18 @@ import (
 // already migrated passes unchanged: migrations this build does not know are
 // left as they are.
 type MigrationOptions struct {
-	// LegacyTenantID explicitly adopts an existing single directory into this
-	// canonical business tenant. It never invents a tenant or merges directories.
+	// Tenancy is the deployment's Config.Tenancy. Single-tenant, Migrate
+	// creates the one tenant a database without one needs (under
+	// LegacyTenantID, else a new ID), adopts the one a database holds, and
+	// refuses a database with more, or with another than LegacyTenantID.
+	Tenancy config.Tenancy
+	// LegacyTenantID names the tenant that adopts the accounts of a database
+	// from before tenants (AuthKit before v1.30). Multi-tenant such a
+	// database refuses to migrate without it; single-tenant a new ID is
+	// used. It never merges directories.
 	LegacyTenantID iam.TenantID
+	// Logger receives the migrators' logs. Nil is slog.Default().
+	Logger *slog.Logger
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, options ...MigrationOptions) error {
@@ -37,14 +43,23 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 	if len(options) > 1 {
 		return errors.New("authkit: Migrate accepts at most one MigrationOptions")
 	}
-	if len(options) == 1 && !options[0].LegacyTenantID.IsZero() {
+	var opts MigrationOptions
+	if len(options) == 1 {
+		opts = options[0]
+	}
+	log := logx.Or(opts.Logger)
+	legacy := opts.LegacyTenantID
+	if legacy.IsZero() && opts.Tenancy == config.TenancySingle {
+		legacy = iam.NewTenantID()
+	}
+	if !legacy.IsZero() {
 		// The migration setting belongs only to this owned handle. Never mutate
 		// the host pool or interpolate a configured ID into migration SQL.
 		cfg := pool.Config().Copy()
 		if cfg.ConnConfig.RuntimeParams == nil {
 			cfg.ConnConfig.RuntimeParams = map[string]string{}
 		}
-		cfg.ConnConfig.RuntimeParams["authkit.legacy_tenant_id"] = options[0].LegacyTenantID.String()
+		cfg.ConnConfig.RuntimeParams["authkit.legacy_tenant_id"] = legacy.String()
 		owned, err := pgxpool.NewWithConfig(ctx, cfg)
 		if err != nil {
 			return fmt.Errorf("authkit: prepare tenant migration connection: %w", err)
@@ -71,40 +86,26 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 	defer migrator.Close()
 	// Strict integrity: an edited applied migration refuses unless the schema
 	// is unchanged.
-	migrator = migrator.WithSchema(normalized).WithStrictIntegrity()
+	migrator = migrator.WithSchema(normalized).WithStrictIntegrity().WithWarnFunc(migrationWarnings(ctx, log))
 	if err := migrator.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
 	}
-	// River initializers share this database/schema lock protocol. The
-	// dedicated session leaves even a one-connection caller pool free for DDL.
-	lockConn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig.Copy())
-	if err != nil {
-		return fmt.Errorf("authkit: connect River migration lock: %w", err)
-	}
-	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = lockConn.Close(cleanupCtx) // Closing the session releases its advisory lock.
-	}()
-	if err := sqlc.New(lockConn).AdvisoryLock(ctx, "river-migrations:"+riverSchema); err != nil {
-		return fmt.Errorf("authkit: lock River migrations: %w", err)
-	}
-
-	// River owns its table migrations. Schema creation is deployment setup, and
-	// the schema is always explicit instead of following the pool search_path.
-	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{riverSchema}.Sanitize()); err != nil {
-		return fmt.Errorf("authkit: create River schema: %w", err)
-	}
-	riverMigrator, err := rivermigrate.New(riverpgxv5.New(pool), &rivermigrate.Config{Schema: riverSchema})
-	if err != nil {
-		return fmt.Errorf("authkit: construct River migrator: %w", err)
-	}
-	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
+	// River's tables, under the lock River initializers share; every insert
+	// notifies its queue, so AuthKit's own fleet polls only as a backstop (#477).
+	if err := riverhelpers.ApplyMigrations(ctx, pool, riverhelpers.MigrationOptions{Schema: riverSchema, Logger: log}); err != nil {
 		return fmt.Errorf("authkit: migrate River: %w", err)
 	}
-	// Every insert notifies its queue, so AuthKit's own fleet polls only as a backstop (#477).
-	if err := riverhelpers.NotifyEveryInsert(ctx, pool, riverSchema); err != nil {
-		return fmt.Errorf("authkit: River insert notifications: %w", err)
+	if opts.Tenancy == config.TenancySingle {
+		if _, err := soleTenant(ctx, log, pool, db, opts.LegacyTenantID, true); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// migrationWarnings logs migratekit's warnings through log.
+func migrationWarnings(ctx context.Context, log *slog.Logger) func(migratekit.Discrepancy) {
+	return func(d migratekit.Discrepancy) {
+		log.WarnContext(ctx, "migratekit: "+d.OneLine(), "kind", string(d.Kind), "migration", d.File, "key", d.Key)
+	}
 }

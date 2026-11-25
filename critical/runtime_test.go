@@ -8,17 +8,27 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	stdlog "log"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
+	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/keys"
+	"github.com/open-rails/authkit/verify"
 	riverkit "github.com/open-rails/helpers/river"
+	"github.com/redis/go-redis/v9"
 	"github.com/riverqueue/river"
 )
 
@@ -181,7 +191,7 @@ func TestCriticalRuntime(t *testing.T) {
 		// A rotation rendered writable keeps serving the last good keys.
 		dir = t.TempDir()
 		writeKeyFile(t, dir, "keys.json", keysJSON(t, "first"), 0o600)
-		src, err := keys.Watch(dir)
+		src, err := keys.Watch(dir, nil)
 		noError(t, err)
 		t.Cleanup(src.Close)
 		writeKeyFile(t, dir, "keys.json", keysJSON(t, "second"), 0o660)
@@ -216,4 +226,153 @@ func TestCriticalRuntime(t *testing.T) {
 			noError(t, client.Close(context.Background()))
 		}
 	})
+	t.Run("AK-J01-C07_logs_only_through_the_injected_logger", func(t *testing.T) {
+		stray := divertDefaultLog(t)
+		logs := &logRecords{}
+		logger := slog.New(logs)
+		keyDir := t.TempDir()
+		writeKeyFile(t, keyDir, "keys.json", keysJSON(t, "logged"), 0o444)
+		if os.Getenv("AUTHKIT_TEST_REDIS_URL") == "" {
+			t.Fatal("Redis fixture required")
+		}
+		u, err := url.Parse(os.Getenv("AUTHKIT_TEST_REDIS_URL"))
+		noError(t, err)
+		link := newDatabaseLink(t, u.Host)
+		u.Host = link.listener.Addr().String()
+		opts, err := redis.ParseURL(u.String())
+		noError(t, err)
+		opts.MaxRetries = -1
+		opts.DialTimeout, opts.ReadTimeout, opts.WriteTimeout = time.Second, time.Second, time.Second
+		rdb := redis.NewClient(opts)
+		t.Cleanup(func() { _ = rdb.Close() })
+		noError(t, rdb.Ping(t.Context()).Err())
+
+		// A fresh schema: AuthKit's and River's migrators run, the signing
+		// keys are world-readable, and AuthKit starts its own River fleet.
+		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.Keys = authkit.KeysConfig{Path: keyDir} }),
+			authtest.WithDeps(func(d *authkit.Deps) { d.Logger, d.KeySource, d.Redis = logger, nil, rdb }))
+		noError(t, f.auth.Start(context.Background()))
+		session := f.signIn(t, f.user(t))
+		// A permission gate over the Client with no group on the request.
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/orders", nil)
+		authtest.Authorize(t, f.auth, r, session.AccessToken)
+		w := httptest.NewRecorder()
+		verify.RequirePermission(f.auth, f.read)(http.NotFoundHandler()).ServeHTTP(w, r)
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("ungrouped permission gate answered %d", w.Code)
+		}
+		// Redis goes away under the HTTP service's rate limiter.
+		link.cut()
+		f.call(t, "GET", "/capabilities", "", nil).want(t, http.StatusOK, "")
+		_, err = authkit.ParseBootstrapManifestYAML([]byte("users:\n  - username: logged\n    email: logged@example.com\n    nickname: Logged\n"), logger)
+		noError(t, err)
+		noError(t, f.auth.Close(t.Context()))
+
+		for _, want := range []string{
+			"Applied migration",                // River's migrator
+			"River client started",             // AuthKit's own River fleet
+			"key file is world-readable",       // keys.Watch
+			"RequirePermission found no group", // verify's gate, through Client.Logger
+			"Redis rate limiting failed",       // the HTTP service
+			"ignoring unknown key",             // the bootstrap manifest parser
+		} {
+			if !logs.has(want) {
+				t.Errorf("Deps.Logger never heard %q", want)
+			}
+		}
+		if got := stray.messages(); len(got) > 0 {
+			t.Fatalf("AuthKit logged on slog.Default(): %q", got)
+		}
+	})
+	t.Run("AK-J01-C08_development_keys_sign_only_for_a_loopback_issuer", func(t *testing.T) {
+		f := newFixture(t)
+		deps := f.deps
+		deps.KeySource = nil
+		local := f.cfg
+		local.Token.Issuer, local.Frontend.BaseURL = "http://localhost:4780", ""
+		local.TwoFactor.TOTPSecretKey = nil
+
+		// A loopback issuer generates its keys into the configured directory
+		// (a Compose volume) and signs with them across restarts.
+		dir := filepath.Join(t.TempDir(), "vault", "auth")
+		local.Keys = authkit.KeysConfig{Path: dir}
+		var signed []byte
+		for range 2 {
+			client, err := authkit.New(t.Context(), local, deps)
+			noError(t, err)
+			token, err := client.MintAccessToken(t.Context(), authtest.NewUser(t, client).ID, iam.AccessTokenOptions{})
+			noError(t, err)
+			_, err = client.Verify(t.Context(), token.Value)
+			noError(t, err)
+			noError(t, client.Close(context.Background()))
+			keyFile, err := os.ReadFile(filepath.Join(dir, "keys.json"))
+			noError(t, err)
+			if signed != nil && string(signed) != string(keyFile) {
+				t.Fatal("a restart regenerated the development keys")
+			}
+			signed = keyFile
+		}
+
+		// The same directory under a real issuer refuses to boot.
+		production := f.cfg
+		production.Keys = authkit.KeysConfig{Path: dir}
+		production.TwoFactor.TOTPSecretKey = nil
+		startRefused(t, production, deps, "development keys cannot sign for "+production.Token.Issuer+": provision real keys")
+
+		// A real issuer never generates, and provisioned keys serve any issuer.
+		empty := t.TempDir()
+		production.Keys = authkit.KeysConfig{Path: empty}
+		startRefused(t, production, deps, "keys.json not found")
+		if entries, err := os.ReadDir(empty); err != nil || len(entries) != 0 {
+			t.Fatalf("a real issuer wrote keys: %v", err)
+		}
+		writeKeyFile(t, empty, "keys.json", keysJSON(t, "provisioned"), 0o600)
+		for _, cfg := range []authkit.Config{production, local} {
+			cfg.Keys = authkit.KeysConfig{Path: empty}
+			client, err := authkit.New(t.Context(), cfg, deps)
+			noError(t, err)
+			noError(t, client.Close(context.Background()))
+		}
+	})
+}
+
+// logRecords is a slog.Handler keeping every record's message.
+type logRecords struct {
+	mu   sync.Mutex
+	msgs []string
+}
+
+func (l *logRecords) Enabled(context.Context, slog.Level) bool { return true }
+func (l *logRecords) Handle(_ context.Context, r slog.Record) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.msgs = append(l.msgs, r.Message)
+	return nil
+}
+func (l *logRecords) WithAttrs([]slog.Attr) slog.Handler { return l }
+func (l *logRecords) WithGroup(string) slog.Handler      { return l }
+
+func (l *logRecords) messages() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.msgs)
+}
+
+func (l *logRecords) has(substr string) bool {
+	return slices.ContainsFunc(l.messages(), func(m string) bool { return strings.Contains(m, substr) })
+}
+
+// divertDefaultLog points slog.Default(), and the standard library's log
+// with it, at a recorder until the test ends.
+func divertDefaultLog(t *testing.T) *logRecords {
+	t.Helper()
+	stray := &logRecords{}
+	prev, out, flags := slog.Default(), stdlog.Writer(), stdlog.Flags()
+	slog.SetDefault(slog.New(stray))
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+		stdlog.SetOutput(out)
+		stdlog.SetFlags(flags)
+	})
+	return stray
 }

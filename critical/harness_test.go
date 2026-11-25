@@ -93,6 +93,10 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 	return f
 }
 
+// multiTenant opts a fixture into TenancyMulti, for journeys with more than
+// one tenant.
+var multiTenant = authtest.WithConfig(func(c *authkit.Config) { c.Tenancy = authkit.TenancyMulti })
+
 // queryLog names the statements AuthKit sends during one call. A context
 // marker picks them out, so background workers on the pool are not counted.
 type queryLog struct {
@@ -125,7 +129,7 @@ func (l *queryLog) during(ctx context.Context, call func(context.Context)) []str
 }
 
 // newTracedFixture is newFixture whose Client pool reports to a queryLog.
-func newTracedFixture(t *testing.T) (*fixture, *queryLog) {
+func newTracedFixture(t *testing.T, options ...authtest.Option) (*fixture, *queryLog) {
 	t.Helper()
 	log := &queryLog{}
 	cfg, err := pgxpool.ParseConfig(os.Getenv("AUTHKIT_TEST_DATABASE_URL"))
@@ -134,7 +138,7 @@ func newTracedFixture(t *testing.T) (*fixture, *queryLog) {
 	pool, err := pgxpool.NewWithConfig(t.Context(), cfg)
 	noError(t, err)
 	t.Cleanup(pool.Close)
-	return newFixture(t, authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = pool })), log
+	return newFixture(t, append([]authtest.Option{authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = pool })}, options...)...), log
 }
 
 type response struct {

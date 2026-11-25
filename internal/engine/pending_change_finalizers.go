@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	stdlog "log"
 	"strings"
 
 	"github.com/open-rails/authkit/iam"
@@ -133,6 +132,6 @@ func (s *Engine) applyContactChange(ctx context.Context, rec pendingChange, chan
 // address) rather than reported as a failed confirmation.
 func (s *Engine) notifyContactChanged(userID string, err error) {
 	if err != nil {
-		stdlog.Printf("[authkit/security] contact-change notice to the previous address failed for user %s: %v", userID, err)
+		s.log.Error("authkit: contact-change notice to the previous address failed", "user_id", userID, "error", err)
 	}
 }

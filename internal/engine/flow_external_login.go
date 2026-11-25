@@ -8,7 +8,6 @@ package engine
 
 import (
 	"context"
-	stdlog "log"
 	"strings"
 	"time"
 
@@ -56,7 +55,7 @@ func (s *Engine) resolveExternalIdentity(ctx context.Context, in authflow.Extern
 			return
 		}
 		if err := s.setProviderUsername(ctx, userID, issuer, id.Subject, id.PreferredUsername); err != nil {
-			stdlog.Printf("[authkit/security] warning: SetProviderUsername failed (user=%s issuer=%s); %s: %v", userID, issuer, note, err)
+			s.log.WarnContext(ctx, "authkit: setting the provider username failed; "+note, "user_id", userID, "issuer", issuer, "error", err)
 		}
 	}
 

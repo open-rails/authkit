@@ -19,6 +19,7 @@ type (
 	TokenConfig                = config.TokenConfig
 	SignInConfig               = config.SignInConfig
 	DPoPMode                   = config.DPoPMode
+	Tenancy                    = config.Tenancy
 	KeysConfig                 = config.KeysConfig
 	FrontendConfig             = config.FrontendConfig
 	RegistrationConfig         = config.RegistrationConfig
@@ -66,6 +67,12 @@ const (
 	GrantTokenExchange     = config.GrantTokenExchange
 	GrantClientCredentials = config.GrantClientCredentials
 	GrantJWTBearer         = config.GrantJWTBearer
+)
+
+// Config.Tenancy modes.
+const (
+	TenancySingle = config.TenancySingle
+	TenancyMulti  = config.TenancyMulti
 )
 
 // SignInConfig.DPoP modes.

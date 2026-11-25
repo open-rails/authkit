@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,6 +42,10 @@ type Deps struct {
 	Email EmailSender
 	// SMS delivers text messages, like Email (Client.SMSAvailable).
 	SMS SMSSender
+	// Captcha checks the bot challenge a browser solves before a start that
+	// texts or emails a code to an address it names (/passwordless/start,
+	// /register): adapters/captcha.New. Nil asks for none.
+	Captcha CaptchaVerifier
 
 	// Entitlements returns the names of users' active entitlements (billing
 	// tiers), keyed by user id; ids without any are absent. Admin views show
@@ -70,6 +75,13 @@ type Deps struct {
 	// while the link it made still pays subscriptions; any other error
 	// fails the request. Client.RevokeConsent does not run it.
 	ConsentRevocationCheck func(ctx context.Context, userID, clientID string) error
+	// PasskeyTopOrigin admits passkey ceremonies inside a cross-origin
+	// iframe of Passkeys.Origins, as on a merchant's site embedding the
+	// host's sign-in: a ceremony whose client data names the framing page
+	// (topOrigin, an https origin) passes when it reports true, and one that
+	// names none (Safari) passes on its own origin. Nil refuses every
+	// ceremony in a cross-origin iframe. An error fails the ceremony.
+	PasskeyTopOrigin func(ctx context.Context, topOrigin string) (bool, error)
 	// GroupName is a group's name, as the host knows it (a merchant's
 	// verified name): the consent screen and a user's connected apps show it
 	// beside a group OAuth client's own name. Nil shows the client's alone.
@@ -101,6 +113,11 @@ type Deps struct {
 	// ClientIP extracts the client address. It is the host's own client-IP
 	// posture: New refuses it beside HTTPConfig's proxies or DirectPeerIP.
 	ClientIP func(*http.Request) string
+	// RequestClient names the app or merchant a request comes through, such
+	// as the merchant whose checkout embeds the sign-in: every text message
+	// it triggers spends that client's sms_client budget. It must name only
+	// what the host trusts; "" (or nil) spends none.
+	RequestClient func(*http.Request) string
 	// RequestTenant selects an existing native account directory before HTTP
 	// guards consume credentials, sender proofs or rate limits. It must resolve
 	// only host-trusted assignments; request headers alone grant no authority.
@@ -112,6 +129,15 @@ type Deps struct {
 	// Wrap decorates every API and browser-OIDC handler at mount time, inside
 	// the request guards. Use RequestTenant for directory selection.
 	Wrap func(iam.Route, http.Handler) http.Handler
+
+	// Logger receives everything AuthKit logs, its River clients' and
+	// migrators' included. Nil is slog.Default(), read once by New; AuthKit
+	// never changes the default. What the host builds, and the functions that
+	// need no Client, take their own: keys.Watch, provider.WithLogger,
+	// verify.WithLogger, twilio.SMSConfig.Logger, MigrationOptions.Logger,
+	// MigrateNotifications, EnsureGroups, NewNotificationDelivery and
+	// ParseBootstrapManifestYAML.
+	Logger *slog.Logger
 }
 
 // EmailSender delivers email; adapters/smtp.New returns one.
@@ -124,8 +150,21 @@ type EmailSender interface {
 
 // SMSSender delivers text messages; adapters/twilio.NewSMS returns one.
 type SMSSender interface {
+	// Send delivers msg. A number it or its provider will not text is
+	// iam.RefuseSMSDestination: that number's answer, not the sender's
+	// health.
 	Send(ctx context.Context, msg iam.SMSMessage) error
 	// CheckHealth reports, without sending, whether messages can be delivered
 	// now: nil when healthy, or when the provider can't tell.
 	CheckHealth(ctx context.Context) error
+}
+
+// CaptchaVerifier checks bot challenges; adapters/captcha.New returns one.
+type CaptchaVerifier interface {
+	// Widget is what the browser renders: the provider and its site key.
+	Widget() iam.CaptchaWidget
+	// Verify checks the token the widget gave, solved at remoteIP; a token
+	// passes once. A refused token is iam.ErrCaptchaFailed; any other error
+	// means the provider could not tell.
+	Verify(ctx context.Context, token, remoteIP string) error
 }

@@ -21,12 +21,12 @@ func (s *Service) guardJSONAPI(next http.Handler) http.Handler {
 		if r.ContentLength != 0 && r.Body != nil && r.Body != http.NoBody {
 			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || mediaType != "application/json" {
-				fail(w, errmodel.CodeUnsupportedMediaType)
+				s.fail(w, errmodel.CodeUnsupportedMediaType)
 				return
 			}
 		}
 		if _, cookies := refreshCookieEnabled(r); cookies && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions && !s.cookieOriginAllowed(r) {
-			fail(w, errmodel.CodeOriginNotAllowed)
+			s.fail(w, errmodel.CodeOriginNotAllowed)
 			return
 		}
 		r, ok := s.signInKey(w, r)
@@ -51,11 +51,11 @@ func (s *Service) signInKey(w http.ResponseWriter, r *http.Request) (*http.Reque
 	jkt, err := dpop.Verify(r, dpop.Check{URL: s.requestURL(r), Replay: s.replays.Claim})
 	switch {
 	case errors.Is(err, dpop.ErrReplayUnavailable):
-		serverErr(w, "dpop_replay_unavailable", err)
+		s.serverErr(w, "dpop_replay_unavailable", err)
 		return r, false
 	case err != nil:
 		w.Header().Set("WWW-Authenticate", `DPoP error="invalid_dpop_proof", algs="ES256"`)
-		fail(w, errmodel.CodeSenderProofRequired)
+		s.fail(w, errmodel.CodeSenderProofRequired)
 		return r, false
 	}
 	return r.WithContext(authflow.WithDPoPKey(r.Context(), jkt)), true

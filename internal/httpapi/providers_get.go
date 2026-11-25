@@ -31,7 +31,13 @@ func (s *Service) Capabilities() Capabilities {
 	if sms {
 		channels = append(channels, "sms")
 	}
+	var captcha *iam.CaptchaWidget
+	if s.captcha != nil {
+		w := s.captcha.Widget()
+		captcha = &w
+	}
 	return Capabilities{
+		Captcha:       captcha,
 		Notifications: cfg.Notifications != nil,
 		DPoP:          string(cfg.SignIn.DPoP),
 		Registration: RegistrationCapabilities{

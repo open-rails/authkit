@@ -166,6 +166,8 @@ export const ko: AuthUiMessageBundle = {
       "패스키를 추가하면 코드 없이 지문, 얼굴 또는 화면 잠금으로 로그인할 수 있습니다.",
     add: "패스키 추가",
     skip: "나중에",
+    window: "이 브라우저는 새 창에서 패스키를 추가합니다.",
+    openWindow: "새 창에서 계속",
   },
   register: {
     passwordHint: "{min}자 이상 사용하세요.",
@@ -608,6 +610,9 @@ export const ko: AuthUiMessageBundle = {
     errorTitle: "로그인 실패",
   },
   oauth: {
+    framedTitle: "새 창에서 {client}(으)로 계속",
+    framed: "안전을 위해 로그인과 접근 허용은 다른 사이트 안이 아닌 별도의 창에서 진행됩니다.",
+    openWindow: "새 창에서 계속",
     signInTo: "{client}(으)로 계속하려면 로그인하세요",
     continuing: "{client}(으)로 이동하는 중…",
   },
@@ -627,6 +632,9 @@ export const ko: AuthUiMessageBundle = {
     consent_revocation_refused: "이 앱은 아직 연결을 해제할 수 없습니다.",
     phone_country_not_allowed:
       "이 국가의 번호로는 문자 메시지를 보낼 수 없습니다.",
+    phone_number_not_allowed: "이 번호로는 문자 메시지를 보낼 수 없습니다. 휴대폰 번호나 이메일을 사용하세요.",
+    captcha_failed: "로봇이 아님을 확인한 뒤 다시 시도하세요.",
+    captcha_unavailable: "로봇이 아님을 확인하는 기능을 지금 사용할 수 없습니다. 잠시 후 다시 시도하세요.",
     authorization_request_not_found:
       "이 로그인 요청이 만료되었습니다. 앱으로 돌아가 다시 시도하세요.",
     network_error:
@@ -817,6 +825,8 @@ export const ko: AuthUiMessageBundle = {
       "사용자명 변경 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.",
     renames_disabled: "사용자명 변경이 비활성화되어 있습니다.",
     session_revoked: "세션이 종료되었습니다. 다시 로그인하세요.",
+    single_tenant:
+      "이 배포에는 테넌트가 하나뿐입니다. 더 추가하려면 멀티 테넌트 모드가 필요합니다.",
     sms_delivery_failed:
       "인증 문자 메시지를 전송하지 못했습니다. 대신 이메일을 사용하거나 고객지원에 문의해 주세요.",
     sms_unavailable:

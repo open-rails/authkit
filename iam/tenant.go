@@ -27,18 +27,27 @@ var (
 	// ErrTenantConflict refuses to create a tenant whose ID already has
 	// another name.
 	ErrTenantConflict Error = errmodel.E(errmodel.CodeTenantConflict)
+	// ErrSingleTenant refuses a tenant other than a single-tenant
+	// deployment's own, to select or create: more need TenancyMulti.
+	ErrSingleTenant Error = errmodel.E(errmodel.CodeSingleTenant)
 )
 
 // TenantID is the canonical business identity, shared with ContentKit. It is
 // not a schema name, application ID, issuer, or billing merchant ID.
 type TenantID [16]byte
 
+// NewTenantID is a new UUIDv7 (RFC 9562): time-ordered, like AuthKit's
+// other identifiers.
 func NewTenantID() TenantID {
 	var id TenantID
-	if _, err := rand.Read(id[:]); err != nil {
+	if _, err := rand.Read(id[6:]); err != nil {
 		panic(fmt.Errorf("authkit: tenant entropy: %w", err))
 	}
-	id[6] = (id[6] & 0x0f) | 0x40
+	ms := uint64(time.Now().UnixMilli())
+	for i := range 6 {
+		id[i] = byte(ms >> (40 - 8*i))
+	}
+	id[6] = (id[6] & 0x0f) | 0x70
 	id[8] = (id[8] & 0x3f) | 0x80
 	return id
 }

@@ -54,7 +54,13 @@ import type {
   UserProfile,
   UserSecurity,
 } from "./types.ts"
-import { creationOptions, getAssertion, registrationBody } from "./webauthn.ts"
+import { createInWindow, type PasskeyWindowLabels } from "./passkeyWindow.ts"
+import {
+  creationOptions,
+  getAssertion,
+  registrationBody,
+  windowRegistrationBody,
+} from "./webauthn.ts"
 
 // Durable refresh-token home for mounts without the refresh cookie. Cookie
 // mounts (the browser default) need none: the token never reaches script.
@@ -897,6 +903,14 @@ export function createAuthClient(options: AuthClientOptions = {}) {
   // A password sign-in parked at a code hands back a proof of the password;
   // confirmVerification sends it with that code so the account keeps it.
   let passwordProof: { identifier: string; proof: string } | null = null
+  // Bot-challenge widgets mounted now (<Captcha>), newest last: code starts
+  // carry a fresh token from the newest, when capabilities name a captcha.
+  const captchas: Array<() => Promise<string>> = []
+  const captchaToken = async (): Promise<string | undefined> => {
+    const source = captchas[captchas.length - 1]
+    // Without a token the server answers captcha_failed, which the form shows.
+    return source ? source().catch(() => undefined) : undefined
+  }
 
   function signedIn(body: unknown, gen: number): SignInResult {
     const result = toSignInResult(body)
@@ -1258,6 +1272,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           password: input.password,
           invite_code: input.inviteCode,
           agreements: input.agreements?.length ? input.agreements : undefined,
+          captcha_token: await captchaToken(),
         },
       })
       return status === 200 ? signedIn(body, gen) : (body as CodeChallenge)
@@ -1719,6 +1734,25 @@ export function createAuthClient(options: AuthClientOptions = {}) {
       return result
     },
 
+    // Creates a passkey in a top-level window on this origin (call from a
+    // click), for a cross-origin iframe whose browser refuses to create one
+    // in the frame (Safari): the frame's session begins and finishes it.
+    registerPasskeyInWindow: async (
+      labels: PasskeyWindowLabels
+    ): Promise<SignInKey> => {
+      const credential = await createInWindow(
+        url(baseUrl, "/passkeys/window"),
+        async () =>
+          creationOptions(
+            await request<unknown>("POST", "/me/passkeys/register/begin")
+          ),
+        labels
+      )
+      return request<SignInKey>("POST", "/me/passkeys/register/finish", {
+        body: windowRegistrationBody(credential),
+      })
+    },
+
     // Creates a passkey with the browser's authenticator (call from a click).
     registerPasskey: async (): Promise<SignInKey> => {
       const options = await request<unknown>(
@@ -1861,7 +1895,7 @@ export function createAuthClient(options: AuthClientOptions = {}) {
     },
 
     // Its code is confirmed with the challenge it answers.
-    startPasswordless: (input: {
+    startPasswordless: async (input: {
       identifier: string
       mode?: string
       returnTo?: string
@@ -1876,8 +1910,19 @@ export function createAuthClient(options: AuthClientOptions = {}) {
           return_to: safeReturnTo(input.returnTo) ?? undefined,
           preferred_language: input.preferredLanguage,
           invite_code: input.inviteCode,
+          captcha_token: await captchaToken(),
         },
       }),
+
+    // Registers a mounted bot-challenge widget's token source (<Captcha>);
+    // the returned function removes it.
+    addCaptcha: (source: () => Promise<string>): (() => void) => {
+      captchas.push(source)
+      return () => {
+        const i = captchas.lastIndexOf(source)
+        if (i >= 0) captchas.splice(i, 1)
+      }
+    },
 
     // A code for a new contact answers agreement_required until it carries
     // the sign-up's agreements; the code stays good for that retry.

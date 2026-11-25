@@ -21,18 +21,18 @@ var PathEnums = map[string][]string{"kind": {"users"}}
 
 // memberSubject is the member a {kind}/{id} path names. The one kind is
 // `users`; any other is 404. Nobody changes their own root role (ak#417).
-func memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) (iam.Subject, bool) {
+func (s *Service) memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) (iam.Subject, bool) {
 	if !slices.Contains(PathEnums["kind"], r.PathValue("kind")) {
-		fail(w, errmodel.CodeNotFound)
+		s.fail(w, errmodel.CodeNotFound)
 		return iam.Subject{}, false
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		fail(w, errmodel.CodeNotFound)
+		s.fail(w, errmodel.CodeNotFound)
 		return iam.Subject{}, false
 	}
 	if g.Persona == iam.RootPersona() && state(who).IsUser() && strings.EqualFold(id, state(who).ID()) {
-		writeError(w, iam.ErrCannotTargetSelf)
+		s.writeError(w, iam.ErrCannotTargetSelf)
 		return iam.Subject{}, false
 	}
 	return iam.UserSubject(id), true
@@ -41,27 +41,27 @@ func memberSubject(w http.ResponseWriter, r *http.Request, g iam.Group, who auth
 // groupMemberSet makes the member hold the body's role in the group,
 // replacing the one it holds.
 func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
-	subject, ok := memberSubject(w, r, g, who)
+	subject, ok := s.memberSubject(w, r, g, who)
 	if !ok {
 		return
 	}
 	var body MemberRoleRequest
 	if err := decodeJSON(r, &body); err != nil {
-		fail(w, errmodel.CodeInvalidRequest)
+		s.fail(w, errmodel.CodeInvalidRequest)
 		return
 	}
 	if strings.TrimSpace(body.Role) == "" {
-		fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("role"))
+		s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("role"))
 		return
 	}
 	role, err := s.groupRole(g.Persona, body.Role)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	member, err := s.svc.SetGroupRole(r.Context(), who, iam.GroupByID(g.ID), subject, role)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, member)
@@ -70,12 +70,12 @@ func (s *Service) groupMemberSet(w http.ResponseWriter, r *http.Request, g iam.G
 // groupMemberRemove takes the member's role in the group; a non-member
 // answers 204 too.
 func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
-	subject, ok := memberSubject(w, r, g, who)
+	subject, ok := s.memberSubject(w, r, g, who)
 	if !ok {
 		return
 	}
 	if err := s.svc.RemoveGroupMember(r.Context(), who, iam.GroupByID(g.ID), subject); err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	noContent(w)
@@ -86,18 +86,18 @@ func (s *Service) groupMemberRemove(w http.ResponseWriter, r *http.Request, g ia
 // ?expand=user adds each user member's PublicUser: what anyone may see.
 func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam.Group) {
 	var query MemberListQuery
-	if !readQuery(w, r, &query) {
+	if !s.readQuery(w, r, &query) {
 		return
 	}
 	page, err := query.Page()
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	q := iam.MemberQuery{Page: page}
 	for _, e := range query.Expand {
 		if e != "user" {
-			fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("expand"))
+			s.fail(w, errmodel.CodeInvalidRequest, errmodel.WithParam("expand"))
 			return
 		}
 		q.WithUsers = true
@@ -108,14 +108,14 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam
 	for _, text := range query.Role {
 		role, err := s.groupRole(g.Persona, text)
 		if err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		q.Roles = append(q.Roles, role)
 	}
 	members, err := s.svc.ListGroupMembers(r.Context(), iam.GroupByID(g.ID), q)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	list(w, members)
@@ -126,16 +126,16 @@ func (s *Service) groupMembersList(w http.ResponseWriter, r *http.Request, g iam
 func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 	claims, ok := verify.ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == "" {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
-	p, ok := readPage(w, r)
+	p, ok := s.readPage(w, r)
 	if !ok {
 		return
 	}
 	page, err := s.svc.ListMemberships(r.Context(), iam.UserSubject(claims.UserID), p)
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	list(w, page)
@@ -148,11 +148,11 @@ func (s *Service) handleMeGroupsGET(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request) {
 	who, ok := verify.IdentityFromContext(r.Context())
 	if !ok {
-		fail(w, errmodel.CodeUnauthenticated)
+		s.fail(w, errmodel.CodeUnauthenticated)
 		return
 	}
 	var q PermissionsQuery
-	if !readQuery(w, r, &q) {
+	if !s.readQuery(w, r, &q) {
 		return
 	}
 	ref := iam.RootGroup()
@@ -166,7 +166,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err != nil {
-		writeError(w, err)
+		s.writeError(w, err)
 		return
 	}
 	out.GroupID = g.ID
@@ -176,7 +176,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 			for _, permission := range persona.Permissions {
 				allowed, err := s.svc.CanDirect(r.Context(), who, iam.GroupByID(g.ID), permission)
 				if err != nil {
-					writeError(w, err)
+					s.writeError(w, err)
 					return
 				}
 				if allowed {
@@ -186,7 +186,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		} else {
 			byGroup, err := s.svc.EffectivePermissions(r.Context(), who, []iam.GroupRef{iam.GroupByID(g.ID)})
 			if err != nil {
-				writeError(w, err)
+				s.writeError(w, err)
 				return
 			}
 			out.Permissions = rbac.Expand(persona.Permissions, byGroup[g.ID])
@@ -196,7 +196,7 @@ func (s *Service) handleMePermissionsGET(w http.ResponseWriter, r *http.Request)
 		subject := iam.UserSubject(state(who).ID())
 		held, err := s.svc.GroupRoles(r.Context(), iam.GroupByID(g.ID), []iam.Subject{subject})
 		if err != nil {
-			writeError(w, err)
+			s.writeError(w, err)
 			return
 		}
 		if role, ok := held[subject]; ok && !role.IsZero() {

@@ -16,16 +16,16 @@ import (
 )
 
 func TestCriticalConfiguredGroups(t *testing.T) {
-	f := newFixture(t)
+	f := newFixture(t, multiTenant)
 	poolConfig := f.pool.Config().Copy()
 	poolConfig.MaxConns, poolConfig.MinConns = 1, 0
 	pool, err := pgxpool.NewWithConfig(t.Context(), poolConfig)
 	noError(t, err)
 	t.Cleanup(pool.Close)
 	// No issuer, HTTP, sender, signing key or running worker is supplied.
-	cfg := authkit.Config{Database: f.cfg.Database, Roles: f.roles, DefaultTenantID: f.tenant}
+	cfg := authkit.Config{Tenancy: authkit.TenancyMulti, Database: f.cfg.Database, Roles: f.roles, DefaultTenantID: f.tenant}
 	ensure := func(ctx context.Context, groups ...iam.NewGroup) ([]iam.Group, error) {
-		return authkit.EnsureGroups(ctx, pool, cfg, groups)
+		return authkit.EnsureGroups(ctx, pool, cfg, groups, nil)
 	}
 	newGroup := func() iam.NewGroup {
 		return iam.NewGroup{ID: iam.NewTenantID().String(), Persona: f.shop.Persona}
@@ -106,7 +106,7 @@ func TestCriticalConfiguredGroups(t *testing.T) {
 		}
 		missingTenant := cfg
 		missingTenant.DefaultTenantID = iam.TenantID{}
-		if _, err := authkit.EnsureGroups(t.Context(), pool, missingTenant, []iam.NewGroup{newGroup()}); !errors.Is(err, iam.ErrTenantRequired) {
+		if _, err := authkit.EnsureGroups(t.Context(), pool, missingTenant, []iam.NewGroup{newGroup()}, nil); !errors.Is(err, iam.ErrTenantRequired) {
 			t.Fatalf("missing tenant accepted: %v", err)
 		}
 		noError(t, pool.Ping(t.Context()))

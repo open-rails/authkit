@@ -293,7 +293,7 @@ func (s *Engine) StepUpWithPasskey(ctx context.Context, userID, sessionID string
 	if err != nil {
 		return err
 	}
-	wa, err := s.webAuthn()
+	wa, err := s.webAuthnFor(ctx, parsed.Response.CollectedClientData)
 	if err != nil {
 		return err
 	}

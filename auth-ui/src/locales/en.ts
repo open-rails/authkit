@@ -168,6 +168,8 @@ export const en = {
       "Add a passkey to sign in with your fingerprint, face or screen lock, without a code.",
     add: "Add a passkey",
     skip: "Not now",
+    window: "Your browser adds passkeys in a new window.",
+    openWindow: "Continue in a new window",
   },
   register: {
     title: "Create account",
@@ -618,6 +620,10 @@ export const en = {
     errorTitle: "Sign-in failed",
   },
   oauth: {
+    framedTitle: "Continue to {client} in a new window",
+    framed:
+      "For your safety, signing in and allowing access happen in their own window, not inside another site.",
+    openWindow: "Continue in a new window",
     signInTo: "Sign in to continue to {client}",
     continuing: "Continuing to {client}…",
   },
