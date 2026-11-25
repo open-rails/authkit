@@ -144,9 +144,68 @@ func canonicalURL(raw string) (string, error) {
 			u.Host = "[" + u.Host + "]"
 		}
 	}
-	path := u.EscapedPath()
+	path := normalizePath(u.EscapedPath())
 	if path == "" {
 		path = "/"
 	}
 	return u.Scheme + "://" + u.Host + path, nil
+}
+
+// normalizePath is RFC 3986 §6.2.2's syntax-based normalization of an escaped
+// path, which RFC 9449 §4.3 asks for before comparing htu: percent-encodings
+// in upper case, unreserved characters decoded, dot segments removed.
+func normalizePath(p string) string {
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if c := p[i]; c != '%' || i+2 >= len(p) || !isHex(p[i+1]) || !isHex(p[i+2]) {
+			b.WriteByte(c)
+			continue
+		}
+		v := unhex(p[i+1])<<4 | unhex(p[i+2])
+		if 'a' <= v && v <= 'z' || 'A' <= v && v <= 'Z' || '0' <= v && v <= '9' || strings.IndexByte("-._~", v) >= 0 {
+			b.WriteByte(v)
+		} else {
+			b.WriteString(strings.ToUpper(p[i : i+3]))
+		}
+		i += 2
+	}
+	return removeDotSegments(b.String())
+}
+
+// removeDotSegments is RFC 3986 §5.2.4 for an absolute path.
+func removeDotSegments(p string) string {
+	if !strings.HasPrefix(p, "/") || !strings.Contains(p, ".") {
+		return p
+	}
+	segments := strings.Split(p[1:], "/")
+	out := make([]string, 0, len(segments))
+	for i, s := range segments {
+		last := i == len(segments)-1
+		switch s {
+		case ".":
+		case "..":
+			if len(out) > 0 {
+				out = out[:len(out)-1]
+			}
+		default:
+			out = append(out, s)
+			continue
+		}
+		if last {
+			out = append(out, "")
+		}
+	}
+	return "/" + strings.Join(out, "/")
+}
+
+func isHex(c byte) bool { return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F' }
+
+func unhex(c byte) byte {
+	switch {
+	case c <= '9':
+		return c - '0'
+	case c <= 'F':
+		return c - 'A' + 10
+	}
+	return c - 'a' + 10
 }

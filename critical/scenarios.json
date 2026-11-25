@@ -89,6 +89,7 @@
   "AK-J14-C05": "trusted additional host versus arbitrary Host",
   "AK-J14-C06": "with Redis down, every replica refuses a proof it cannot spend",
   "AK-J14-C07": "host replay store on PostgreSQL: one proof across replicas without Redis",
+  "AK-J14-C08": "a proof's URI matches its request under RFC 3986 normalization; a reserved character's escape stays distinct",
   "AK-J15-C01": "owner/admin/member/application role matrix",
   "AK-J15-C02": "cross-group/tenant/issuer and wrong subject kind",
   "AK-J15-C03": "custom-role create/update/delete and immutable declared roles",
