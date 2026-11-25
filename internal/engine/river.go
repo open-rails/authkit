@@ -60,7 +60,7 @@ type riverMaintenance struct {
 	listened   chan struct{}
 }
 
-// riverPoolConns sizes the pool of the River client Start builds: a fetcher per
+// riverPoolConns is the pool of the River client Start builds, unless Database.RiverConns sizes it: a fetcher per
 // queue (five, one worker each), the leader elector, the periodic enqueuer
 // and the completer. River's deadlines (5s to keep leadership, 10s to fetch)
 // include waiting for a connection, so on the request pool a small or busy
@@ -272,8 +272,12 @@ func (s *Engine) startProvisioningListener() {
 // it. Close, not ctx, stops it.
 func (s *Engine) startOwnRiver(ctx context.Context) error {
 	m := s.maintenance
+	conns := int32(riverPoolConns)
+	if n := s.cfg.Database.RiverConns; n > 0 {
+		conns = int32(n)
+	}
 	pool, err := schemaPool(m.host, s.dbSchema(), func(c *pgxpool.Config) {
-		c.MaxConns, c.MinConns, c.MaxConnIdleTime = riverPoolConns, 0, time.Minute
+		c.MaxConns, c.MinConns, c.MaxConnIdleTime = conns, 0, time.Minute
 	})
 	if err != nil {
 		return err
