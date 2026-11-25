@@ -65,7 +65,7 @@ func TestCriticalPairwiseSubjects(t *testing.T) {
 		}
 		signIn := func(c iam.OAuthClientCreated) authtest.OAuthTokens {
 			return as.AuthorizeAs(t, session, authtest.CodeFlow{ClientID: c.ClientID, ClientSecret: *c.ClientSecret, RedirectURI: redirect,
-				Scopes: []string{"openid", "email", "customer:self"}, Consent: true})
+				Scopes: []string{"openid", "email", "customer:self"}, Consent: true, DPoP: newFixtureKey(t)})
 		}
 		a, b := merchant(), merchant()
 		a1, a2, b1 := client(a), client(a), client(b)

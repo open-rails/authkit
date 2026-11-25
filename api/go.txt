@@ -649,6 +649,7 @@ pkg authkit/authtest, method (*DPoPKey) Authorize(testing.TB, *http.Request, str
 pkg authkit/authtest, method (*DPoPKey) Holds(...string)
 pkg authkit/authtest, method (*DPoPKey) Proof(testing.TB, string, string, string, string) string
 pkg authkit/authtest, method (*DPoPKey) Thumbprint() string
+pkg authkit/authtest, method (*DPoPKey) Transport(testing.TB, *authkit.Client, http.RoundTripper) http.RoundTripper
 pkg authkit/authtest, method (*GrantAuthorizer) Authorize(context.Context, iam.OAuthGrantRequest) (iam.OAuthGrantDecision, error)
 pkg authkit/authtest, method (*GrantAuthorizer) Last(iam.OAuthGrantKind) (iam.OAuthGrantRequest, bool)
 pkg authkit/authtest, method (*GrantAuthorizer) Requests() []iam.OAuthGrantRequest
