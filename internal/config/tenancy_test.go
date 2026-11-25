@@ -40,12 +40,33 @@ func TestBindDefaultTenant(t *testing.T) {
 		t.Fatalf("unnamed tenants not bound to the sole tenant: %v", err)
 	}
 
-	explicit := tenancyConfig(TenancySingle)
-	explicit.DefaultTenantID = other
-	if _, err := bind(explicit, sole); err == nil || !strings.Contains(err.Error(), "is not the database's tenant") {
-		t.Fatalf("a DefaultTenantID other than the sole tenant = %v", err)
+	multi := tenancyConfig(TenancyMulti)
+	multi.DefaultTenantID = other
+	if _, err := bind(multi, sole); err == nil || !strings.Contains(err.Error(), "is not the database's tenant") {
+		t.Fatalf("a DefaultTenantID other than the bound tenant = %v", err)
 	}
+}
 
+// A single-tenant host names no tenant anywhere: every tenant ID is
+// multi-tenant only.
+func TestSingleTenantNamesNoTenant(t *testing.T) {
+	id := iam.NewTenantID()
+	for name, edit := range map[string]func(*Config){
+		"DefaultTenantID":                         func(c *Config) { c.DefaultTenantID = id },
+		"AuthorizationServer.Clients[0].TenantID": func(c *Config) { c.AuthorizationServer.Clients = []OAuthClientConfig{{ID: "scim", TenantID: id}} },
+		"Provisioning[0].TenantID":                func(c *Config) { c.Provisioning = []ProvisioningTarget{{Name: "billing", TenantID: id}} },
+	} {
+		single := tenancyConfig(TenancySingle)
+		edit(&single)
+		if _, _, err := Normalize(single, Deps{}); err == nil || !strings.Contains(err.Error(), name+" is multi-tenant only") {
+			t.Fatalf("single-tenant %s = %v, want refused", name, err)
+		}
+	}
+	multi := tenancyConfig(TenancyMulti)
+	multi.DefaultTenantID = id
+	if _, _, err := Normalize(multi, Deps{}); err != nil {
+		t.Fatalf("multi-tenant DefaultTenantID: %v", err)
+	}
 }
 
 func TestNewTenantIDIsTimeOrderedUUIDv7(t *testing.T) {

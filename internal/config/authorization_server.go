@@ -64,9 +64,10 @@ type GroupClientScope struct {
 
 // OAuthClientConfig registers one OAuth client.
 type OAuthClientConfig struct {
-	// TenantID binds this client to one native account directory. Empty uses
-	// Config.DefaultTenantID; a client that reads native SCIM accounts needs an
-	// explicit resulting tenant. The client identifier never grants authority.
+	// TenantID is multi-tenant only: the account directory this client binds
+	// to. Empty uses Config.DefaultTenantID; a client that reads native SCIM
+	// accounts needs one of the two. Single-tenant every client binds to the
+	// one tenant. The client identifier never grants authority.
 	TenantID iam.TenantID `yaml:"tenant_id"`
 	// ID is the client_id: 1-128 characters of letters, digits, '.', '_',
 	// '-' and ':'.

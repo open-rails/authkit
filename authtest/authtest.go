@@ -90,9 +90,8 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 	}
 	outbox := &Outbox{}
 	cfg := authkit.Config{
-		DefaultTenantID: iam.NewTenantID(),
-		Issuer:          Issuer,
-		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true},
+		Issuer: Issuer,
+		HTTP:   &authkit.HTTPConfig{DirectPeerIP: true},
 	}
 	config.Tune(&cfg, func(t *config.Tuning) {
 		t.NoRateLimits = true

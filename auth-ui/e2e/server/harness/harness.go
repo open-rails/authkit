@@ -62,7 +62,6 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	}
 	outbox := &authtest.Outbox{}
 	cfg := authkit.Config{
-		DefaultTenantID: tenant,
 		Roles:           roles,
 		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true, Groups: append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)},
 		Database:        authkit.DatabaseConfig{Schema: schema},
@@ -75,6 +74,7 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	})
 	if profile == "main" {
 		cfg.Tenancy = authkit.TenancyMulti // and an isolated directory
+		cfg.DefaultTenantID = tenant
 		cfg.AuthorizationServer = authkit.AuthorizationServerConfig{Clients: []authkit.OAuthClientConfig{{
 			ID: "critical-issuer", Name: "Critical issuer proof", RedirectURIs: []string{origin + "/issuer-return"},
 		}}}

@@ -18,6 +18,7 @@
   "AK-J02-C09": "single-tenant adopts the one tenant an existing database holds without moving accounts, configured groups land in it, and a DefaultTenantID naming another tenant refuses startup",
   "AK-J02-C10": "single-tenant refuses CreateTenant (Go and HTTP single_tenant) and ForTenant of another tenant while matching provisioning of its own stays a no-op, and New and Migrate refuse a database holding more than one tenant",
   "AK-J02-C11": "multi-tenant without DefaultTenantID refuses unscoped sign-up, sign-in, user, group, configured-group and bootstrap writes, and writes no row anywhere",
+  "AK-J02-C12": "a single-tenant host declares a SCIM client and a provisioning target with no tenant ID: the client reads, and the target receives, the one tenant's accounts",
   "AK-J03-C01": "email and SMS registration plus verify",
   "AK-J03-C02": "duplicate canonical username/contact race",
   "AK-J03-C03": "invite-only and closed admission",

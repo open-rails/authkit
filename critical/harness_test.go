@@ -88,15 +88,21 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 	})
 	base := authtest.WithConfig(func(c *authkit.Config) {
 		c.Database = authkit.DatabaseConfig{Schema: f.schema, RiverSchema: f.schema}
-		c.DefaultTenantID = f.tenant
 		c.Roles = roles
 		c.TwoFactor = iam.TwoFactorDisabled
 		c.HTTP.Groups = append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)
 	})
 	opts := append([]authtest.Option{base, authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = f.pool })}, options...)
-	opts = append(opts, authtest.WithConfig(func(c *authkit.Config) { f.cfg = *c }), authtest.WithDeps(func(d *authkit.Deps) { f.deps = *d }))
+	// Multi-tenant fixtures act in f.tenant; a single-tenant one names none.
+	opts = append(opts, authtest.WithConfig(func(c *authkit.Config) {
+		if c.Tenancy == authkit.TenancyMulti && c.DefaultTenantID.IsZero() {
+			c.DefaultTenantID = f.tenant
+		}
+		f.cfg = *c
+	}), authtest.WithDeps(func(d *authkit.Deps) { f.deps = *d }))
 	f.t = t
 	f.auth, f.out = authtest.New(t, opts...)
+	f.tenant = f.auth.TenantID()
 	f.server = httptest.NewServer(f.auth.Handler())
 	t.Cleanup(f.server.Close)
 	return f

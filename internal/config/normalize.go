@@ -41,6 +41,9 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.Tenancy != TenancySingle && c.Tenancy != TenancyMulti {
 		return Config{}, nil, fmt.Errorf("authkit: invalid Tenancy %s (want TenancySingle or TenancyMulti)", c.Tenancy)
 	}
+	if err := singleTenantNamesNone(c); err != nil {
+		return Config{}, nil, err
+	}
 	if c.Database.Schema, err = NormalizeSchema(c.Database.Schema); err != nil {
 		return Config{}, nil, err
 	}

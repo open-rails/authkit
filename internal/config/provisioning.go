@@ -20,8 +20,10 @@ import (
 // It needs Deps.Postgres and Start. A target removed from the list is
 // forgotten, with its pending changes, when this issuer's River fleet starts.
 type ProvisioningTarget struct {
-	// TenantID is the canonical account owner sent to this target. An omitted
-	// value uses Config.DefaultTenantID; an unbound deployment must set it.
+	// TenantID is multi-tenant only: the tenant whose accounts this target
+	// receives. Empty uses Config.DefaultTenantID; a multi-tenant deployment
+	// without one must set it. Single-tenant every target receives the one
+	// tenant's accounts.
 	TenantID iam.TenantID `yaml:"tenant_id"`
 	// Name identifies the target in its status and logs: 1-64 lowercase
 	// letters, digits, '-' and '_'. Renaming a target makes a new one,
