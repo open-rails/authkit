@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A DPoP proof's `htu` matches its request under RFC 3986 normalization, as RFC 9449 §4.3 asks: an escaped unreserved character (`%6F` for `o`), the case of an escape's hex digits and dot segments no longer make the same URI differ. Before, a client and a framework spelling a path differently (Fiber hands handlers the decoded path) failed the proof. A reserved character's escape (`%2F`) still differs from the character.
+- `authtest.Authorize` and `Transport` present any token bound to a key a sign-in used with that key's proofs, found by the token's `cnf.jkt`: `StaleSession`'s re-minted token went out as Bearer and was refused.
 - AuthKit requires Helpers v1.22.1: concurrent requests to an issuer whose discovery or keys fail share one fetch per backoff. Before, a request racing a failed fetch could start a second one inside the five-second backoff.
 - An authorization code presented again within its 60-second lifetime revokes the refresh tokens issued from it (RFC 6749 §4.1.2), so whoever redeemed it first loses the grant; the access token it issued expires on its own. Before, the second redemption was only refused.
 - **Breaking:** `authkit.Config` keeps only what differs between hosts: 150 fields to 57. No aliases; every removed key fails to compile. Migration per area:

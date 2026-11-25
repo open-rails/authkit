@@ -204,6 +204,28 @@ func TestCriticalSenderProofs(t *testing.T) {
 			t.Fatalf("same proof authorized%d replicas", accepted)
 		}
 	})
+	t.Run("AK-J14-C08_a_proof_URI_matches_its_request_under_RFC_3986_normalization", func(t *testing.T) {
+		f, key, _, tokens := proofFixture(t, nil)
+		_, s := proofServer(t, f, nil, nil)
+		// RFC 9449 §4.3 with RFC 3986 §6.2.2: an escaped unreserved character,
+		// hex case and dot segments name the same URI however a client or a
+		// framework spells them.
+		for _, tc := range []struct{ name, request, proof string }{
+			{"escaped-unreserved-in-request", "/pr%6Ftected", "/protected"},
+			{"escaped-unreserved-in-proof", "/protected", "/pr%6ftected"},
+			{"dot-segments", "/protected", "/elsewhere/../protected"},
+			{"hex-case", "/a%2fb", "/a%2Fb"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				proofCall(t, s, "GET", tc.request, tokens.AccessToken, key.Proof(t, "GET", proofOrigin+tc.proof, tokens.AccessToken, ""), "").want(t, http.StatusNoContent, "")
+			})
+		}
+		// A reserved character's escape is not its character: /a%2Fb is not /a/b.
+		r := proofCall(t, s, "GET", "/a/b", tokens.AccessToken, key.Proof(t, "GET", proofOrigin+"/a%2Fb", tokens.AccessToken, ""), "")
+		if r.status != http.StatusUnauthorized || !strings.Contains(r.header.Get("WWW-Authenticate"), "invalid_dpop_proof") {
+			t.Fatalf("a proof for another path was accepted: %d %s", r.status, r.body)
+		}
+	})
 	t.Run("AK-J14-C07_host_replay_store_consumes_one_proof_across_replicas_without_redis", func(t *testing.T) {
 		store := postgresReplays(t)
 		f, key, _, tokens := proofFixtureWith(t, func(d *authkit.Deps) { d.Replays = store })
