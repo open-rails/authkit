@@ -22,7 +22,7 @@ import (
 // merchants can join their buyers, and the network still knows each one.
 func TestCriticalPairwiseSubjects(t *testing.T) {
 	t.Run("AK-J43-C01_each_group_knows_a_user_and_sign_in_by_its_own_ids_and_only_the_network_maps_them_back", func(t *testing.T) {
-		const resource = "https://network-api.example"
+		const resource = proofOrigin // the network's resource server
 		const redirect = "https://shop.example/callback"
 		var selected atomic.Pointer[http.Handler]
 		front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +114,7 @@ func TestCriticalPairwiseSubjects(t *testing.T) {
 		if info["sub"] != subA1 || info["email"] != u.Email {
 			t.Fatalf("userinfo: %s", r.body)
 		}
-		v, _ := liveProofRequest(t, f.auth.Authenticator(), tb1.AccessToken, nil)
+		v, _ := liveProofRequest(t, f.auth.Authenticator(), tb1.AccessToken, tb1.DPoP)
 		if v.Identity().Subject != u.ID || v.(auth.Bound).BoundScope().ID != b.ID {
 			t.Fatalf("the network's resource server saw %+v", v.Identity())
 		}
