@@ -77,3 +77,18 @@ func (s *Service) requestURL(r *http.Request) string {
 func (s *Service) PublicURL(path string) string {
 	return strings.TrimRight(s.surface.PublicURL, "/") + strings.TrimPrefix(path, strings.TrimRight(s.surface.Base, "/"))
 }
+
+// requireSignInKey refuses, before any work, a sign-in step that names no
+// DPoP key: every session is bound, so a flow's first step (a password, a
+// sign-up, a code) proves the key its session will be bound to, and no
+// code, challenge or token is spent or minted for a key that never comes.
+func requireSignInKey(s *Service, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authflow.DPoPKey(r.Context()) == "" {
+			w.Header().Set("WWW-Authenticate", `DPoP algs="ES256"`)
+			s.fail(w, errmodel.CodeSenderProofRequired)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

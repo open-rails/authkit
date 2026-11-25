@@ -58,7 +58,6 @@ function observe<T extends object>(target: T, boundary: string): T {
 const client = observe(
   createAuthClient({
     baseUrl,
-    dpop: params.has("bound"),
     refreshLeadSeconds: 5,
     ...(params.has("isolated")
       ? {

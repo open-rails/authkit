@@ -139,6 +139,9 @@ func (s *Service) routes(surface Surface, groups []iam.RouteGroup, wrap func(Rou
 		if route.signsIn() && s.countsDevices() {
 			h = s.withSignInDevice(h)
 		}
+		if surface == SurfaceAPI && route.signsIn() && route.Group != iam.RouteDeviceKeys {
+			h = requireSignInKey(s, h)
+		}
 		route.Handler = s.languageMiddleware(s.withClientAddress(wrap(route, h)))
 		out = append(out, route)
 	}
