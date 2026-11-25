@@ -7,7 +7,7 @@ import (
 )
 
 // deliverRefreshToken routes the refresh token to whichever transport this
-// mount declared: with HTTPConfig.RefreshCookie on it moves to an HttpOnly
+// mount declared: it moves to an HttpOnly
 // cookie and leaves the TokenSet, so nothing downstream can leak it into a
 // body, a stored browser result or a postMessage payload (ak#271). Every
 // AuthResult's session goes through here (authResult).

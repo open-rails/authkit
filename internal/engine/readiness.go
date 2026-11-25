@@ -152,7 +152,7 @@ func (s *Engine) applyProviders(providers []provider.Provider) {
 		case issuers[issuerKey(p.Issuer())] > 1:
 			problem = fmt.Errorf("%w: provider %q shares issuer %q with another provider", provider.ErrInvalid, name, p.Issuer())
 		case s.cfg.HTTP != nil && p.ResponseModeFormPost() && !httpsDeployment:
-			problem = fmt.Errorf("%w: provider %q uses response_mode=form_post, which needs an HTTPS deployment (SameSite=None; Secure state cookie); set Frontend.BaseURL to an https URL", provider.ErrInvalid, name)
+			problem = fmt.Errorf("%w: provider %q uses response_mode=form_post, which needs an HTTPS deployment (SameSite=None; Secure state cookie); set FrontendURL to an https URL", provider.ErrInvalid, name)
 		}
 		if problem != nil {
 			if s.providerProblems[name] == nil {

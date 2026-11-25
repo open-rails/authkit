@@ -320,7 +320,7 @@ func finishAuthorization(clientID, redirectURI, challenge string, granted []stri
 // handleOAuthToken is the token endpoint: one authenticated (or public)
 // client, one grant. A DPoP proof (RFC 9449) binds the tokens to its key. A
 // jwt-bearer grant must send one, and so must a user grant (code, refresh,
-// token exchange) when SignIn.DPoP is required; otherwise a public client's
+// token exchange): sign-in sessions are DPoP-bound; otherwise a public client's
 // refresh tokens are protected by rotation (RFC 9700 §4.14.2).
 func (s *Service) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	s.oauthCORS(w, r)

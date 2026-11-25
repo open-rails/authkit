@@ -84,7 +84,7 @@ func normalizeRemoteAppTrustSource(jwksURI string, mode iam.RemoteApplicationMod
 // This is a syntactic check (no DNS resolution). The verifier's SSRF-guarding
 // dialer provides a second layer against DNS rebinding at fetch time.
 //
-// allowInsecure (Token.AllowPrivateNetworkJWKS) permits http and
+// allowInsecure (a host-declared application, or a loopback issuer) permits http and
 // loopback/private hosts for local federation; still requires a parseable
 // http(s) URL with a host.
 func validateJWKSURI(raw string, allowInsecure bool) error {

@@ -132,7 +132,7 @@ func WithPublicHosts(hosts func(ctx context.Context, host string) (bool, error))
 // WithPublicURL is where clients reach the paths this verifier sees:
 // "https://api.example.com", or "https://example.com/api" when a proxy in
 // front strips /api. A DPoP proof must name it plus the request's path, the
-// rule HTTPConfig.PublicURL sets for AuthKit's own routes. No Host or
+// rule AuthKit's own routes follow (the issuer). No Host or
 // Forwarded header is consulted.
 func WithPublicURL(url string) VerifierOption {
 	return func(c *verifierConfig) { c.publicURL = strings.TrimRight(strings.TrimSpace(url), "/") }

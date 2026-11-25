@@ -55,7 +55,7 @@ type Deps struct {
 
 	// Entitlements returns the names of users' active entitlements (billing
 	// tiers), keyed by user id; ids without any are absent. Admin views show
-	// them all; Config.Token.EntitlementAllowlist selects which go into access
+	// them all; Config.EntitlementClaims selects which go into access
 	// tokens.
 	Entitlements func(ctx context.Context, userIDs []string) (map[string][]string, error)
 	// EntitlementHolders returns the ids of the users who hold entitlement,

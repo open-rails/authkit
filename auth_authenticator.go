@@ -56,7 +56,7 @@ import (
 // deployment minted it from a remote application's RFC 7523 assertion (a
 // backend's token for one of its users). Every Verified has Entitlements()
 // []string, the token's entitlements claim: its issuer's snapshot at mint
-// (this deployment's: Config.Token.EntitlementAllowlist), none for a
+// (this deployment's: Config.EntitlementClaims), none for a
 // credential without one, such as an API key. The Authenticator lists the
 // headers its credentials use (auth.Headers).
 //

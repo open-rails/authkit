@@ -47,7 +47,7 @@ const (
 	// FeatureRemoteApplications: a persona whose groups control remote
 	// applications, and so hold their users' directory.
 	FeatureRemoteApplications Feature = "remote_applications"
-	FeatureNewDevices         Feature = "new_devices" // SignIn.NewDevicesPerAccount not off, or an SMS sender (phone-only accounts)
+	FeatureNewDevices         Feature = "new_devices" // the new-device limit on, or an SMS sender (phone-only accounts)
 	// FeatureAuthorizationServer: AuthorizationServer declares clients.
 	FeatureAuthorizationServer Feature = "authorization_server"
 	// FeatureTokenEndpoint: an authorization server, or a resource server
@@ -417,7 +417,7 @@ func Catalog() []RouteSpec {
 			Responses: replyOK(iam.Tenant{}), serve: handle((*Service).handleAdminTenantBySlugGET)},
 
 		// #430: the SPA's half of an OAuth sign-in. The authorize endpoint
-		// stores the request and sends the browser to Frontend.AuthorizePath;
+		// stores the request and sends the browser to FrontendURL + /authorize;
 		// the SPA signs the user in, then approves it for that sign-in (a
 		// one-time code back to the client) or declines it.
 		{Method: GET, Path: "/oauth2/authorizations/{authorization_id}", Group: as, Auth: public, Bucket: RLOAuthAuthorization, MountedWhen: FeatureAuthorizationServer,

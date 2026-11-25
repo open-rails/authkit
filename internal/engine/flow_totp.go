@@ -132,7 +132,7 @@ func generateTOTPSecret() (string, error) {
 
 func buildTOTPURI(issuer, label, secret string) string {
 	issuer = strings.TrimSpace(issuer)
-	// Token.Issuer is often a URL. An otpauth label instead requires a
+	// The Issuer is often a URL. An otpauth label instead requires a
 	// human service name with no colon, matching the issuer query exactly.
 	if parsed, err := url.Parse(issuer); err == nil && parsed.Hostname() != "" {
 		issuer = parsed.Hostname()

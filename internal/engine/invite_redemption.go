@@ -18,7 +18,7 @@ import (
 	"github.com/open-rails/authkit/internal/ident"
 )
 
-// invitationsOn refuses every redemption while Invitations.Disabled.
+// invitationsOn refuses every redemption while HTTP.Groups leaves out RouteInvitations.
 func (s *Engine) invitationsOn() error {
 	if !config.InvitationsOn(s.cfg) {
 		return iam.ErrInvitationsDisabled

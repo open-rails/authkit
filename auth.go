@@ -212,7 +212,7 @@ func (a *Client) Probes() []Probe { return a.engine.Probes() }
 func (a *Client) TwoFactorMethods() []iam.TwoFactorMethod { return a.engine.TwoFactorMethods() }
 
 // Handler serves AuthKit's whole HTTP surface; nil when Config.HTTP is zero.
-// Mount it at the host root: its paths already include HTTPConfig.BasePath.
+// Mount it at the host root: its paths already include the issuer's path.
 func (a *Client) Handler() http.Handler {
 	if a.mount == nil {
 		return nil
@@ -231,7 +231,7 @@ func (a *Client) Handler() http.Handler {
 // "/api/v1" by default. It is "" without Config.HTTP.
 func (a *Client) APIBase() string { return a.mount.APIBase() }
 
-// PublicAPIBase is APIBase as clients reach it (HTTPConfig.PublicURL): what
+// PublicAPIBase is APIBase as clients reach it (beneath the Issuer): what
 // DPoP proofs to the API name. "" without HTTP.
 func (a *Client) PublicAPIBase() string {
 	if a.http == nil || a.mount == nil {

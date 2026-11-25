@@ -1,7 +1,7 @@
 package httpapi
 
 // The API the SPA answers a pending OAuth sign-in request through (#430):
-// the authorize endpoint sends the browser to Frontend.AuthorizePath with
+// the authorize endpoint sends the browser to FrontendURL + /authorize with
 // the request's id; the SPA reads it, signs the user in as usual (second
 // factors and step-up included), then approves it for that sign-in or
 // declines it.

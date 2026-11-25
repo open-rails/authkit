@@ -2,7 +2,7 @@ package engine
 
 // Agreements (#449): the documents users accept (Config.Agreements), each
 // acceptance an append-only row of user_agreements. A self-registration
-// accepts Registration.Agreements at their current versions in the
+// accepts the sign-up agreements at their current versions in the
 // transaction that creates the account; an OAuth client's approval needs its
 // client's; everything else is the host's to gate on (Client.UserAgreements).
 
@@ -66,7 +66,7 @@ func (s *Engine) missingAgreements(keys []string, accepted []iam.AgreementRef) [
 }
 
 // requireRegistrationAgreements refuses a sign-up that does not accept every
-// Registration.Agreements document at its current version.
+// sign-up agreement at its current version.
 func (s *Engine) requireRegistrationAgreements(accepted []iam.AgreementRef) error {
 	if missing := s.missingAgreements(config.SignUpAgreements(s.cfg), accepted); len(missing) > 0 {
 		return agreementRequired(missing)

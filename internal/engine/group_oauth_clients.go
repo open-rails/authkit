@@ -91,7 +91,7 @@ func (s *Engine) validateClient(m *clientMetadata) error {
 		}
 	}
 	// AuthKit calls it, so it follows the jwks_uri rule (http only with
-	// Token.AllowPrivateNetworkJWKS, for development).
+	// a loopback issuer, for development).
 	if m.backchannel = strings.TrimSpace(m.backchannel); m.backchannel != "" {
 		if err := validateJWKSURI(m.backchannel, config.Tuned(s.cfg).PrivateNetworkJWKS); err != nil || strings.Contains(m.backchannel, "#") {
 			if err == nil {

@@ -1,4 +1,4 @@
-// Package keyfile reads key material from a key directory (Keys.Path): the
+// Package keyfile reads key material from a key directory (keys.Watch): the
 // signing keys' keys.json and the TOTP key. A file another account can
 // rewrite is refused, so only its owner can swap the keys.
 package keyfile

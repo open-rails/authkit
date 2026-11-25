@@ -61,14 +61,14 @@ func (s *Service) signInKey(w http.ResponseWriter, r *http.Request) (*http.Reque
 	return r.WithContext(authflow.WithDPoPKey(r.Context(), jkt)), true
 }
 
-// requestURL is where clients reach r: HTTPConfig.PublicURL plus r's path
+// requestURL is where clients reach r: the issuer plus r's path
 // beneath BasePath, the URL a DPoP proof names.
 func (s *Service) requestURL(r *http.Request) string {
 	return s.PublicURL(r.URL.EscapedPath())
 }
 
 // PublicURL is path, served beneath BasePath, as clients reach it
-// (HTTPConfig.PublicURL): what a DPoP proof to it names.
+// (beneath the Issuer): what a DPoP proof to it names.
 func (s *Service) PublicURL(path string) string {
 	return strings.TrimRight(s.surface.PublicURL, "/") + strings.TrimPrefix(path, strings.TrimRight(s.surface.Base, "/"))
 }
