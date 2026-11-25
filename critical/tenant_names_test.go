@@ -175,26 +175,6 @@ func TestCriticalTenantNames(t *testing.T) {
 		resolves(t, "old-brand", claimant, "old-brand")
 		resolves(t, "new-brand", old, "new-brand")
 
-		immediate := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) {
-			c.Tenants.FormerNames = authkit.NameRetention{Mode: authkit.NameRetentionImmediate}
-		}))
-		fleeting := create(t, "fleeting")
-		_, err = immediate.RenameTenant(ctx, fleeting, "lasting")
-		noError(t, err)
-		unresolved(t, "fleeting")
-		create(t, "fleeting")
-
-		forever := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) {
-			c.Tenants.FormerNames = authkit.NameRetention{Mode: authkit.NameRetentionForever}
-		}))
-		kept := create(t, "kept-name")
-		_, err = forever.RenameTenant(ctx, kept, "kept-new")
-		noError(t, err)
-		var endless bool
-		noError(t, f.pool.QueryRow(ctx, "SELECT expires_at IS NULL FROM "+aliases+" WHERE slug='kept-name'").Scan(&endless))
-		if !endless {
-			t.Fatal("a forever former name expires")
-		}
 	})
 
 	t.Run("AK-J37-C05_concurrent_claims_of_one_name_have_one_winner", func(t *testing.T) {

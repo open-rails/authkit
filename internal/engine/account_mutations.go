@@ -169,7 +169,7 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 		return iam.User{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("verified"))
 	}
 	username := naming.Canonical(n.Username)
-	if err := naming.ValidateImport(s.cfg.Username, username); err != nil {
+	if err := naming.ValidateImport(username); err != nil {
 		return iam.User{}, err
 	}
 	var hash string

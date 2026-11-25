@@ -3,21 +3,18 @@ package critical_test
 import (
 	"errors"
 	"net/http"
-	"net/url"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/testclock"
 )
 
-// #472: Username.DeletedNames says how long a purged account's name stays
-// reserved, with the same NameRetention as renames. The default is forever.
-// The recovery window always holds the name, and the account's former names
-// keep their own expiry.
+// #472, #488: a purged account's name stays reserved forever (the naming
+// policy). The recovery window holds the name, and the account's former
+// names keep their own expiry.
 func TestCriticalDeletedNames(t *testing.T) {
 	// purge deletes u for good through the real purge worker.
 	purge := func(t *testing.T, f *fixture, u authtest.User) {
@@ -36,27 +33,6 @@ func TestCriticalDeletedNames(t *testing.T) {
 		}
 		if got, err := f.auth.ResolveUsername(t.Context(), name); !errors.Is(err, iam.ErrUserNotFound) {
 			t.Fatalf("reserved %q resolved to %+v, %v", name, got, err)
-		}
-	}
-	// reclaimed shows name free, then gives it to a new account.
-	reclaimed := func(t *testing.T, f *fixture, name, purgedID string) {
-		t.Helper()
-		noError(t, f.auth.CheckUsername(t.Context(), name))
-		var answer struct {
-			Available bool `json:"available"`
-		}
-		r := f.call(t, "GET", "/usernames/availability?username="+url.QueryEscape(name), "", nil)
-		r.want(t, http.StatusOK, "")
-		decode(t, r.body, &answer)
-		if !answer.Available {
-			t.Fatalf("availability for freed %q: %s", name, r.body)
-		}
-		claimant, err := f.auth.CreateUser(t.Context(), iam.NewUser{Username: name})
-		noError(t, err)
-		got, err := f.auth.ResolveUsername(t.Context(), name)
-		noError(t, err)
-		if got.ID != claimant.ID || got.ID == purgedID || got.IsAlias {
-			t.Fatalf("freed %q resolved to %+v, want the new account %s", name, got, claimant.ID)
 		}
 	}
 	reservation := func(t *testing.T, f *fixture, name string) *time.Time {
@@ -102,65 +78,19 @@ func TestCriticalDeletedNames(t *testing.T) {
 		if reserved.status != http.StatusOK || string(reserved.body) != string(held.body) {
 			t.Fatalf("reserved name answered %d %s, a live name %d %s", reserved.status, reserved.body, held.status, held.body)
 		}
-		// A later policy does not rewrite a reservation already made.
-		immediate := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) {
-			c.Username.DeletedNames = authkit.NameRetention{Mode: authkit.NameRetentionImmediate}
-		}))
-		if err := immediate.CheckUsername(t.Context(), u.Username); !errors.Is(err, iam.ErrUsernameInUse) {
-			t.Fatalf("a later immediate policy freed a forever reservation: %v", err)
-		}
-		for _, bad := range []authkit.NameRetention{
-			{Mode: authkit.NameRetentionForever, Duration: time.Hour},
-			{Mode: authkit.NameRetentionImmediate, Duration: time.Hour},
-			{Mode: "someday"},
-			{Duration: -time.Hour},
-		} {
-			cfg := f.cfg
-			cfg.Username.DeletedNames = bad
-			if client, err := authkit.New(t.Context(), cfg, f.deps); err == nil {
-				_ = client.Close(t.Context())
-				t.Fatalf("deployment started with Username.DeletedNames %+v", bad)
-			}
-		}
 	})
 
-	t.Run("AK-J38-C02_finite_frees_a_purged_name_after_its_duration", func(t *testing.T) {
-		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Username.DeletedNames = authkit.NameRetention{Duration: time.Hour}
-		}))
-		clock := testclock.Wall()
-		testclock.Use(f.auth, clock.Now)
+	t.Run("AK-J38-C03_a_purged_name_is_kept_and_its_former_names_keep_their_expiry", func(t *testing.T) {
+		f := newFixture(t)
 		f.startFleet(t)
-		policy(t, f, "finite", 3600)
-		u := f.user(t)
-		before := clock.Now()
-		purge(t, f, u)
-		after := clock.Now()
-		expires := reservation(t, f, u.Username)
-		if expires == nil || expires.Before(before.Add(time.Hour).Truncate(time.Microsecond)) || expires.After(after.Add(time.Hour)) {
-			t.Fatalf("reservation expires at %v, want an hour after the purge (%v..%v)", expires, before, after)
-		}
-		clock.Advance(59 * time.Minute)
-		taken(t, f, u.Username)
-		clock.Advance(time.Minute + after.Sub(before) + time.Second)
-		reclaimed(t, f, u.Username, u.ID)
-	})
-
-	t.Run("AK-J38-C03_immediate_frees_a_purged_name_but_not_its_former_names", func(t *testing.T) {
-		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Username.Renames = true
-			c.Username.RenameInterval = -1
-			c.Username.DeletedNames = authkit.NameRetention{Mode: authkit.NameRetentionImmediate}
-		}))
-		f.startFleet(t)
-		policy(t, f, "immediate", 0)
+		policy(t, f, "forever", 0)
 		u := f.user(t)
 		former, current := u.Username, "renamed"+u.Username[4:]
 		_, err := f.auth.UpdateUser(t.Context(), f.identity(t, f.signIn(t, u).AccessToken), u.ID, iam.UserUpdate{Username: &current})
 		noError(t, err)
 		promised := reservation(t, f, former)
 		purge(t, f, u)
-		reclaimed(t, f, current, u.ID)
+		taken(t, f, current)
 		// The former name keeps the 90 days its rename promised.
 		taken(t, f, former)
 		if kept := reservation(t, f, former); promised == nil || kept == nil || !kept.Equal(*promised) {
@@ -168,10 +98,8 @@ func TestCriticalDeletedNames(t *testing.T) {
 		}
 	})
 
-	t.Run("AK-J38-C04_the_recovery_window_holds_the_name_until_purge", func(t *testing.T) {
-		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Username.DeletedNames = authkit.NameRetention{Mode: authkit.NameRetentionImmediate}
-		}))
+	t.Run("AK-J38-C04_the_recovery_window_holds_the_name_and_the_purge_keeps_it", func(t *testing.T) {
+		f := newFixture(t)
 		fleet := f.startFleet(t)
 		u := f.user(t)
 		rows, err := f.auth.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{u.ID})
@@ -197,6 +125,6 @@ func TestCriticalDeletedNames(t *testing.T) {
 		rows, err = f.auth.DeleteUsers(t.Context(), iam.SystemIdentity(), []string{u.ID})
 		goodBatch(t, rows, err)
 		purge(t, f, u)
-		reclaimed(t, f, u.Username, u.ID)
+		taken(t, f, u.Username)
 	})
 }

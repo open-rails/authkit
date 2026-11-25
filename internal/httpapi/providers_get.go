@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/naming"
+	policy "github.com/open-rails/authkit/naming"
 )
 
 func (s *Service) handleCapabilitiesGET(w http.ResponseWriter, r *http.Request) {
@@ -49,12 +50,12 @@ func (s *Service) Capabilities() Capabilities {
 		Agreements:             s.svc.Agreements(),
 		ExternalLoginProviders: s.providerSummaries(),
 		Username: UsernameCapabilities{
-			MinLength:             cfg.Username.MinLength,
-			MaxLength:             cfg.Username.MaxLength,
+			MinLength:             naming.MinLength,
+			MaxLength:             naming.MaxLength,
 			Pattern:               naming.UsernamePattern,
-			Renames:               cfg.Username.Renames,
-			RenameIntervalSeconds: int64(naming.Cooldown(cfg.Username) / time.Second),
-			FormerNames:           naming.NewState(cfg.Username, nil, time.Time{}).Policy,
+			Renames:               true,
+			RenameIntervalSeconds: int64(policy.RenameCooldown / time.Second),
+			FormerNames:           naming.Policy,
 		},
 		Password: PasswordCapabilities{MinLength: config.PasswordMinLength, MaxLength: config.PasswordMaxLength},
 		Passwordless: PasswordlessCapabilities{

@@ -112,7 +112,7 @@ func TestCriticalPasswordless(t *testing.T) {
 	t.Run("AK-J33-C02_new_accounts_still_obey_invitation_and_agreement_policy", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.Agreements = []authkit.AgreementConfig{{Key: "terms", Version: "v1", URL: "https://policy.example/terms", SignUp: true}}
-			c.Username.RandomNames = []string{"journeyperson"}
+			c.Usernames = []string{"journeyperson"}
 		}))
 		proof := f.passwordlessProof(t, "agreement-signup@example.com", "code")
 		f.confirmCode(t, "/passwordless/confirm", "", proof).want(t, http.StatusConflict, "agreement_required")

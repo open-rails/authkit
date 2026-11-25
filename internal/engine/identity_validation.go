@@ -14,7 +14,7 @@ import (
 
 // ValidateUsername applies the configured username rule.
 func (s *Engine) ValidateUsername(username string) error {
-	return naming.Validate(s.cfg.Username, username)
+	return naming.Validate(username)
 }
 
 // ValidatePassword applies the configured password policy. identifiers are

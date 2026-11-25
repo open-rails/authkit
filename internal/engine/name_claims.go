@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/open-rails/authkit/iam"
-	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/naming"
@@ -41,33 +40,30 @@ func (s *Engine) claimCanonicalName(ctx context.Context, q db.DBTX, name, id str
 // renameNameClaim requires the account row locked by its caller. Name locks
 // are sorted by stripe before either claim changes, so opposite renames do not
 // deadlock.
-func (s *Engine) renameNameClaim(ctx context.Context, q db.DBTX, id, oldName, newName string, now time.Time, policy config.UsernameConfig) error {
+func (s *Engine) renameNameClaim(ctx context.Context, q db.DBTX, id, oldName, newName string, now time.Time) error {
 	if err := s.lockNameClaims(ctx, q, oldName, newName); err != nil {
 		return err
 	}
-	if err := s.retireNameClaim(ctx, q, id, oldName, policy.FormerNames, now); err != nil {
+	if err := s.retireNameClaim(ctx, q, id, oldName, naming.FormerNames, now); err != nil {
 		return err
 	}
 	return s.claimCanonicalName(ctx, q, newName, id, now)
 }
 
-// releaseDeletedName applies Username.DeletedNames to the canonical name of an
+// releaseDeletedName reserves forever the canonical name of an
 // account being purged, whose row its caller holds locked.
 func (s *Engine) releaseDeletedName(ctx context.Context, q db.DBTX, id, name string) error {
 	if err := s.lockNameClaims(ctx, q, name); err != nil {
 		return err
 	}
-	return s.retireNameClaim(ctx, q, id, name, s.cfg.Username.DeletedNames, s.namingNow())
+	return s.retireNameClaim(ctx, q, id, name, naming.DeletedNames, s.namingNow())
 }
 
 // retireNameClaim makes id's canonical name a reservation that lasts as
 // retention says, or frees it when immediate. The caller holds its lock.
-func (s *Engine) retireNameClaim(ctx context.Context, q db.DBTX, id, name string, retention config.NameRetention, now time.Time) error {
+func (s *Engine) retireNameClaim(ctx context.Context, q db.DBTX, id, name string, retention naming.Retention, now time.Time) error {
 	if name == "" {
 		return nil
-	}
-	if retention.Mode == config.NameRetentionImmediate {
-		return db.New(q).NameClaimDeleteOwned(ctx, db.NameClaimDeleteOwnedParams{TenantID: s.tenantKey(ctx), Name: name, OwnerID: id})
 	}
 	return db.New(q).NameClaimRetire(ctx, db.NameClaimRetireParams{TenantID: s.tenantKey(ctx), Name: name, OwnerID: id, ExpiresAt: naming.ExpiresAt(retention, now)})
 }
@@ -100,7 +96,7 @@ func (s *Engine) CheckUsername(ctx context.Context, name string) error {
 
 func (s *Engine) checkUsername(ctx context.Context, q *db.Queries, name string) error {
 	name = naming.Canonical(name)
-	if err := naming.Validate(s.cfg.Username, name); err != nil {
+	if err := naming.Validate(name); err != nil {
 		return err
 	}
 	if err := s.requirePG(); err != nil {
@@ -140,7 +136,7 @@ func (s *Engine) UserNamingState(ctx context.Context, id string) (naming.State, 
 		return naming.State{}, err
 	}
 	now := s.namingNow()
-	state := naming.NewState(s.cfg.Username, last, now)
+	state := naming.NewState(last, now)
 	aliases, err := s.q.NameClaimAliasesByUser(ctx, db.NameClaimAliasesByUserParams{TenantID: s.tenantKey(ctx), OwnerID: id, AtTime: now})
 	if err != nil {
 		return state, err

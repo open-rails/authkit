@@ -16,10 +16,6 @@ type (
 	NotificationProducer = config.NotificationProducer
 	Tenancy              = config.Tenancy
 	AgreementConfig      = config.AgreementConfig
-	UsernameConfig       = config.UsernameConfig
-	TenantsConfig        = config.TenantsConfig
-	NameRetention        = config.NameRetention
-	NameRetentionMode    = config.NameRetentionMode
 	// AuthorizationServerConfig declares the OAuth clients and resource
 	// servers of the authorization server (Config.AuthorizationServer).
 	AuthorizationServerConfig = config.AuthorizationServerConfig
@@ -54,11 +50,4 @@ const (
 const (
 	TenancySingle = config.TenancySingle
 	TenancyMulti  = config.TenancyMulti
-)
-
-// Name reservation modes (NameRetention.Mode).
-const (
-	NameRetentionFinite    = config.NameRetentionFinite
-	NameRetentionForever   = config.NameRetentionForever
-	NameRetentionImmediate = config.NameRetentionImmediate
 )

@@ -7,7 +7,6 @@ package config
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/ratelimit"
@@ -68,11 +67,12 @@ type Config struct {
 	// phone_country_not_allowed before anything is sent. Empty allows every
 	// region.
 	SMSCountries []string `yaml:"sms_countries"`
-	// Username is the username rule: length, and whether and how often users
-	// may rename themselves. Published by GET {api}/capabilities.
-	Username UsernameConfig `yaml:"username"`
-	// Tenants is the tenant name policy.
-	Tenants TenantsConfig `yaml:"tenants"`
+	// Usernames is the app's pool for generated usernames: a generated name
+	// is one entry plus three random digits. Each is a letter, then letters,
+	// digits and underscores, 1 to 27 characters. Nil uses "user"; an
+	// explicit empty pool is invalid. Usernames, like tenant names, follow
+	// the naming policy of github.com/open-rails/authkit/naming.
+	Usernames []string `yaml:"usernames"`
 	// TwoFactor is the account-wide MFA policy: iam.TwoFactorDisabled,
 	// iam.TwoFactorOptional (the default) or iam.TwoFactorRequired (every
 	// user enrolls before normal session use). The methods follow from Deps:
@@ -182,65 +182,6 @@ type AgreementConfig struct {
 	// approving any group's OAuth client.
 	GroupClients bool `yaml:"group_clients"`
 }
-
-// UsernameConfig is the username rule. The characters are fixed: a letter,
-// then letters, digits and underscores.
-type UsernameConfig struct {
-	// RandomNames is the app's pool for generated usernames. A generated name
-	// is one literal entry plus exactly three random decimal digits. Nil uses
-	// a neutral "user" base fitted to the length policy; an explicit empty pool
-	// is invalid. Custom entries must fit the policy with the suffix intact.
-	RandomNames []string `yaml:"random_names"`
-
-	// MinLength and MaxLength bound the length; 0 defaults to 4 and 30, and
-	// MaxLength is at most 64.
-	MinLength int `yaml:"min_length"`
-	MaxLength int `yaml:"max_length"`
-	// Renames lets users change their own username; off by default.
-	Renames bool `yaml:"renames"`
-	// RenameInterval is the least time between two renames of one account. 0
-	// defaults to 72 hours; a negative value means no wait.
-	RenameInterval time.Duration `yaml:"rename_interval"`
-	// FormerNames is what happens to a username its owner renamed away from:
-	// it forwards to the owner, and nobody else may claim it. The default is
-	// finite, 90 days.
-	FormerNames NameRetention `yaml:"former_names"`
-	// DeletedNames is what happens to a deleted account's username when the
-	// account is purged at the end of its recovery window: nobody may claim
-	// it, and it resolves to no one. The default is forever. Names the account
-	// had renamed away from keep their own expiry.
-	DeletedNames NameRetention `yaml:"deleted_names"`
-}
-
-// TenantsConfig is the tenant name policy.
-type TenantsConfig struct {
-	// FormerNames is what happens to a name a tenant was renamed away from:
-	// it forwards to the tenant, and no other tenant may claim it. The default
-	// is finite, 90 days.
-	FormerNames NameRetention `yaml:"former_names"`
-}
-
-// NameRetention is how long a name its owner let go of stays reserved.
-type NameRetention struct {
-	// Mode is NameRetentionFinite, NameRetentionForever or
-	// NameRetentionImmediate. Empty takes the field's default, or finite when
-	// Duration is set.
-	Mode NameRetentionMode `yaml:"mode"`
-	// Duration is how long a finite reservation lasts; 0 defaults to 90 days.
-	Duration time.Duration `yaml:"duration"`
-}
-
-// NameRetentionMode says how long a name stays reserved.
-type NameRetentionMode string
-
-const (
-	// NameRetentionFinite reserves it for NameRetention.Duration.
-	NameRetentionFinite NameRetentionMode = "finite"
-	// NameRetentionForever reserves it for good.
-	NameRetentionForever NameRetentionMode = "forever"
-	// NameRetentionImmediate frees it at once.
-	NameRetentionImmediate NameRetentionMode = "immediate"
-)
 
 // RemoteApplicationConfig declares one remote application, keyed by Issuer:
 // an issuer whose access tokens this deployment accepts for the group that

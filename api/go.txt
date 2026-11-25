@@ -5,9 +5,6 @@ pkg authkit, const GrantClientCredentials config.OAuthGrantType = "client_creden
 pkg authkit, const GrantJWTBearer config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 pkg authkit, const GrantRefreshToken config.OAuthGrantType = "refresh_token"
 pkg authkit, const GrantTokenExchange config.OAuthGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
-pkg authkit, const NameRetentionFinite config.NameRetentionMode = "finite"
-pkg authkit, const NameRetentionForever config.NameRetentionMode = "forever"
-pkg authkit, const NameRetentionImmediate config.NameRetentionMode = "immediate"
 pkg authkit, const NotificationDeliveryQueue untyped string = "authkit_notifications"
 pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
@@ -253,9 +250,8 @@ pkg authkit, type Config struct, Roles *config.Roles `yaml:"-"`
 pkg authkit, type Config struct, SMSCountries []string `yaml:"sms_countries"`
 pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork `yaml:"solana_network"`
 pkg authkit, type Config struct, Tenancy config.Tenancy `yaml:"-"`
-pkg authkit, type Config struct, Tenants config.TenantsConfig `yaml:"tenants"`
 pkg authkit, type Config struct, TwoFactor iam.TwoFactorMode `yaml:"two_factor"`
-pkg authkit, type Config struct, Username config.UsernameConfig `yaml:"username"`
+pkg authkit, type Config struct, Usernames []string `yaml:"usernames"`
 pkg authkit, type CredentialPerms = config.CredentialPerms
 pkg authkit, type CredentialPerms struct
 pkg authkit, type CredentialPerms struct, Manage iam.Perm
@@ -326,12 +322,6 @@ pkg authkit, type MigrationOptions struct
 pkg authkit, type MigrationOptions struct, LegacyTenantID iam.TenantID
 pkg authkit, type MigrationOptions struct, Logger *slog.Logger
 pkg authkit, type MigrationOptions struct, Tenancy config.Tenancy
-pkg authkit, type NameRetention = config.NameRetention
-pkg authkit, type NameRetention struct
-pkg authkit, type NameRetention struct, Duration time.Duration `yaml:"duration"`
-pkg authkit, type NameRetention struct, Mode config.NameRetentionMode `yaml:"mode"`
-pkg authkit, type NameRetentionMode = config.NameRetentionMode
-pkg authkit, type NameRetentionMode string
 pkg authkit, type NotificationAdoption = notify.Adoption
 pkg authkit, type NotificationDelivery struct
 pkg authkit, type NotificationProducer = config.NotificationProducer
@@ -442,9 +432,6 @@ pkg authkit, type TenantPerms struct
 pkg authkit, type TenantPerms struct, Manage iam.Perm
 pkg authkit, type TenantPerms struct, Read iam.Perm
 pkg authkit, type TenantPerms struct, embedded config.Resource
-pkg authkit, type TenantsConfig = config.TenantsConfig
-pkg authkit, type TenantsConfig struct
-pkg authkit, type TenantsConfig struct, FormerNames config.NameRetention `yaml:"former_names"`
 pkg authkit, type TransactionalUserInfo interface
 pkg authkit, type TransactionalUserInfo interface, Get(context.Context, []string) (map[string]userinfo.User, error)
 pkg authkit, type TransactionalUserInfo interface, GetTx(context.Context, pgx.Tx, []string) (map[string]userinfo.User, error)
@@ -457,15 +444,6 @@ pkg authkit, type UserPerms struct, Invite iam.Perm
 pkg authkit, type UserPerms struct, Manage iam.Perm
 pkg authkit, type UserPerms struct, Read iam.Perm
 pkg authkit, type UserPerms struct, embedded config.Resource
-pkg authkit, type UsernameConfig = config.UsernameConfig
-pkg authkit, type UsernameConfig struct
-pkg authkit, type UsernameConfig struct, DeletedNames config.NameRetention `yaml:"deleted_names"`
-pkg authkit, type UsernameConfig struct, FormerNames config.NameRetention `yaml:"former_names"`
-pkg authkit, type UsernameConfig struct, MaxLength int `yaml:"max_length"`
-pkg authkit, type UsernameConfig struct, MinLength int `yaml:"min_length"`
-pkg authkit, type UsernameConfig struct, RandomNames []string `yaml:"random_names"`
-pkg authkit, type UsernameConfig struct, RenameInterval time.Duration `yaml:"rename_interval"`
-pkg authkit, type UsernameConfig struct, Renames bool `yaml:"renames"`
 pkg authkit, type Verifier struct
 pkg authkit, var ErrMigrationsRequired error
 pkg authkit/adapters/captcha, const HCaptcha Provider = "hcaptcha"
@@ -1883,6 +1861,10 @@ pkg authkit/keys, type TOTPSource interface
 pkg authkit/keys, type TOTPSource interface, ActiveSigner() Signer
 pkg authkit/keys, type TOTPSource interface, PublicKeys() map[string]crypto.PublicKey
 pkg authkit/keys, type TOTPSource interface, TOTPKey() []byte
+pkg authkit/naming, const FormerNameReservation time.Duration = 7776000000000000
+pkg authkit/naming, const RenameCooldown time.Duration = 259200000000000
+pkg authkit/naming, func FormerNameExpiry(time.Time) time.Time
+pkg authkit/naming, func NextRename(time.Time) time.Time
 pkg authkit/notify, const AudienceOperator Audience = "operator"
 pkg authkit/notify, const AudienceUser Audience = "user"
 pkg authkit/notify, const MaxMutations untyped int = 100

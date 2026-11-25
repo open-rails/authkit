@@ -444,9 +444,9 @@ export type NamingAlias = {
 
 export type NamingPolicy = {
   enabled: boolean
-  former_name_retention_mode: "finite" | "forever" | "immediate"
+  former_name_retention_mode: string
   former_name_retention_seconds: number
-  deleted_name_retention_mode: "finite" | "forever" | "immediate"
+  deleted_name_retention_mode: string
   deleted_name_retention_seconds: number
 }
 

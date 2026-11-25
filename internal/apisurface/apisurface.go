@@ -29,7 +29,7 @@ const (
 // Packages are the covered packages, relative to Module.
 var Packages = []string{
 	"", "adapters/captcha", "adapters/fiber", "adapters/gin", "adapters/logsender", "adapters/smtp", "adapters/twilio", "auth", "auth/authtest", "authtest",
-	"devicekey", "iam", "keys", "notify", "provider", "userinfo", "userinfo/userinfotest", "verify",
+	"devicekey", "iam", "keys", "naming", "notify", "provider", "userinfo", "userinfo/userinfotest", "verify",
 }
 
 // Surface is the covered API.

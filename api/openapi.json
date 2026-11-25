@@ -9909,23 +9909,13 @@
             "type": "boolean"
           },
           "former_name_retention_mode": {
-            "type": "string",
-            "enum": [
-              "finite",
-              "forever",
-              "immediate"
-            ]
+            "type": "string"
           },
           "former_name_retention_seconds": {
             "type": "integer"
           },
           "deleted_name_retention_mode": {
-            "type": "string",
-            "enum": [
-              "finite",
-              "forever",
-              "immediate"
-            ]
+            "type": "string"
           },
           "deleted_name_retention_seconds": {
             "type": "integer"

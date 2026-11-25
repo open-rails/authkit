@@ -15,6 +15,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
+	"github.com/open-rails/authkit/naming"
 )
 
 func (f *fixture) ageTerminal(t *testing.T, table, id string) {
@@ -169,9 +170,6 @@ func TestCriticalMaintenance(t *testing.T) {
 	})
 	t.Run("AK-J32-C06_alias_and_history_retention_do_not_change_live_authority", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.Username.Renames = true
-			c.Username.RenameInterval = -1
-			c.Username.FormerNames = authkit.NameRetention{Mode: authkit.NameRetentionFinite, Duration: time.Hour}
 			config.Tune(c, func(tn *config.Tuning) { tn.EventRetention = time.Hour })
 			config.Tune(c, func(tn *config.Tuning) { tn.SessionEventRetention = time.Hour })
 		}))
@@ -197,7 +195,7 @@ func TestCriticalMaintenance(t *testing.T) {
 		}
 		_, err = f.pool.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, "session_events"}.Sanitize()+" SET occurred_at=statement_timestamp()-interval '2 hours' WHERE user_id=$1", u.ID)
 		noError(t, err)
-		clock.Advance(2 * time.Hour)
+		clock.Advance(naming.FormerNameReservation + time.Hour)
 		_, err = f.auth.ResolveUsername(t.Context(), u.Username)
 		if !errors.Is(err, iam.ErrUserNotFound) {
 			t.Fatal("expired alias remained authoritative before maintenance")

@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
+	"github.com/open-rails/authkit/internal/naming"
 	"github.com/open-rails/authkit/internal/tenancy"
 	"github.com/open-rails/authkit/verify"
 )
@@ -211,15 +212,12 @@ func (s *Engine) RenameTenant(ctx context.Context, id iam.TenantID, slug string)
 	if err != nil {
 		return iam.Tenant{}, tenantNameError(err)
 	}
-	if policy := s.cfg.Tenants.FormerNames; policy.Mode != config.NameRetentionImmediate {
-		err = q.InsertTenantSlugAlias(ctx, db.InsertTenantSlugAliasParams{
-			Slug: current.Slug, TenantID: id.String(),
-			Forever:          policy.Mode == config.NameRetentionForever,
-			RetentionSeconds: policy.Duration.Seconds(),
-		})
-		if err != nil {
-			return iam.Tenant{}, err
-		}
+	err = q.InsertTenantSlugAlias(ctx, db.InsertTenantSlugAliasParams{
+		Slug: current.Slug, TenantID: id.String(),
+		RetentionSeconds: naming.FormerNames.For.Seconds(),
+	})
+	if err != nil {
+		return iam.Tenant{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return iam.Tenant{}, err

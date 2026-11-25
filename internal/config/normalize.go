@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/open-rails/authkit/iam"
@@ -21,12 +20,10 @@ import (
 const (
 	// APIVersion is the version segment AuthKit owns beneath Surface.API: the
 	// JSON API is {Base}{API}/v1. A breaking change mounts /v2 beside it.
-	APIVersion               = "/v1"
-	DefaultUsernameMinLength = 4
-	DefaultUsernameMaxLength = 30
-	UsernameMaxLengthCeiling = 64
-	DefaultRenameInterval    = 72 * time.Hour
-	DefaultNameRetention     = 90 * 24 * time.Hour
+	APIVersion = "/v1"
+	// The username lengths internal/naming enforces.
+	usernameMinLength = 4
+	usernameMaxLength = 30
 
 	maxTokenEntitlements         = 32
 	maxTokenEntitlementNameBytes = 128
@@ -78,10 +75,7 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if c.HTTP != nil && !Mounted(c, iam.RouteInvitations) && c.Registration == iam.RegistrationModeInviteOnly {
 		return Config{}, nil, errors.New("authkit: Registration \"invite_only\" needs invitations, but HTTP.Groups leaves out RouteInvitations")
 	}
-	if c.Username, err = NormalizeUsername(c.Username); err != nil {
-		return Config{}, nil, err
-	}
-	if c.Tenants.FormerNames, err = normalizeNameRetention("Tenants.FormerNames", c.Tenants.FormerNames, NameRetentionFinite); err != nil {
+	if c.Usernames, err = normalizeUsernames(c.Usernames); err != nil {
 		return Config{}, nil, err
 	}
 	switch c.TwoFactor {
@@ -296,70 +290,28 @@ func isHTTPURL(raw string) bool {
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
-// NormalizeUsername applies the username defaults and rules.
-func NormalizeUsername(u UsernameConfig) (UsernameConfig, error) {
-	if u.MinLength == 0 {
-		u.MinLength = DefaultUsernameMinLength
+// normalizeUsernames checks the generated-username pool: each entry fits
+// the username length with its three-digit suffix.
+func normalizeUsernames(pool []string) ([]string, error) {
+	if pool == nil {
+		return nil, nil
 	}
-	if u.MaxLength == 0 {
-		u.MaxLength = max(DefaultUsernameMaxLength, u.MinLength)
+	if len(pool) == 0 {
+		return nil, errors.New("authkit: Usernames must not be empty")
 	}
-	if u.MinLength < 1 || u.MaxLength < u.MinLength || u.MaxLength > UsernameMaxLengthCeiling {
-		return u, fmt.Errorf("authkit: invalid username policy min_length=%d max_length=%d (want 1 <= min <= max <= %d)", u.MinLength, u.MaxLength, UsernameMaxLengthCeiling)
-	}
-	if u.RandomNames != nil {
-		if len(u.RandomNames) == 0 {
-			return u, errors.New("authkit: Username.RandomNames must not be empty")
+	seen := make(map[string]bool, len(pool))
+	out := slices.Clone(pool)
+	for _, name := range out {
+		canonical := strings.ToLower(name)
+		if !randomUsernameBase.MatchString(name) || len(name)+3 < usernameMinLength || len(name)+3 > usernameMaxLength {
+			return nil, fmt.Errorf("authkit: Usernames entry %q must be a valid base whose length plus three fits %d..%d", name, usernameMinLength, usernameMaxLength)
 		}
-		seen := make(map[string]bool, len(u.RandomNames))
-		u.RandomNames = slices.Clone(u.RandomNames)
-		for _, name := range u.RandomNames {
-			canonical := strings.ToLower(name)
-			if !randomUsernameBase.MatchString(name) || len(name)+3 < u.MinLength || len(name)+3 > u.MaxLength {
-				return u, fmt.Errorf("authkit: Username.RandomNames entry %q must be a valid base whose length plus three fits %d..%d", name, u.MinLength, u.MaxLength)
-			}
-			if seen[canonical] {
-				return u, fmt.Errorf("authkit: Username.RandomNames repeats %q (case-insensitive)", name)
-			}
-			seen[canonical] = true
+		if seen[canonical] {
+			return nil, fmt.Errorf("authkit: Usernames repeats %q (case-insensitive)", name)
 		}
+		seen[canonical] = true
 	}
-	if u.RenameInterval == 0 {
-		u.RenameInterval = DefaultRenameInterval
-	}
-	var err error
-	if u.FormerNames, err = normalizeNameRetention("Username.FormerNames", u.FormerNames, NameRetentionFinite); err != nil {
-		return u, err
-	}
-	u.DeletedNames, err = normalizeNameRetention("Username.DeletedNames", u.DeletedNames, NameRetentionForever)
-	return u, err
-}
-
-// normalizeNameRetention gives an empty Mode the field's fallback, or finite
-// when a Duration is set.
-func normalizeNameRetention(field string, r NameRetention, fallback NameRetentionMode) (NameRetention, error) {
-	if r.Mode == "" {
-		r.Mode = fallback
-		if r.Duration != 0 {
-			r.Mode = NameRetentionFinite
-		}
-	}
-	switch r.Mode {
-	case NameRetentionFinite:
-		if r.Duration < 0 {
-			return r, fmt.Errorf("authkit: %s.Duration must not be negative", field)
-		}
-		if r.Duration == 0 {
-			r.Duration = DefaultNameRetention
-		}
-	case NameRetentionForever, NameRetentionImmediate:
-		if r.Duration != 0 {
-			return r, fmt.Errorf("authkit: %s.Duration needs Mode %q", field, NameRetentionFinite)
-		}
-	default:
-		return r, fmt.Errorf("authkit: invalid %s.Mode %q", field, r.Mode)
-	}
-	return r, nil
+	return out, nil
 }
 
 // validAPIKeyPrefix: empty, or 1-16 lowercase alphanumeric characters.
