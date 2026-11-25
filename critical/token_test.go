@@ -292,6 +292,51 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		}
 		f.call(t, "GET", "/me", bound.Value, nil).want(t, http.StatusForbidden, "forbidden")
 	})
+	t.Run("AK-J13-C11_only_host_declared_applications_fetch_from_a_private_network", func(t *testing.T) {
+		private, err := rsa.GenerateKey(rand.Reader, 2048)
+		noError(t, err)
+		signer, err := keys.SignerFromKey("in-cluster", private)
+		noError(t, err)
+		mux := http.NewServeMux()
+		issuer := httptest.NewServer(mux)
+		t.Cleanup(issuer.Close)
+		mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]string{"issuer": issuer.URL, "jwks_uri": issuer.URL + "/jwks"})
+		})
+		mux.HandleFunc("GET /jwks", func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(keys.JWKS{Keys: []keys.JWK{keys.PublicJWK(signer.Public(), signer.KID(), signer.Algorithm())}})
+		})
+		const resource = "https://private-resource.example"
+		now := time.Now()
+		token := signJWT(t, signer, map[string]any{"alg": signer.Algorithm(), "kid": signer.KID(), "typ": "at+jwt"},
+			map[string]any{"iss": issuer.URL, "sub": "customer", "aud": resource, "client_id": "in-cluster-ui", "iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix(), "jti": "private-network-token"})
+		authenticate := func(f *fixture) error {
+			r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, resource+"/data", nil)
+			noError(t, err)
+			authorize(t, r, token)
+			_, err = f.auth.Authenticator().Authenticate(r)
+			return err
+		}
+		// Declared by the host: its keys are fetched from the private address.
+		declared := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			c.Resource = authkit.ResourceConfig{ID: resource}
+			c.RemoteApplications = []authkit.RemoteApplicationConfig{{Issuer: issuer.URL}}
+		}))
+		noError(t, authenticate(declared))
+		// Registered at run time: the same issuer's private address is refused,
+		// whether discovered or named.
+		runtime := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.Resource = authkit.ResourceConfig{ID: resource} }))
+		group, _, _ := runtime.ownedGroup(t)
+		_, err = runtime.auth.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.RemoteApplication{Issuer: issuer.URL, Enabled: true, Mode: iam.RemoteApplicationModeJWKS})
+		noError(t, err)
+		if err := authenticate(runtime); err == nil {
+			t.Fatal("an application registered at run time fetched its keys from a private network")
+		}
+		_, err = runtime.auth.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.RemoteApplication{Issuer: "https://named-private.example", JWKSURI: issuer.URL + "/jwks", Enabled: true, Mode: iam.RemoteApplicationModeJWKS})
+		if !errors.Is(err, iam.ErrInvalidRemoteApplication) {
+			t.Fatalf("a private jwks_uri registered at run time = %v, want refused", err)
+		}
+	})
 	t.Run("AK-J13-C10_failed_issuer_discovery_is_fetched_once_per_backoff", func(t *testing.T) {
 		clock := testclock.Wall()
 		oldPolicy := cachepolicy.IssuerKeys

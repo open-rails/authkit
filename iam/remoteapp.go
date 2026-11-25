@@ -62,8 +62,15 @@ type RemoteApplication struct {
 	// within Role as ever.
 	RoleMap     map[string]Role `json:"role_map,omitempty"`
 	Permissions []Perm          `json:"permissions"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	// PrivateNetwork reports an application the host declared
+	// (Config.RemoteApplications, Client.DeclareRemoteApplications or the
+	// bootstrap manifest): its JWKS and metadata may be on a private
+	// network, such as an app inside the cluster. One registered at run time
+	// never is: its fetches refuse private and loopback addresses. Set by
+	// how the application was registered; ignored on input.
+	PrivateNetwork bool      `json:"-"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // ApplicationTrustRoot is the authority that changes an application's keys.

@@ -170,7 +170,7 @@ func (s *Engine) applyDeclaredApplication(ctx context.Context, st *permissionGro
 		return err
 	}
 	app.GroupID, app.TrustRoot = g.ID, iam.ApplicationTrustRootManual
-	ra, err := s.upsertRemoteApplication(ctx, st, app)
+	ra, err := s.upsertRemoteApplication(ctx, st, app, true)
 	if err != nil {
 		return err
 	}

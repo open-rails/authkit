@@ -1622,6 +1622,7 @@ pkg authkit/iam, type RemoteApplication struct, Issuer string `json:"issuer"`
 pkg authkit/iam, type RemoteApplication struct, JWKSURI string `json:"jwks_uri"`
 pkg authkit/iam, type RemoteApplication struct, Mode RemoteApplicationMode `json:"mode"`
 pkg authkit/iam, type RemoteApplication struct, Permissions []Perm `json:"permissions"`
+pkg authkit/iam, type RemoteApplication struct, PrivateNetwork bool `json:"-"`
 pkg authkit/iam, type RemoteApplication struct, PublicKeys []RemoteApplicationKey `json:"public_keys"`
 pkg authkit/iam, type RemoteApplication struct, Role Role `json:"role"`
 pkg authkit/iam, type RemoteApplication struct, RoleMap map[string]Role `json:"role_map,omitempty"`
@@ -2158,6 +2159,7 @@ pkg authkit/verify, type IssuerKeyStatus struct, Keys int
 pkg authkit/verify, type IssuerKeyStatus struct, LastError string
 pkg authkit/verify, type IssuerKeyStatus struct, MaxStale time.Duration
 pkg authkit/verify, type IssuerOptions struct
+pkg authkit/verify, type IssuerOptions struct, HTTPClient *http.Client
 pkg authkit/verify, type IssuerOptions struct, IsLocal bool
 pkg authkit/verify, type IssuerOptions struct, JWKSURI string
 pkg authkit/verify, type IssuerOptions struct, KeySource keys.Source

@@ -10,7 +10,7 @@ import (
 )
 
 const remoteApplicationByID = `-- name: RemoteApplicationByID :one
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications WHERE id = $1
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map, private_network FROM remote_applications WHERE id = $1
 `
 
 func (q *Queries) RemoteApplicationByID(ctx context.Context, id string) (RemoteApplication, error) {
@@ -31,12 +31,13 @@ func (q *Queries) RemoteApplicationByID(ctx context.Context, id string) (RemoteA
 		&i.CatalogIssuer,
 		&i.DeclaredBy,
 		&i.RoleMap,
+		&i.PrivateNetwork,
 	)
 	return i, err
 }
 
 const remoteApplicationByIDForUpdate = `-- name: RemoteApplicationByIDForUpdate :one
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications WHERE id = $1 FOR UPDATE
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map, private_network FROM remote_applications WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) RemoteApplicationByIDForUpdate(ctx context.Context, id string) (RemoteApplication, error) {
@@ -57,12 +58,13 @@ func (q *Queries) RemoteApplicationByIDForUpdate(ctx context.Context, id string)
 		&i.CatalogIssuer,
 		&i.DeclaredBy,
 		&i.RoleMap,
+		&i.PrivateNetwork,
 	)
 	return i, err
 }
 
 const remoteApplicationByIssuer = `-- name: RemoteApplicationByIssuer :one
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications WHERE issuer = $1
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map, private_network FROM remote_applications WHERE issuer = $1
 `
 
 func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) (RemoteApplication, error) {
@@ -83,6 +85,7 @@ func (q *Queries) RemoteApplicationByIssuer(ctx context.Context, issuer string) 
 		&i.CatalogIssuer,
 		&i.DeclaredBy,
 		&i.RoleMap,
+		&i.PrivateNetwork,
 	)
 	return i, err
 }
@@ -134,6 +137,17 @@ func (q *Queries) RemoteApplicationDelete(ctx context.Context, issuer string) (i
 	return result.RowsAffected(), nil
 }
 
+const remoteApplicationSetPrivateNetwork = `-- name: RemoteApplicationSetPrivateNetwork :exec
+UPDATE remote_applications SET private_network = true WHERE id = $1::uuid AND NOT private_network
+`
+
+// A host-declared application (the bootstrap manifest) may fetch from a
+// private network.
+func (q *Queries) RemoteApplicationSetPrivateNetwork(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, remoteApplicationSetPrivateNetwork, id)
+	return err
+}
+
 const remoteApplicationSetRegistrar = `-- name: RemoteApplicationSetRegistrar :exec
 UPDATE remote_applications SET registered_by = $1::uuid, catalog_issuer = $2::text
 WHERE id = $3::uuid
@@ -177,7 +191,7 @@ ON CONFLICT (issuer) DO UPDATE
       role_map      = EXCLUDED.role_map,
       updated_at    = now()
 WHERE remote_applications.permission_group_id = EXCLUDED.permission_group_id
-RETURNING id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map
+RETURNING id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map, private_network
 `
 
 type RemoteApplicationUpsertParams struct {
@@ -224,12 +238,13 @@ func (q *Queries) RemoteApplicationUpsert(ctx context.Context, arg RemoteApplica
 		&i.CatalogIssuer,
 		&i.DeclaredBy,
 		&i.RoleMap,
+		&i.PrivateNetwork,
 	)
 	return i, err
 }
 
 const remoteApplicationsByGroup = `-- name: RemoteApplicationsByGroup :many
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map, private_network FROM remote_applications
 WHERE permission_group_id = $1::uuid
   AND ($2::uuid IS NULL OR id < $2::uuid)
 ORDER BY id DESC
@@ -267,6 +282,7 @@ func (q *Queries) RemoteApplicationsByGroup(ctx context.Context, arg RemoteAppli
 			&i.CatalogIssuer,
 			&i.DeclaredBy,
 			&i.RoleMap,
+			&i.PrivateNetwork,
 		); err != nil {
 			return nil, err
 		}
@@ -288,9 +304,10 @@ func (q *Queries) RemoteApplicationsClearRegistrar(ctx context.Context, userID s
 }
 
 const remoteApplicationsDeclare = `-- name: RemoteApplicationsDeclare :exec
-UPDATE remote_applications SET declared_by = $1::text
+UPDATE remote_applications SET declared_by = $1::text, private_network = true
 WHERE permission_group_id = $2::uuid
-  AND issuer = ANY($3::text[]) AND declared_by IS DISTINCT FROM $1::text
+  AND issuer = ANY($3::text[])
+  AND (declared_by IS DISTINCT FROM $1::text OR NOT private_network)
 `
 
 type RemoteApplicationsDeclareParams struct {
@@ -299,14 +316,15 @@ type RemoteApplicationsDeclareParams struct {
 	Issuers           []string
 }
 
-// declared_by declares these issuers in the group.
+// declared_by declares these issuers in the group; a declared application
+// may fetch from a private network.
 func (q *Queries) RemoteApplicationsDeclare(ctx context.Context, arg RemoteApplicationsDeclareParams) error {
 	_, err := q.db.Exec(ctx, remoteApplicationsDeclare, arg.DeclaredBy, arg.PermissionGroupID, arg.Issuers)
 	return err
 }
 
 const remoteApplicationsRelease = `-- name: RemoteApplicationsRelease :exec
-UPDATE remote_applications SET enabled = false, declared_by = NULL, updated_at = now()
+UPDATE remote_applications SET enabled = false, declared_by = NULL, private_network = false, updated_at = now()
 WHERE id = ANY($1::uuid[])
 `
 
@@ -318,7 +336,7 @@ func (q *Queries) RemoteApplicationsRelease(ctx context.Context, ids []string) e
 }
 
 const remoteApplicationsUndeclared = `-- name: RemoteApplicationsUndeclared :many
-SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map FROM remote_applications
+SELECT id, issuer, jwks_uri, mode, public_keys, enabled, created_at, updated_at, permission_group_id, trust_root, registered_by, catalog_issuer, declared_by, role_map, private_network FROM remote_applications
 WHERE declared_by = $1::text AND permission_group_id = $2::uuid
   AND NOT (issuer = ANY($3::text[]))
 ORDER BY issuer
@@ -356,6 +374,7 @@ func (q *Queries) RemoteApplicationsUndeclared(ctx context.Context, arg RemoteAp
 			&i.CatalogIssuer,
 			&i.DeclaredBy,
 			&i.RoleMap,
+			&i.PrivateNetwork,
 		); err != nil {
 			return nil, err
 		}

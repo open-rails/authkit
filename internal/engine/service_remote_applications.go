@@ -20,14 +20,16 @@ import (
 )
 
 // trustSourcePolicy relaxes remote-application trust-source validation.
-// AllowPrivateNetworkJWKS admits loopback/private-network JWKS URLs (local
-// development only; production leaves it off, see Config.Token.AllowPrivateNetworkJWKS).
+// AllowPrivateNetworkJWKS admits loopback/private-network JWKS URLs: for an
+// application the host declares, and on a loopback issuer.
 type trustSourcePolicy struct {
 	AllowPrivateNetworkJWKS bool
 }
 
-func (s *Engine) trustSourcePolicy() trustSourcePolicy {
-	return trustSourcePolicy{AllowPrivateNetworkJWKS: config.Tuned(s.cfg).PrivateNetworkJWKS}
+// trustSourcePolicy is the policy for an application registered as private
+// says: host-declared, or at run time.
+func (s *Engine) trustSourcePolicy(private bool) trustSourcePolicy {
+	return trustSourcePolicy{AllowPrivateNetworkJWKS: private || config.Tuned(s.cfg).PrivateNetworkJWKS}
 }
 
 // normalizeRemoteAppTrustSource validates the mutually-exclusive trust source
@@ -177,6 +179,7 @@ func remoteAppFromRow(row db.RemoteApplication) *iam.RemoteApplication {
 		TrustRoot: iam.ApplicationTrustRoot(row.TrustRoot),
 		RoleMap:   decodeRoleMap(row.RoleMap),
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		PrivateNetwork: row.PrivateNetwork,
 	}
 	return ra
 }
@@ -185,7 +188,9 @@ func remoteAppFromRow(row db.RemoteApplication) *iam.RemoteApplication {
 // by issuer, in the group in.GroupID. A set TrustRoot is stored;
 // unset, a new row is manual and an existing one keeps its own. Callers
 // authorize.
-func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGroupStore, in iam.RemoteApplication) (*iam.RemoteApplication, error) {
+// private marks an application the host declared, which may fetch from a
+// private network (iam.RemoteApplication.PrivateNetwork).
+func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGroupStore, in iam.RemoteApplication, private bool) (*iam.RemoteApplication, error) {
 	q := db.New(st.q)
 	issuer := strings.TrimSpace(in.Issuer)
 	jwksURI := strings.TrimSpace(in.JWKSURI)
@@ -204,7 +209,7 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 	if s.reservedIssuer(issuer) {
 		return nil, iam.ErrReservedIssuer
 	}
-	mode, err := normalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.trustSourcePolicy())
+	mode, err := normalizeRemoteAppTrustSource(jwksURI, in.Mode, in.PublicKeys, s.trustSourcePolicy(private))
 	if err != nil {
 		return nil, err
 	}
@@ -261,6 +266,12 @@ func (s *Engine) upsertRemoteApplication(ctx context.Context, st *permissionGrou
 		if err := q.RemoteApplicationSetTrustRoot(ctx, db.RemoteApplicationSetTrustRootParams{ID: out.ID, TrustRoot: string(out.TrustRoot)}); err != nil {
 			return nil, err
 		}
+	}
+	if private && !out.PrivateNetwork {
+		if err := q.RemoteApplicationSetPrivateNetwork(ctx, out.ID); err != nil {
+			return nil, err
+		}
+		out.PrivateNetwork = true
 	}
 	return out, nil
 }

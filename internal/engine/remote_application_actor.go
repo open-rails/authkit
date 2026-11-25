@@ -74,7 +74,7 @@ func (s *Engine) UpsertRemoteApplication(ctx context.Context, who auth.Identity,
 				return err
 			}
 		}
-		if out, err = s.upsertRemoteApplication(ctx, st, in); err != nil {
+		if out, err = s.upsertRemoteApplication(ctx, st, in, false); err != nil {
 			return err
 		}
 		if rekey {

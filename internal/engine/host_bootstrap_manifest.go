@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
-	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -73,7 +72,9 @@ func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.Bootst
 	if err := s.requirePG(); err != nil {
 		return iam.BootstrapResult{}, err
 	}
-	if err := validateBootstrapManifest(manifest, config.Tuned(s.cfg).PrivateNetworkJWKS); err != nil {
+	// The manifest is the host's declaration: its applications may be on a
+	// private network.
+	if err := validateBootstrapManifest(manifest, true); err != nil {
 		return iam.BootstrapResult{}, err
 	}
 	checkRole := func(role iam.Role) error {
@@ -394,7 +395,7 @@ func (s *Engine) applyBootstrapRemoteApplication(ctx context.Context, st *permis
 // updates it there, and gives it role on root when one is set.
 func (s *Engine) applyRootApplication(ctx context.Context, st *permissionGroupStore, app iam.RemoteApplication, role iam.Role) error {
 	rootID := app.GroupID
-	ra, err := s.upsertRemoteApplication(ctx, st, app)
+	ra, err := s.upsertRemoteApplication(ctx, st, app, true)
 	if err != nil {
 		return err
 	}
