@@ -19,6 +19,7 @@ import (
 
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -41,7 +42,7 @@ func (s *Engine) CreateInvitation(ctx context.Context, a auth.Identity, ref iam.
 	if err != nil {
 		return iam.InvitationCreated{}, err
 	}
-	if s.cfg.Invitations.Disabled {
+	if !config.InvitationsOn(s.cfg) {
 		return iam.InvitationCreated{}, iam.ErrInvitationsDisabled
 	}
 	creator, err := credentialIssuer(a)

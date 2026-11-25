@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,15 +63,14 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	}
 	outbox := &authtest.Outbox{}
 	cfg := authkit.Config{
-		DefaultTenantID:      tenant,
-		Notifications:        &authkit.NotificationsConfig{Schema: schema, AppID: "critical-browser", Producers: []authkit.NotificationProducer{{Name: "application", TenantID: tenant, Origin: notify.OriginScope{System: "application", Scope: "critical-browser"}, Visibility: notify.VisibilityApp, AppID: "critical-browser"}}},
-		Roles:                roles,
-		HTTP:                 &authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true},
-		Database:             authkit.DatabaseConfig{Schema: schema},
-		Issuer:               origin,
-		Registration:         authkit.RegistrationConfig{Verification: iam.RegistrationVerificationRequired, PasswordlessLogin: true},
-		TwoFactor:            authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, TOTPSecretKey: totpKey},
-		PersonalAccessTokens: authkit.PersonalAccessTokensConfig{Enabled: true},
+		DefaultTenantID: tenant,
+		Notifications:   &authkit.NotificationsConfig{Schema: schema, AppID: "critical-browser", Producers: []authkit.NotificationProducer{{Name: "application", TenantID: tenant, Origin: notify.OriginScope{System: "application", Scope: "critical-browser"}, Visibility: notify.VisibilityApp, AppID: "critical-browser"}}},
+		Roles:           roles,
+		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true, Groups: append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)},
+		Database:        authkit.DatabaseConfig{Schema: schema},
+		Issuer:          origin,
+		Registration:    authkit.RegistrationConfig{Verification: iam.RegistrationVerificationRequired},
+		TwoFactor:       authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, TOTPSecretKey: totpKey},
 	}
 	config.Tune(&cfg, func(tn *config.Tuning) {
 		tn.RateLimits = limits
@@ -84,7 +84,7 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	}
 	if profile == "unproved" {
 		cfg.Registration.Verification = iam.RegistrationVerificationOptional
-		cfg.Invitations.Disabled = true
+		cfg.HTTP.Groups = slices.DeleteFunc(cfg.HTTP.Groups, func(g iam.RouteGroup) bool { return g == iam.RouteInvitations })
 	}
 	client, err := authkit.New(ctx, cfg, authkit.Deps{
 		Postgres:      pool,

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -19,7 +20,7 @@ import (
 
 // invitationsOn refuses every redemption while Invitations.Disabled.
 func (s *Engine) invitationsOn() error {
-	if s.cfg.Invitations.Disabled {
+	if !config.InvitationsOn(s.cfg) {
 		return iam.ErrInvitationsDisabled
 	}
 	return nil

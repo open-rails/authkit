@@ -17,6 +17,7 @@ import (
 	"github.com/open-rails/authkit/devicekey"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -40,7 +41,7 @@ var (
 )
 
 func (s *Engine) deviceKeysEnabled() error {
-	if s == nil || !s.cfg.DeviceKeys.Enabled {
+	if s == nil || !config.Mounted(s.cfg, iam.RouteDeviceKeys) {
 		return iam.ErrDeviceKeysDisabled
 	}
 	return nil
@@ -583,7 +584,7 @@ func (s *Engine) FinishDeviceKeyLogin(ctx context.Context, challengeID, signatur
 }
 
 // DeviceKeys returns the account's device keys in enrollment order, revoked
-// ones included. ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
+// ones included. ErrDeviceKeysDisabled unless RouteDeviceKeys is mounted.
 func (s *Engine) DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {
 	if err := s.deviceKeysEnabled(); err != nil {
 		return nil, err

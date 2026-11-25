@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/apikey"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -49,7 +50,7 @@ func (s *Engine) personalPermission(raw string) bool {
 // personalTokenManager requires an actual live interactive session, including
 // its tenant binding. A PAT cannot turn itself into another credential.
 func (s *Engine) personalTokenManager(ctx context.Context, st *permissionGroupStore, who auth.Identity, fresh bool) (string, error) {
-	if !s.cfg.PersonalAccessTokens.Enabled {
+	if !config.Mounted(s.cfg, iam.RoutePersonalAccessTokens) {
 		return "", errmodel.E(errmodel.CodeForbidden)
 	}
 	state := stateOf(who)
@@ -204,7 +205,7 @@ func (s *Engine) RevokePersonalAccessToken(ctx context.Context, who auth.Identit
 // Only this token's group is reachable. Current owner grants are intersected
 // with concrete stored permissions every time; positive checks are not cached.
 func (s *Engine) personalTokenAuthority(ctx context.Context, st *permissionGroupStore, out authority, id string, group groupTarget) (authority, error) {
-	if !s.cfg.PersonalAccessTokens.Enabled || !isUUID(id) {
+	if !config.Mounted(s.cfg, iam.RoutePersonalAccessTokens) || !isUUID(id) {
 		return out, iam.ErrInsufficientAuthority
 	}
 	row, err := db.New(st.q).PersonalTokenByID(ctx, db.PersonalTokenByIDParams{ID: id, Issuer: s.cfg.Issuer})
@@ -238,7 +239,7 @@ func (s *Engine) personalTokenAuthority(ctx context.Context, st *permissionGroup
 func (s *Engine) ResolvePersonalAccessToken(ctx context.Context, token string) (iam.ResolvedPersonalAccessToken, error) {
 	var out iam.ResolvedPersonalAccessToken
 	lookup, secret, ok := parsePersonalToken(token)
-	if !ok || !s.cfg.PersonalAccessTokens.Enabled {
+	if !ok || !config.Mounted(s.cfg, iam.RoutePersonalAccessTokens) {
 		return out, iam.ErrPersonalAccessTokenInvalid
 	}
 	if err := s.requirePG(); err != nil {

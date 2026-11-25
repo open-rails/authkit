@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -82,8 +83,7 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 		c.DefaultTenantID = f.tenant
 		c.Roles = roles
 		c.TwoFactor.Mode = iam.TwoFactorDisabled
-		c.Registration.PasswordlessLogin = true
-		c.PersonalAccessTokens.Enabled = true
+		c.HTTP.Groups = append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)
 	})
 	opts := append([]authtest.Option{base, authtest.WithDeps(func(d *authkit.Deps) { d.Postgres = f.pool })}, options...)
 	opts = append(opts, authtest.WithConfig(func(c *authkit.Config) { f.cfg = *c }), authtest.WithDeps(func(d *authkit.Deps) { f.deps = *d }))
@@ -91,6 +91,16 @@ func newFixture(t *testing.T, options ...authtest.Option) *fixture {
 	f.server = httptest.NewServer(f.auth.Handler())
 	t.Cleanup(f.server.Close)
 	return f
+}
+
+// mountGroups adds route groups to a fixture's mounted set.
+func mountGroups(c *authkit.Config, groups ...iam.RouteGroup) {
+	c.HTTP.Groups = append(slices.Clone(c.HTTP.Groups), groups...)
+}
+
+// unmountGroup drops a route group from a fixture's mounted set.
+func unmountGroup(c *authkit.Config, group iam.RouteGroup) {
+	c.HTTP.Groups = slices.DeleteFunc(slices.Clone(c.HTTP.Groups), func(g iam.RouteGroup) bool { return g == group })
 }
 
 // multiTenant opts a fixture into TenancyMulti, for journeys with more than

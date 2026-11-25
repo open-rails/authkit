@@ -102,7 +102,7 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		}
 		return nil, nil
 	}
-	if s.cfg.Invitations.Disabled {
+	if !config.InvitationsOn(s.cfg) {
 		return nil, iam.ErrInvitationsDisabled
 	}
 	if err := s.lockAuthority(ctx, tx); err != nil {

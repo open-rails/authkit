@@ -4,7 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/url"
+	"slices"
 	"strings"
+
+	"github.com/open-rails/authkit/iam"
 )
 
 // The host SPA's routes AuthKit links and redirects to, beneath FrontendURL.
@@ -80,3 +83,22 @@ func TOTPIssuer(frontendURL string) string {
 	u, _ := url.Parse(frontendURL)
 	return strings.ReplaceAll(strings.ToLower(u.Hostname()), ":", ".")
 }
+
+// Mounted reports whether c serves group over HTTP. The opt-in features
+// (passwordless sign-in, device keys, personal access tokens, invitations)
+// are on exactly when their group is.
+func Mounted(c Config, group iam.RouteGroup) bool {
+	if c.HTTP == nil {
+		return false
+	}
+	groups := c.HTTP.Groups
+	if groups == nil {
+		groups = iam.DefaultRouteGroups()
+	}
+	return slices.Contains(groups, group)
+}
+
+// InvitationsOn reports whether c issues and honours invitations: always
+// headless (only the host's calls issue any), over HTTP with
+// RouteInvitations.
+func InvitationsOn(c Config) bool { return c.HTTP == nil || Mounted(c, iam.RouteInvitations) }

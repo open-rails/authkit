@@ -254,7 +254,7 @@ type DeviceKey struct {
 
 // EnrollDeviceKey enrolls a new Ed25519 device key on u with the devicekey
 // client, reading the emailed code from outbox and answering a second factor
-// with u.TOTP. The Client needs Config.DeviceKeys.Enabled.
+// with u.TOTP. The Client needs HTTP.Groups to mount iam.RouteDeviceKeys.
 func EnrollDeviceKey(t testing.TB, auth *authkit.Client, outbox *Outbox, u User) DeviceKey {
 	t.Helper()
 	ctx := context.Background()

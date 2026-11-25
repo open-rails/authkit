@@ -29,10 +29,8 @@ type (
 	NameRetention              = config.NameRetention
 	NameRetentionMode          = config.NameRetentionMode
 	TwoFactorConfig            = config.TwoFactorConfig
-	DeviceKeysConfig           = config.DeviceKeysConfig
 	APIKeysConfig              = config.APIKeysConfig
 	PersonalAccessTokensConfig = config.PersonalAccessTokensConfig
-	InvitationsConfig          = config.InvitationsConfig
 	// AuthorizationServerConfig declares the OAuth clients and resource
 	// servers of the authorization server (Config.AuthorizationServer).
 	AuthorizationServerConfig = config.AuthorizationServerConfig

@@ -69,7 +69,7 @@ var (
 	ErrRoleNotAssignable       Error = errmodel.E(errmodel.CodeRoleNotAssignable)
 	ErrUnknownGroupPersona     Error = errmodel.E(errmodel.CodeUnknownGroupPersona)
 	ErrExternalInvitesDisabled Error = errmodel.E(errmodel.CodeExternalInvitesDisabled)
-	// ErrInvitationsDisabled: Config.Invitations.Disabled is set.
+	// ErrInvitationsDisabled: HTTP.Groups leaves out RouteInvitations.
 	ErrInvitationsDisabled Error = errmodel.E(errmodel.CodeInvitationsDisabled)
 )
 

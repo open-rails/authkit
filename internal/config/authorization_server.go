@@ -330,8 +330,8 @@ func normalizeAuthorizationServer(a *AuthorizationServerConfig, c Config) error 
 		if err := normalizeOAuthClient(&cl, a.Resources); err != nil {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: %w", i, err)
 		}
-		if OAuthClientAllows(cl, GrantJWTBearer) && !c.DeviceKeys.Enabled {
-			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q: the jwt-bearer grant needs DeviceKeys.Enabled: device keys sign its capabilities", i, cl.ID)
+		if OAuthClientAllows(cl, GrantJWTBearer) && !Mounted(c, iam.RouteDeviceKeys) {
+			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q: the jwt-bearer grant needs HTTP.Groups to mount RouteDeviceKeys: device keys sign its capabilities", i, cl.ID)
 		}
 		if slices.ContainsFunc(clients, func(o OAuthClientConfig) bool { return o.ID == cl.ID }) {
 			return fmt.Errorf("authkit: AuthorizationServer.Clients[%d]: client %q is declared twice", i, cl.ID)

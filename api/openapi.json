@@ -405,7 +405,7 @@
     "/auth/v1/passwordless/start": {
       "post": {
         "tags": [
-          "auth"
+          "passwordless"
         ],
         "requestBody": {
           "required": true,
@@ -441,14 +441,13 @@
         },
         "security": [],
         "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "passwordless_start",
-        "x-authkit-mounted-when": "passwordless"
+        "x-authkit-rate-limit": "passwordless_start"
       }
     },
     "/auth/v1/passwordless/confirm": {
       "post": {
         "tags": [
-          "auth"
+          "passwordless"
         ],
         "requestBody": {
           "required": true,
@@ -484,8 +483,7 @@
         },
         "security": [],
         "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "passwordless_confirm",
-        "x-authkit-mounted-when": "passwordless"
+        "x-authkit-rate-limit": "passwordless_confirm"
       }
     },
     "/auth/v1/passkeys/login/begin": {
@@ -880,8 +878,7 @@
         },
         "security": [],
         "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "device_key_enroll_begin",
-        "x-authkit-mounted-when": "device_keys"
+        "x-authkit-rate-limit": "device_key_enroll_begin"
       }
     },
     "/auth/v1/device-keys/enroll/finish": {
@@ -923,8 +920,7 @@
         },
         "security": [],
         "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "device_key_enroll_finish",
-        "x-authkit-mounted-when": "device_keys"
+        "x-authkit-rate-limit": "device_key_enroll_finish"
       }
     },
     "/auth/v1/device-keys/login/begin": {
@@ -966,8 +962,7 @@
         },
         "security": [],
         "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "device_key_login_begin",
-        "x-authkit-mounted-when": "device_keys"
+        "x-authkit-rate-limit": "device_key_login_begin"
       }
     },
     "/auth/v1/device-keys/login/finish": {
@@ -1009,8 +1004,7 @@
         },
         "security": [],
         "x-authkit-auth": "public",
-        "x-authkit-rate-limit": "device_key_login_finish",
-        "x-authkit-mounted-when": "device_keys"
+        "x-authkit-rate-limit": "device_key_login_finish"
       }
     },
     "/auth/v1/device-keys": {
@@ -1039,8 +1033,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "device_key_manage",
-        "x-authkit-mounted-when": "device_keys"
+        "x-authkit-rate-limit": "device_key_manage"
       }
     },
     "/auth/v1/register": {
@@ -1655,7 +1648,7 @@
     "/auth/v1/me/personal-access-tokens": {
       "get": {
         "tags": [
-          "account"
+          "personal_access_tokens"
         ],
         "parameters": [
           {
@@ -1701,12 +1694,11 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "me_read",
-        "x-authkit-mounted-when": "personal_access_tokens"
+        "x-authkit-rate-limit": "me_read"
       },
       "post": {
         "tags": [
-          "account"
+          "personal_access_tokens"
         ],
         "requestBody": {
           "required": true,
@@ -1747,14 +1739,13 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-rate-limit": "api_key_create",
-        "x-authkit-mounted-when": "personal_access_tokens",
         "x-authkit-step-up": true
       }
     },
     "/auth/v1/me/personal-access-tokens/{id}": {
       "delete": {
         "tags": [
-          "account"
+          "personal_access_tokens"
         ],
         "parameters": [
           {
@@ -1788,7 +1779,6 @@
         ],
         "x-authkit-auth": "session",
         "x-authkit-rate-limit": "me_update",
-        "x-authkit-mounted-when": "personal_access_tokens",
         "x-authkit-step-up": true
       }
     },
@@ -5269,7 +5259,7 @@
     "/auth/v1/groups/{group_id}/invitations": {
       "get": {
         "tags": [
-          "groups"
+          "invitations"
         ],
         "parameters": [
           {
@@ -5324,12 +5314,11 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:members:read",
-        "x-authkit-rate-limit": "group_read",
-        "x-authkit-mounted-when": "invitations"
+        "x-authkit-rate-limit": "group_read"
       },
       "post": {
         "tags": [
-          "groups"
+          "invitations"
         ],
         "parameters": [
           {
@@ -5383,14 +5372,13 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-rate-limit": "invite_create",
-        "x-authkit-mounted-when": "invitations"
+        "x-authkit-rate-limit": "invite_create"
       }
     },
     "/auth/v1/groups/{group_id}/invitations/{id}": {
       "delete": {
         "tags": [
-          "groups"
+          "invitations"
         ],
         "parameters": [
           {
@@ -5432,8 +5420,7 @@
         ],
         "x-authkit-auth": "permission",
         "x-authkit-permission": "<persona>:members:manage",
-        "x-authkit-rate-limit": "group_write",
-        "x-authkit-mounted-when": "invitations"
+        "x-authkit-rate-limit": "group_write"
       }
     },
     "/auth/v1/groups/{group_id}/oauth-clients": {
@@ -6164,7 +6151,7 @@
     "/auth/v1/invitations/redeem": {
       "post": {
         "tags": [
-          "groups"
+          "invitations"
         ],
         "requestBody": {
           "required": true,
@@ -6204,8 +6191,7 @@
           }
         ],
         "x-authkit-auth": "session",
-        "x-authkit-rate-limit": "invite_redeem",
-        "x-authkit-mounted-when": "invitations"
+        "x-authkit-rate-limit": "invite_redeem"
       }
     },
     "/oidc/{provider}/login": {

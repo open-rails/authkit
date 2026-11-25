@@ -114,7 +114,7 @@ func TestCriticalRemoteInvitations(t *testing.T) {
 		t.Run("invitations_disabled", func(t *testing.T) {
 			const email = "disabled@remote.example"
 			id := invite(t, f.auth, email, f.reader)
-			off := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { c.Invitations.Disabled = true }))
+			off := authtest.Replica(t, f.auth, authtest.WithConfig(func(c *authkit.Config) { unmountGroup(c, iam.RouteInvitations) }))
 			if _, err := off.AcceptRemoteInvitation(ctx, remoteUser(t, off, email), id); !errors.Is(err, iam.ErrInvitationsDisabled) {
 				t.Fatalf("an invitation was redeemed while invitations are disabled: %v", err)
 			}

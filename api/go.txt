@@ -248,10 +248,8 @@ pkg authkit, type Config struct, AuthorizationServer config.AuthorizationServerC
 pkg authkit, type Config struct, CleanupInterval time.Duration `yaml:"cleanup_interval"`
 pkg authkit, type Config struct, Database config.DatabaseConfig `yaml:"database"`
 pkg authkit, type Config struct, DefaultTenantID iam.TenantID `yaml:"default_tenant_id"`
-pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig `yaml:"device_keys"`
 pkg authkit, type Config struct, FrontendURL string `yaml:"frontend_url"`
 pkg authkit, type Config struct, HTTP *config.HTTPConfig `yaml:"http"`
-pkg authkit, type Config struct, Invitations config.InvitationsConfig `yaml:"invitations"`
 pkg authkit, type Config struct, Issuer string `yaml:"issuer"`
 pkg authkit, type Config struct, Keys config.KeysConfig `yaml:"keys"`
 pkg authkit, type Config struct, Languages config.LanguageConfig `yaml:"languages"`
@@ -308,9 +306,6 @@ pkg authkit, type Deps struct, RequestTenant func(*http.Request) (iam.TenantID, 
 pkg authkit, type Deps struct, ResourceHosts func(context.Context, string) (bool, error)
 pkg authkit, type Deps struct, SMS config.SMSSender
 pkg authkit, type Deps struct, Wrap func(iam.Route, http.Handler) http.Handler
-pkg authkit, type DeviceKeysConfig = config.DeviceKeysConfig
-pkg authkit, type DeviceKeysConfig struct
-pkg authkit, type DeviceKeysConfig struct, Enabled bool `yaml:"enabled"`
 pkg authkit, type DirectoryPerms = config.DirectoryPerms
 pkg authkit, type DirectoryPerms struct
 pkg authkit, type DirectoryPerms struct, Manage iam.Perm
@@ -334,14 +329,10 @@ pkg authkit, type HTTPConfig = config.HTTPConfig
 pkg authkit, type HTTPConfig struct
 pkg authkit, type HTTPConfig struct, CloudflareProxies []string `yaml:"cloudflare_proxies"`
 pkg authkit, type HTTPConfig struct, DirectPeerIP bool `yaml:"direct_peer_ip"`
-pkg authkit, type HTTPConfig struct, Exclude []string `yaml:"exclude"`
 pkg authkit, type HTTPConfig struct, Groups []iam.RouteGroup `yaml:"groups"`
 pkg authkit, type HTTPConfig struct, RefreshCookie bool `yaml:"refresh_cookie"`
 pkg authkit, type HTTPConfig struct, RefreshCookieName string `yaml:"refresh_cookie_name"`
 pkg authkit, type HTTPConfig struct, TrustedProxies []string `yaml:"trusted_proxies"`
-pkg authkit, type InvitationsConfig = config.InvitationsConfig
-pkg authkit, type InvitationsConfig struct
-pkg authkit, type InvitationsConfig struct, Disabled bool `yaml:"disabled"`
 pkg authkit, type KeysConfig = config.KeysConfig
 pkg authkit, type KeysConfig struct
 pkg authkit, type KeysConfig struct, Path string `yaml:"path"`
@@ -425,7 +416,6 @@ pkg authkit, type PersonaOption uint8
 pkg authkit, type PersonalAccessTokensConfig = config.PersonalAccessTokensConfig
 pkg authkit, type PersonalAccessTokensConfig struct
 pkg authkit, type PersonalAccessTokensConfig struct, DefaultTTL time.Duration `yaml:"default_ttl"`
-pkg authkit, type PersonalAccessTokensConfig struct, Enabled bool `yaml:"enabled"`
 pkg authkit, type PersonalAccessTokensConfig struct, MaxTTL time.Duration `yaml:"max_ttl"`
 pkg authkit, type Probe = engine.Probe
 pkg authkit, type Probe struct
@@ -450,7 +440,6 @@ pkg authkit, type RegistrationConfig struct, Agreements []string `yaml:"agreemen
 pkg authkit, type RegistrationConfig struct, AllowMissingSenders bool `yaml:"allow_missing_senders"`
 pkg authkit, type RegistrationConfig struct, NativeUserMode iam.RegistrationMode `yaml:"native_user_mode"`
 pkg authkit, type RegistrationConfig struct, PasswordlessAutoRegistration bool `yaml:"passwordless_auto_registration"`
-pkg authkit, type RegistrationConfig struct, PasswordlessLogin bool `yaml:"passwordless_login"`
 pkg authkit, type RegistrationConfig struct, UnprovenPasswordSignIn bool `yaml:"unproven_password_sign_in"`
 pkg authkit, type RegistrationConfig struct, Verification iam.RegistrationVerificationPolicy `yaml:"verification"`
 pkg authkit, type RemoteApplicationConfig = config.RemoteApplicationConfig
@@ -1032,7 +1021,10 @@ pkg authkit/iam, const RouteAuth RouteGroup = "auth"
 pkg authkit/iam, const RouteAuthorizationServer RouteGroup = "authorization_server"
 pkg authkit/iam, const RouteBrowserOIDC RouteGroup = "browser_oidc"
 pkg authkit/iam, const RouteDeviceKeys RouteGroup = "device_keys"
+pkg authkit/iam, const RouteInvitations RouteGroup = "invitations"
+pkg authkit/iam, const RoutePasswordless RouteGroup = "passwordless"
 pkg authkit/iam, const RoutePermissionGroups RouteGroup = "groups"
+pkg authkit/iam, const RoutePersonalAccessTokens RouteGroup = "personal_access_tokens"
 pkg authkit/iam, const RouteRegistration RouteGroup = "registration"
 pkg authkit/iam, const RouteSCIM RouteGroup = "scim"
 pkg authkit/iam, const SessionEventAccountSessionsRevoked SessionEventKind = "account_sessions_revoked"
@@ -1080,6 +1072,7 @@ pkg authkit/iam, func AppByIssuer(string) AppRef
 pkg authkit/iam, func ApplicationIdentity(string) auth.Identity
 pkg authkit/iam, func AsError(error) (Error, bool)
 pkg authkit/iam, func DecodeError(*http.Response) error
+pkg authkit/iam, func DefaultRouteGroups() []RouteGroup
 pkg authkit/iam, func ErrorResponse(error) (int, ErrorEnvelope)
 pkg authkit/iam, func GroupByID(string) GroupRef
 pkg authkit/iam, func InSession(auth.Identity, SessionRef) auth.Identity

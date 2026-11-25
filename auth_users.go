@@ -67,7 +67,7 @@ func (a *Client) GenerateUsername(ctx context.Context) (string, error) {
 }
 
 // DeviceKeys returns the account's device keys in enrollment order, revoked
-// ones included. iam.ErrDeviceKeysDisabled without Config.DeviceKeys.Enabled.
+// ones included. iam.ErrDeviceKeysDisabled unless HTTP.Groups mounts iam.RouteDeviceKeys.
 func (a *Client) DeviceKeys(ctx context.Context, userID string) ([]iam.DeviceKey, error) {
 	return a.ops.DeviceKeys(a.operationContext(ctx), userID)
 }

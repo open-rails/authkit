@@ -21,7 +21,7 @@ func (s *Service) APIRoutes(groups ...iam.RouteGroup) []RouteSpec {
 		if route.Auth != iam.AuthPermission {
 			h = s.rejectPersonalToken(h)
 		}
-		personalAccount := route.Group == iam.RouteAccount && route.Path != "/me/permissions" && route.Path != "/me/groups"
+		personalAccount := route.Group == iam.RouteAccount && route.Path != "/me/permissions" && route.Path != "/me/groups" || route.Group == iam.RoutePersonalAccessTokens
 		if route.Auth != iam.AuthPublic && (personalAccount || route.Group == iam.RouteDeviceKeys || route.Group == iam.RouteAuth) {
 			h = s.requireTenantAccount(h, route.Auth == iam.AuthOptional)
 		}
@@ -176,8 +176,6 @@ func (s *Service) mounts(f Feature) bool {
 		return true
 	case FeaturePasskeys:
 		return s.svc.PasskeysEnabled()
-	case FeaturePasswordless:
-		return cfg.Registration.PasswordlessLogin
 	case FeatureRegistration:
 		return cfg.Registration.NativeUserMode != iam.RegistrationModeClosed
 	case FeatureTwoFactor:
@@ -186,12 +184,6 @@ func (s *Service) mounts(f Feature) bool {
 		return cfg.SolanaNetwork != ""
 	case FeatureOIDC:
 		return len(s.providers) > 0
-	case FeatureDeviceKeys:
-		return cfg.DeviceKeys.Enabled
-	case FeaturePersonalAccessTokens:
-		return cfg.PersonalAccessTokens.Enabled
-	case FeatureInvitations:
-		return !cfg.Invitations.Disabled
 	case FeatureNewDevices:
 		return config.Tuned(cfg).NewDevicesPerAccount > 0 || s.smsSender
 	case FeatureAuthorizationServer:
@@ -296,8 +288,8 @@ func mfaEnrollmentExemptPaths(specs []RouteSpec) []string {
 }
 
 func routeGroupSet(groups []iam.RouteGroup) func(iam.RouteGroup) bool {
-	if len(groups) == 0 {
-		return func(iam.RouteGroup) bool { return true }
+	if groups == nil {
+		groups = iam.DefaultRouteGroups()
 	}
 	set := make(map[iam.RouteGroup]struct{}, len(groups))
 	for _, group := range groups {

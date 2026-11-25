@@ -81,15 +81,11 @@ type Config struct {
 	Tenants TenantsConfig `yaml:"tenants"`
 	// TwoFactor configures MFA.
 	TwoFactor TwoFactorConfig `yaml:"two_factor"`
-	// DeviceKeys enables the refreshless native-client device-key surface.
-	// Off by default: enrollment is an email-code login, so hosts opt in
-	// explicitly before RouteDeviceKeys is mounted or the engine issues
-	// enrollment or login challenges.
-	DeviceKeys DeviceKeysConfig `yaml:"device_keys"`
+
 	// APIKeys configures opaque permission-group-owned machine credentials.
 	APIKeys APIKeysConfig `yaml:"api_keys"`
-	// PersonalAccessTokens enables optional user-owned, noninteractive tokens.
-	// Disabled by default; organization API keys are configured separately.
+	// PersonalAccessTokens are the lifetimes of users' own tokens
+	// (RoutePersonalAccessTokens).
 	PersonalAccessTokens PersonalAccessTokensConfig `yaml:"personal_access_tokens"`
 	// AuthorizationServer makes this deployment an OAuth 2.0 authorization
 	// server and OpenID provider for its registered clients: they sign users
@@ -101,8 +97,7 @@ type Config struct {
 	// deployment's authorization server and by its trusted issuers (remote
 	// applications). The zero value admits none.
 	Resource ResourceConfig `yaml:"resource"`
-	// Invitations turns invitations off. The zero value leaves them on.
-	Invitations InvitationsConfig `yaml:"invitations"`
+
 	// Provisioning pushes the accounts to SCIM 2.0 service providers. The
 	// zero value pushes nothing.
 	Provisioning ProvisioningConfig `yaml:"provisioning"`
@@ -247,8 +242,7 @@ type RegistrationConfig struct {
 	// "invite_only" or "closed". The host operations (CreateUser, bootstrap,
 	// import) work in every mode.
 	NativeUserMode iam.RegistrationMode `yaml:"native_user_mode"`
-	// PasswordlessLogin enables contact-based passwordless sessions.
-	PasswordlessLogin bool `yaml:"passwordless_login"`
+
 	// PasswordlessAutoRegistration lets a verified unknown contact create a
 	// passwordless account during passwordless confirmation.
 	PasswordlessAutoRegistration bool `yaml:"passwordless_auto_registration"`
@@ -389,13 +383,6 @@ type TwoFactorConfig struct {
 	TOTPSecretKey []byte `yaml:"totp_secret_key"`
 }
 
-// DeviceKeysConfig controls the native-client device-key surface.
-type DeviceKeysConfig struct {
-	// Enabled mounts RouteDeviceKeys and lets the engine run enrollment and
-	// login ceremonies.
-	Enabled bool `yaml:"enabled"`
-}
-
 // APIKeysConfig configures opaque permission-group-owned machine credentials.
 type APIKeysConfig struct {
 	// Prefix brands generated keys (one per deployment): lowercase
@@ -407,7 +394,6 @@ type APIKeysConfig struct {
 }
 
 type PersonalAccessTokensConfig struct {
-	Enabled    bool          `yaml:"enabled"`
 	DefaultTTL time.Duration `yaml:"default_ttl"`
 	MaxTTL     time.Duration `yaml:"max_ttl"`
 }
@@ -454,18 +440,6 @@ type DatabaseConfig struct {
 	RiverSchema string `yaml:"river_schema"`
 }
 
-// InvitationsConfig controls invitations: invite links and emailed
-// invitations into a group, and emailed invitations to register.
-type InvitationsConfig struct {
-	// Disabled turns them off: no invitation is issued or honoured. The
-	// invitation routes are not mounted, GET {api}/capabilities reports
-	// invitations.enabled false, and CreateInvitation, redeeming a code and
-	// registering with one return iam.ErrInvitationsDisabled. Listing and
-	// revoking earlier invitations still work. Registration.NativeUserMode
-	// "invite_only" cannot be combined with it.
-	Disabled bool `yaml:"disabled"`
-}
-
 // LanguageConfig declares the supported languages as two-letter codes. The
 // zero value is English only.
 type LanguageConfig struct {
@@ -492,13 +466,13 @@ type LanguageConfig struct {
 // origin), DirectPeerIP, or Deps.ClientIP. Undeclared, every client shares
 // one proxy's per-IP rate-limit bucket; New refuses none and several.
 type HTTPConfig struct {
-	// Groups selects the mounted route groups. Nil mounts the default API
-	// surface plus browser OIDC; non-nil mounts exactly the named groups.
+	// Groups selects the mounted route groups, and with them the opt-in
+	// features: passwordless sign-in (RoutePasswordless), device keys
+	// (RouteDeviceKeys), personal access tokens (RoutePersonalAccessTokens)
+	// and invitations (RouteInvitations). Nil is iam.DefaultRouteGroups();
+	// non-nil mounts exactly the named groups. Deps.Wrap replaces a route's
+	// handler for a host serving it itself.
 	Groups []iam.RouteGroup `yaml:"groups"`
-	// Exclude drops routes the host serves itself, named as iam.Route.Pattern
-	// names them ("GET /.well-known/jwks.json"). An entry matching no route is
-	// an error.
-	Exclude []string `yaml:"exclude"`
 	// RefreshCookie delivers the rotating refresh token as an HttpOnly cookie
 	// (iam.RefreshCookieName) instead of a JSON field. Browser mounts only:
 	// the SPA and this handler must share an origin.

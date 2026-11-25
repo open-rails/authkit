@@ -303,7 +303,7 @@ func TestCriticalProviderReconciliation(t *testing.T) {
 	otherIDP := authtest.NewIdP(t)
 	first, second := idp.Provider("first"), otherIDP.Provider("second")
 	f := newFixture(t, multiTenant, authtest.WithConfig(func(c *authkit.Config) {
-		c.Registration.PasswordlessLogin = false
+		unmountGroup(c, iam.RoutePasswordless)
 	}), authtest.WithDeps(func(d *authkit.Deps) {
 		d.Providers = []provider.Provider{first, second}
 	}))

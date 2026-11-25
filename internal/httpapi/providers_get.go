@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/naming"
 )
 
@@ -65,7 +66,7 @@ func (s *Service) Capabilities() Capabilities {
 			AllowCommon:      cfg.Password.AllowCommon,
 		},
 		Passwordless: PasswordlessCapabilities{
-			Enabled:  cfg.Registration.PasswordlessLogin,
+			Enabled:  config.Mounted(cfg, iam.RoutePasswordless),
 			Channels: channels,
 		},
 		Passkeys: PasskeyCapabilities{
@@ -80,7 +81,7 @@ func (s *Service) Capabilities() Capabilities {
 		Channels:    ChannelCapabilities{Email: email, SMS: sms},
 		SMS:         SMSCapabilities{Countries: nonNil(cfg.SMS.AllowedCountries)},
 		TwoFactor:   TwoFactorCapabilities{Mode: cfg.TwoFactor.Mode, Methods: s.svc.TwoFactorMethods()},
-		Invitations: InvitationCapabilities{Enabled: !cfg.Invitations.Disabled},
+		Invitations: InvitationCapabilities{Enabled: config.InvitationsOn(cfg)},
 		Languages:   cfg.Languages.Supported,
 	}
 }

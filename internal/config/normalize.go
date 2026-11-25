@@ -86,8 +86,8 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if err := normalizeSMS(&c.SMS); err != nil {
 		return Config{}, nil, err
 	}
-	if c.Invitations.Disabled && c.Registration.NativeUserMode == iam.RegistrationModeInviteOnly {
-		return Config{}, nil, errors.New("authkit: Registration.NativeUserMode \"invite_only\" needs invitations, but Invitations.Disabled is set")
+	if c.HTTP != nil && !Mounted(c, iam.RouteInvitations) && c.Registration.NativeUserMode == iam.RegistrationModeInviteOnly {
+		return Config{}, nil, errors.New("authkit: Registration.NativeUserMode \"invite_only\" needs invitations, but HTTP.Groups leaves out RouteInvitations")
 	}
 	if c.Password, err = NormalizePassword(c.Password); err != nil {
 		return Config{}, nil, err
@@ -535,7 +535,6 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 		return errors.New("authkit: HTTP requires Deps.Postgres")
 	}
 	h.Groups = slices.Clone(h.Groups)
-	h.Exclude = slices.Clone(h.Exclude)
 	if _, err := ParseCIDRs("trusted proxy", h.TrustedProxies); err != nil {
 		return err
 	}

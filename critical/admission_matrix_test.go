@@ -25,7 +25,7 @@ func fullSurfaceFixture(t *testing.T) *fixture {
 	t.Helper()
 	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 		c.TwoFactor.Mode = iam.TwoFactorOptional
-		c.DeviceKeys.Enabled = true
+		mountGroups(c, iam.RouteDeviceKeys)
 		c.SolanaNetwork = iam.SolanaMainnet
 		c.Roles.Persona("oauthshop", authkit.OAuthClients)
 		c.AuthorizationServer.Clients = []authkit.OAuthClientConfig{{ID: "browser", RedirectURIs: []string{"https://client.example/callback"}}}
