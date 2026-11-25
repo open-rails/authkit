@@ -58,6 +58,7 @@ func wire(t *testing.T, client *http.Client, method, address, credential, mediaT
 }
 
 func TestCriticalTransport(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J31-C02_real_Gin_and_Fiber_keep_each_authority_gate", func(t *testing.T) {
 		for _, adapter := range []string{"gin", "fiber"} {
 			t.Run(adapter, func(t *testing.T) {

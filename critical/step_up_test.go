@@ -15,6 +15,7 @@ import (
 )
 
 func TestCriticalFreshAuthority(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J08-C01_freshness_has_an_exact_boundary", func(t *testing.T) {
 		f := newFixture(t)
 		var fixed atomic.Pointer[time.Time]

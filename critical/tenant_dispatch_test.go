@@ -13,6 +13,7 @@ import (
 )
 
 func TestCriticalTenantDispatch(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J02-C06_native_directory_dispatch_preserves_proofs_and_scope", func(t *testing.T) {
 		isolatedID := iam.NewTenantID()
 		unknownID := iam.NewTenantID()

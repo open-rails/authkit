@@ -21,6 +21,7 @@ import (
 // merchants register their own clients: with pairwise subjects no two
 // merchants can join their buyers, and the network still knows each one.
 func TestCriticalPairwiseSubjects(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J43-C01_each_group_knows_a_user_and_sign_in_by_its_own_ids_and_only_the_network_maps_them_back", func(t *testing.T) {
 		const resource = proofOrigin // the network's resource server
 		const redirect = "https://shop.example/callback"

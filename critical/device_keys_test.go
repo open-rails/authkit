@@ -15,6 +15,7 @@ import (
 // enrolled by the emailed code and its own signature, then signing in by
 // signing a fresh challenge.
 func TestCriticalDeviceKeys(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { mountGroups(c, iam.RouteDeviceKeys) }))
 	u := f.user(t)
 	machine, err := devicekey.NewClient(f.server.URL+f.auth.APIBase(), f.server.Client())

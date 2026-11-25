@@ -102,6 +102,7 @@ func factorSession(t *testing.T, created factorResult, user string) iam.TokenSet
 }
 
 func TestCriticalMFA(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J07-C01_required_enrollment_has_no_ordinary_authority", func(t *testing.T) {
 		f := mfaFixture(t, iam.TwoFactorRequired)
 		u := f.user(t)

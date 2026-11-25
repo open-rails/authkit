@@ -28,6 +28,7 @@ func newWallet(t *testing.T) wallet {
 // TestCriticalSolanaSignIn signs in with a wallet as the Wallet Standard's
 // signIn does: the server's message, signed by the wallet's key.
 func TestCriticalSolanaSignIn(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.SolanaNetwork = iam.SolanaMainnet }))
 	challenge := func(t *testing.T, w wallet) string {
 		t.Helper()

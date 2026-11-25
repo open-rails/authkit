@@ -17,6 +17,7 @@ import (
 )
 
 func TestCriticalRemoteInvitations(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J15-C08_remote_acceptance_follows_native_redemption", func(t *testing.T) {
 		const resource = "https://remote-invites.example"
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.Resource = authkit.ResourceConfig{ID: resource} }))

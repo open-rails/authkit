@@ -247,6 +247,7 @@ type canaryArgs struct {
 
 func (canaryArgs) Kind() string { return "authkit_provisioning" }
 
+// Serial: it cuts every provisioning listener in the database.
 func TestCriticalProvisioningRuns(t *testing.T) {
 	t.Run("AK-J41-C01_a_change_reaches_the_target_within_seconds_and_an_idle_target_runs_nothing", func(t *testing.T) {
 		target := newSCIMTarget()

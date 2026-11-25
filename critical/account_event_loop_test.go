@@ -141,6 +141,7 @@ func eventIDs(events []iam.Event) []string {
 }
 
 func TestCriticalAccountEventLoop(t *testing.T) {
+	t.Parallel()
 	tenantStream := func(f *fixture) string { return "tenant:" + f.tenant.String() }
 
 	t.Run("AK-J39-C01_first_use_reconciles_then_a_failing_account_is_parked_and_retried", func(t *testing.T) {

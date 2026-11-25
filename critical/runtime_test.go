@@ -77,6 +77,7 @@ func startRefused(t *testing.T, cfg authkit.Config, deps authkit.Deps, reason st
 	}
 }
 
+// Serial: it diverts slog.Default, sets the environment and shares Redis.
 func TestCriticalRuntime(t *testing.T) {
 	t.Run("AK-J01-C01_concurrent_boot_preserves_one_authority", func(t *testing.T) {
 		f := newFixture(t)

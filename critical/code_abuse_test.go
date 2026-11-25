@@ -23,6 +23,7 @@ import (
 // starts: a captcha, numbers no person texts from, and budgets of
 // unconfirmed texts per number range and per requesting client.
 func TestCriticalCodeAbuse(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J33-C10_a_code_start_or_sign_up_without_a_passing_captcha_sends_nothing", func(t *testing.T) {
 		var mu sync.Mutex
 		var seen []url.Values

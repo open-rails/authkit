@@ -21,6 +21,7 @@ import (
 	"github.com/open-rails/authkit/verify"
 )
 
+// Serial: it shares Redis, whose keys every fixture's issuer prefixes alike.
 func TestCriticalSessionHistoryImport(t *testing.T) {
 	rdb := realRedis(t)
 	redisDep := authtest.WithDeps(func(d *authkit.Deps) { d.Redis = rdb })
@@ -432,6 +433,7 @@ func TestCriticalSessionHistoryImport(t *testing.T) {
 }
 
 func TestCriticalSessions(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	t.Run("AK-J05-C01_concurrent_refresh_has_one_successor", func(t *testing.T) {
 		u := f.user(t)

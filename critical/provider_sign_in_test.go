@@ -19,6 +19,7 @@ import (
 // as a browser does: start, the IdP's redirect back, the callback, and the
 // one-time code the SPA trades for its session.
 func TestCriticalProviderSignIn(t *testing.T) {
+	t.Parallel()
 	idp := testidp.New(t)
 	f := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) { d.Providers = []provider.Provider{idp.OIDC("idp")} }))
 	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

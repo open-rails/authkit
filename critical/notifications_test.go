@@ -93,6 +93,7 @@ func publishNotificationBatch(ctx context.Context, publisher notify.Publisher, c
 }
 
 func TestCriticalAccountNotifications(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J34-C16_legacy_queued_envelopes_preserve_full_content_and_hash_conflicts", func(t *testing.T) {
 		f, publisher, role := notificationFixture(t)
 		u := f.user(t)

@@ -39,6 +39,7 @@ func (f *fixture) can(t *testing.T, who auth.Identity, group iam.Group, perm iam
 }
 
 func TestCriticalGroupAuthority(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	t.Run("AK-J15-C01_owner_member_and_machine_permissions", func(t *testing.T) {
 		g, _, owner := f.ownedGroup(t)

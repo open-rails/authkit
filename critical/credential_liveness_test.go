@@ -107,6 +107,7 @@ func credentialExpiresAfterDatabaseWait(t *testing.T, f *fixture, checker auth.C
 }
 
 func TestCriticalCredentialLiveness(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J13-C09_live_user_proof_checks_do_not_reauthenticate_or_grant_permissions", func(t *testing.T) {
 		t.Run("native_revocation_and_expiry_during_database_wait", func(t *testing.T) {
 			const waitingResource = "https://waiting-proof.example"

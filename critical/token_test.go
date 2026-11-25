@@ -87,6 +87,7 @@ func fixtureIDToken(t *testing.T, f *fixture, raw string) string {
 	return signJWT(t, f.deps.KeySource.ActiveSigner(), h, c)
 }
 
+// Serial: it sets cachepolicy.IssuerKeys, which every verifier reads.
 func TestCriticalTokenProfiles(t *testing.T) {
 	f := jwtFixture(t)
 	t.Run("AK-J13-C01_access_resource_and_ID_profiles_have_distinct_contracts", func(t *testing.T) {

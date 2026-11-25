@@ -18,6 +18,7 @@ import (
 // TestCriticalAuthorizationServer drives AuthKit's OAuth 2.0 token endpoint
 // as a client would, over HTTPS, with real sign-ins.
 func TestCriticalAuthorizationServer(t *testing.T) {
+	t.Parallel()
 	const secret = "a confidential client's secret of at least 32 bytes"
 	const redirect = "https://client.example/callback"
 	const api = "https://api.example"

@@ -18,6 +18,7 @@ import (
 // with the OpenRails merchant-name rules. AuthKit tenants are permanent, so a
 // name is released only by a rename's former name expiring.
 func TestCriticalTenantNames(t *testing.T) {
+	t.Parallel()
 	var operator, auditor iam.Role
 	f := newFixture(t, multiTenant, authtest.WithConfig(func(c *authkit.Config) {
 		operator = c.Roles.Root.Role("tenantoperator", c.Roles.Root.Tenants.Read, c.Roles.Root.Tenants.Manage)

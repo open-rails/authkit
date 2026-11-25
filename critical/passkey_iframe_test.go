@@ -32,6 +32,7 @@ const (
 // site, as a merchant embeds the network's sign-in, with a software
 // authenticator speaking WebAuthn L3's client data.
 func TestCriticalPasskeyFrames(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J42-C01_an_admitted_page_frames_passkey_creation_and_sign_in_and_safari_needs_no_top_origin", func(t *testing.T) {
 		var mu sync.Mutex
 		var asked []string
@@ -87,6 +88,7 @@ func TestCriticalPasskeyFrames(t *testing.T) {
 // TestCriticalPasskeys covers top-level passkey ceremonies on the relying
 // party's own origin.
 func TestCriticalPasskeys(t *testing.T) {
+	t.Parallel()
 	f := passkeyFixture(t, nil)
 	u := f.user(t)
 	key := newSoftKey(t)

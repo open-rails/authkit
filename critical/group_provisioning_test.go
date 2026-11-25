@@ -14,6 +14,7 @@ import (
 )
 
 func TestCriticalConfiguredGroups(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t, multiTenant)
 	poolConfig := f.pool.Config().Copy()
 	poolConfig.MaxConns, poolConfig.MinConns = 1, 0

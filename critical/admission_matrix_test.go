@@ -48,6 +48,7 @@ func fullSurfaceFixture(t *testing.T) *fixture {
 }
 
 func TestCriticalHTTPAdmission(t *testing.T) {
+	t.Parallel()
 	t.Run("AK-J31-C01_every_mounted_route_refuses_credentials_its_tier_does_not_admit", func(t *testing.T) {
 		f := fullSurfaceFixture(t)
 		group, target, _ := f.ownedGroup(t)
