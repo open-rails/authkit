@@ -10,6 +10,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/notify"
 	"github.com/open-rails/authkit/provider"
 )
 
@@ -25,7 +26,9 @@ var openSCIM = map[string]bool{
 
 func fullSurfaceFixture(t *testing.T) *fixture {
 	t.Helper()
-	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+	var publish iam.Perm
+	f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+		publish = c.Roles.Tenant.Permission("notifications", "publish")
 		c.TwoFactor = iam.TwoFactorOptional
 		mountGroups(c, iam.RouteDeviceKeys)
 		c.SolanaNetwork = iam.SolanaMainnet
@@ -36,6 +39,12 @@ func fullSurfaceFixture(t *testing.T) *fixture {
 		// must never make a discovery/token request for rejected credentials.
 		d.Providers = []provider.Provider{provider.Google("critical-client", "critical-secret")}
 	}))
+	// A producer, so its route reaches the live authority check it guards.
+	_, err := f.auth.Notifications(authkit.NotificationProducer{Name: "probe", Origin: notify.OriginScope{System: "probe", Scope: "probe"},
+		PermissionGroupID: f.tenant.String(), Permission: publish.String()})
+	noError(t, err)
+	f.notify = publish
+	return f
 }
 
 func TestCriticalHTTPAdmission(t *testing.T) {
@@ -71,7 +80,7 @@ func TestCriticalHTTPAdmission(t *testing.T) {
 			}
 			probed[gate]++
 			t.Run(route.Method+route.Path, func(t *testing.T) {
-				path := strings.NewReplacer("{group_id}", group.ID, "{user_id}", target.ID, "{id}", target.ID, "{kind}", "users", "{role}", f.reader.String(), "{provider}", "google", "{client_id}", "browser", "{authorization_id}", target.ID, "{tenant_id}", f.tenant.String(), "{slug}", "probe").Replace(route.Path)
+				path := strings.NewReplacer("{group_id}", group.ID, "{user_id}", target.ID, "{id}", target.ID, "{kind}", "users", "{role}", f.reader.String(), "{provider}", "google", "{client_id}", "browser", "{authorization_id}", target.ID, "{tenant_id}", f.tenant.String(), "{slug}", "probe", "{producer}", "probe").Replace(route.Path)
 				path = param.ReplaceAllString(path, iam.NewTenantID().String())
 				if strings.Contains(route.Path, "/oauth-clients") {
 					path = strings.Replace(path, group.ID, oauthGroup.ID, 1)
