@@ -48,7 +48,7 @@ def select(changes: list[tuple[str, tuple[str, ...]]]) -> dict[str, bool]:
             ui = True
         elif path.startswith("auth-ui/") and path.endswith((".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")) and not path.startswith("auth-ui/e2e/server/"):
             ui = True
-        elif path.endswith("_test.go") and not path.startswith(("auth-ui/", "internal/apitest/testdata/")):
+        elif path.endswith("_test.go") and not path.startswith("auth-ui/"):
             root = True
         else:
             # Shared/API/dependency/schema/CI inputs and unknown paths are full.
@@ -57,9 +57,9 @@ def select(changes: list[tuple[str, tuple[str, ...]]]) -> dict[str, bool]:
 
 
 def pr_kind(base_ref: str, head_ref: str, same_repo: bool) -> str:
-    """light: feature into an RC. full: an RC into master. selected: release work. rejected: anything else."""
+    """full: into an RC, or an RC into master. selected: release work. rejected: anything else."""
     if base_ref.startswith("rc/"):
-        return "light"
+        return "full"
     if base_ref == "master":
         if same_repo and head_ref.startswith("rc/"):
             return "full"
@@ -72,14 +72,15 @@ def pr_kind(base_ref: str, head_ref: str, same_repo: bool) -> str:
 REJECTED = "master takes pull requests only from rc/* and release/* branches of this repository; target the open RC named in OPEN.md"
 
 
+SUITES = ("root", "ui", "workflow", "security")
+
+
 def plan(kind: str, selected: dict[str, bool]) -> dict[str, bool]:
     if kind == "full":
-        return {"root": True, "ui": True, "workflow": True, "security": True, "light": False}
-    if kind == "light":
-        return {"root": False, "ui": False, "workflow": selected["workflow"], "security": False, "light": True}
+        return dict.fromkeys(SUITES, True)
     if kind == "rejected":
-        return {"root": False, "ui": False, "workflow": False, "security": False, "light": False}
-    return selected | {"light": False}
+        return dict.fromkeys(SUITES, False)
+    return selected
 
 
 def main() -> None:
@@ -109,7 +110,7 @@ def main() -> None:
         if not args.base or not args.head:
             parser.error("--base and --head are required without --full")
         # The diff is read for every kind: an unreadable one fails the run.
-        result = plan(kind, select(changed_files(args.base, args.head)) | {"light": False})
+        result = plan(kind, select(changed_files(args.base, args.head)))
     print(json.dumps(result | {"kind": kind}, sort_keys=True))
     if args.github_output:
         with args.github_output.open("a") as output:

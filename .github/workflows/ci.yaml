@@ -1,8 +1,7 @@
 name: Validate
 
 # Suites follow the PR kind, on the tested PR merge; no duplicate master run.
-#   into rc/**           light checks only
-#   rc/* into master     every suite
+#   into rc/**, or rc/* into master   every suite
 #   release/* into master, or into release/**   conservative selection by path
 #   anything else into master   refused
 on:
@@ -52,7 +51,6 @@ jobs:
       ui: ${{ steps.suites.outputs.ui }}
       workflow: ${{ steps.suites.outputs.workflow }}
       security: ${{ steps.suites.outputs.security }}
-      light: ${{ steps.suites.outputs.light }}
       kind: ${{ steps.suites.outputs.kind }}
       base_ref: ${{ steps.source.outputs.base_ref }}
       base_sha: ${{ steps.source.outputs.base_sha }}
@@ -87,12 +85,14 @@ jobs:
               ref = os.environ['PR_BASE_REF']
               if not ref:
                   raise SystemExit('missing PR base ref')
-              endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/git/ref/heads/{quote(ref, safe="/")}'
-              current = subprocess.check_output(['gh', 'api', endpoint, '--jq', '.object.sha'], text=True).strip()
-              if not re.fullmatch(r'[0-9a-f]{40}', current) or current != expected[0]:
-                  raise SystemExit('base changed; update the PR and rerun')
+              # master and release/** merge only an up-to-date PR; an RC's PR into master tests its result.
+              if not ref.startswith('rc/'):
+                  endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/git/ref/heads/{quote(ref, safe="/")}'
+                  current = subprocess.check_output(['gh', 'api', endpoint, '--jq', '.object.sha'], text=True).strip()
+                  if not re.fullmatch(r'[0-9a-f]{40}', current) or current != expected[0]:
+                      raise SystemExit('base changed; update the PR and rerun')
               with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
-                  output.write(f'base_ref={ref}\nbase_sha={current}\n')
+                  output.write(f'base_ref={ref}\nbase_sha={expected[0]}\n')
               lines += [f'Base: `{expected[0]}`', f'PR head: `{expected[1]}`']
           with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
               summary.write('\n'.join(lines) + '\n')
@@ -136,31 +136,11 @@ jobs:
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color -shellcheck= -pyflakes=
 
-  # A PR into an RC: every module compiles and vets, released migrations are
-  # untouched. No services; the suites run once, on the RC's PR into master.
-  light:
-    name: Light checks
-    needs: changes
-    if: needs.changes.outputs.light == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          # Release tags: released migrations are compared with the last one.
-          fetch-depth: 0
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26.11'
-          cache: true
-      - run: scripts/check.sh light
-
   workflows:
     needs: changes
     if: needs.changes.outputs.root == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18-alpine
@@ -184,18 +164,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-go@v7.0.0
-        with:
-          # Build and security scans run on the latest patched Go 1.26 toolchain;
-          # the module also requires Go 1.26.6 as its consumer floor.
-          go-version: '1.26.11'
-          cache: true
+      - uses: ./.github/actions/go
       - run: scripts/check.sh workflows
 
   contracts:
     needs: changes
     if: needs.changes.outputs.root == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:18-alpine
@@ -212,10 +188,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26.11'
-          cache: true
+      - uses: ./.github/actions/go
       - run: scripts/check.sh contracts
 
   # Keep the security boundary explicit while avoiding four independent CI
@@ -227,7 +200,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.security == 'true'
     name: Required Security
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -236,10 +209,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26.11'
-          cache: true
+      - uses: ./.github/actions/go
       - name: Install and run pinned govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
@@ -257,14 +227,12 @@ jobs:
 
   auth-ui:
     needs: changes
-    if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.light == 'true'
+    if: needs.changes.outputs.ui == 'true'
     uses: ./.github/workflows/auth-ui.yaml
-    with:
-      light: ${{ needs.changes.outputs.light == 'true' }}
 
   gate:
     name: ${{ github.event.pull_request.draft && 'Draft PR (CI not requested)' || 'CI Gate' }}
-    needs: [source, changes, workflow-lint, light, workflows, contracts, security, auth-ui]
+    needs: [source, changes, workflow-lint, workflows, contracts, security, auth-ui]
     if: always() && github.event.pull_request.draft != true
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -283,37 +251,38 @@ jobs:
           if result['changes']['result'] != 'success':
               raise SystemExit('suite selection failed or did not run')
           plan = result['changes']['outputs']
-          for flag in ('root', 'ui', 'workflow', 'security', 'light'):
+          suites = {'workflows': 'root', 'contracts': 'root', 'security': 'security', 'auth-ui': 'ui', 'workflow-lint': 'workflow'}
+          for flag in set(suites.values()):
               if plan.get(flag) not in ('true', 'false'):
                   raise SystemExit(f'missing or invalid suite selection: {flag}')
           pr = os.environ['GITHUB_EVENT_NAME'] == 'pull_request'
-          into_master = pr and os.environ['PR_BASE_REF'] == 'master'
+          ref = os.environ['PR_BASE_REF']
+          into_master, into_rc = pr and ref == 'master', pr and ref.startswith('rc/')
           kind = plan.get('kind')
-          if kind not in ('light', 'full', 'selected', 'rejected'):
+          if kind not in ('full', 'selected', 'rejected'):
               raise SystemExit('missing or invalid PR kind')
           if kind == 'rejected' or result['source']['result'] != ('success' if into_master else 'skipped'):
               raise SystemExit('master takes pull requests only from rc/* and release/* branches; target the open RC named in OPEN.md')
           if pr and not into_master:
-              expected = 'light' if os.environ['PR_BASE_REF'].startswith('rc/') else 'selected'
+              expected = 'full' if into_rc else 'selected'
               if kind != expected:
                   raise SystemExit(f'PR kind {kind}; expected {expected} for this base')
-          if kind == 'full' and any(plan[flag] != 'true' for flag in ('root', 'ui', 'workflow', 'security')):
-              raise SystemExit('an RC into master runs every suite')
-          required = {'workflows': ('root',), 'contracts': ('root',), 'security': ('security',),
-                      'auth-ui': ('ui', 'light'), 'workflow-lint': ('workflow',), 'light': ('light',)}
-          for job, flags in required.items():
-              expected = 'success' if any(plan[flag] == 'true' for flag in flags) else 'skipped'
+          if kind == 'full' and any(plan[flag] != 'true' for flag in set(suites.values())):
+              raise SystemExit('a full run runs every suite')
+          for job, flag in suites.items():
+              expected = 'success' if plan[flag] == 'true' else 'skipped'
               actual = result[job]['result']
               if actual != expected:
                   raise SystemExit(f'{job}: {actual}; expected {expected}')
-          if os.environ['GITHUB_EVENT_NAME'] == 'pull_request':
-              ref, base = os.environ['PR_BASE_REF'], os.environ['PR_BASE_SHA']
+          if pr:
+              base = os.environ['PR_BASE_SHA']
               if not ref or not re.fullmatch(r'[0-9a-f]{40}', base):
                   raise SystemExit('missing PR base identity')
               if plan.get('base_ref') != ref or plan.get('base_sha') != base:
                   raise SystemExit('tested base is missing or differs from the event')
-              endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/git/ref/heads/{quote(ref, safe="/")}'
-              current = subprocess.check_output(['gh', 'api', endpoint, '--jq', '.object.sha'], text=True).strip()
-              if current != base:
-                  raise SystemExit('base changed during tests; update the PR and rerun')
+              if not into_rc:
+                  endpoint = f'repos/{os.environ["GITHUB_REPOSITORY"]}/git/ref/heads/{quote(ref, safe="/")}'
+                  current = subprocess.check_output(['gh', 'api', endpoint, '--jq', '.object.sha'], text=True).strip()
+                  if current != base:
+                      raise SystemExit('base changed during tests; update the PR and rerun')
           CHECK
