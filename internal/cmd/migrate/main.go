@@ -1,7 +1,7 @@
 // Command migrate creates or upgrades AuthKit's tables in a database for the
-// repository's own tooling (scripts/check.sh: sqlc's live checks and the
-// shared test schema). Hosts call authkit.Migrate explicitly and may disable
-// runtime migrations with Database.SkipMigrations.
+// repository's own tooling (sqlc's live checks in scripts/check.sh contracts).
+// Hosts call authkit.Migrate explicitly and may disable runtime migrations
+// with Database.SkipMigrations.
 package main
 
 import (
