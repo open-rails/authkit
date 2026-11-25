@@ -289,7 +289,7 @@ func (s *Engine) sendBackchannelLogout(ctx context.Context, a backchannelLogoutA
 		return river.JobCancel(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	res, err := netguard.Client(10*time.Second, s.cfg.Token.AllowPrivateNetworkJWKS).Do(req)
+	res, err := netguard.Client(10*time.Second, config.Tuned(s.cfg).PrivateNetworkJWKS).Do(req)
 	if err != nil {
 		return err
 	}

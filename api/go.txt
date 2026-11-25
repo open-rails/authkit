@@ -15,7 +15,6 @@ pkg authkit, const OAuthClients config.PersonaOption = 4
 pkg authkit, const RemoteApplications config.PersonaOption = 2
 pkg authkit, const TenancyMulti config.Tenancy = 1
 pkg authkit, const TenancySingle config.Tenancy = 0
-pkg authkit, func DefaultRateLimits() map[string]RateLimit
 pkg authkit, func EnsureGroups(context.Context, *pgxpool.Pool, Config, []iam.NewGroup, *slog.Logger) ([]iam.Group, error)
 pkg authkit, func IfRole(iam.Role) Option
 pkg authkit, func InTx(pgx.Tx) Option
@@ -250,7 +249,6 @@ pkg authkit, type Config struct, CleanupInterval time.Duration `yaml:"cleanup_in
 pkg authkit, type Config struct, Database config.DatabaseConfig `yaml:"database"`
 pkg authkit, type Config struct, DefaultTenantID iam.TenantID `yaml:"default_tenant_id"`
 pkg authkit, type Config struct, DeviceKeys config.DeviceKeysConfig `yaml:"device_keys"`
-pkg authkit, type Config struct, EventRetention time.Duration `yaml:"event_retention"`
 pkg authkit, type Config struct, FrontendURL string `yaml:"frontend_url"`
 pkg authkit, type Config struct, HTTP *config.HTTPConfig `yaml:"http"`
 pkg authkit, type Config struct, Invitations config.InvitationsConfig `yaml:"invitations"`
@@ -266,9 +264,6 @@ pkg authkit, type Config struct, RemoteApplications []config.RemoteApplicationCo
 pkg authkit, type Config struct, Resource config.ResourceConfig `yaml:"resource"`
 pkg authkit, type Config struct, Roles *config.Roles `yaml:"-"`
 pkg authkit, type Config struct, SMS config.SMSConfig `yaml:"sms"`
-pkg authkit, type Config struct, SenderHealthInterval time.Duration `yaml:"sender_health_interval"`
-pkg authkit, type Config struct, SenderHealthRecheck time.Duration `yaml:"sender_health_recheck"`
-pkg authkit, type Config struct, SessionEventRetention time.Duration `yaml:"session_event_retention"`
 pkg authkit, type Config struct, SignIn config.SignInConfig `yaml:"sign_in"`
 pkg authkit, type Config struct, SolanaNetwork iam.SolanaNetwork `yaml:"solana_network"`
 pkg authkit, type Config struct, Tenancy config.Tenancy `yaml:"-"`
@@ -341,7 +336,6 @@ pkg authkit, type HTTPConfig struct, CloudflareProxies []string `yaml:"cloudflar
 pkg authkit, type HTTPConfig struct, DirectPeerIP bool `yaml:"direct_peer_ip"`
 pkg authkit, type HTTPConfig struct, Exclude []string `yaml:"exclude"`
 pkg authkit, type HTTPConfig struct, Groups []iam.RouteGroup `yaml:"groups"`
-pkg authkit, type HTTPConfig struct, RateLimits map[string]config.RateLimit `yaml:"rate_limits"`
 pkg authkit, type HTTPConfig struct, RefreshCookie bool `yaml:"refresh_cookie"`
 pkg authkit, type HTTPConfig struct, RefreshCookieName string `yaml:"refresh_cookie_name"`
 pkg authkit, type HTTPConfig struct, TrustedProxies []string `yaml:"trusted_proxies"`
@@ -450,11 +444,6 @@ pkg authkit, type ProvisioningTarget struct, Handler http.Handler `yaml:"-"`
 pkg authkit, type ProvisioningTarget struct, Name string `yaml:"name"`
 pkg authkit, type ProvisioningTarget struct, TenantID iam.TenantID `yaml:"tenant_id"`
 pkg authkit, type ProvisioningTarget struct, URL string `yaml:"url"`
-pkg authkit, type RateLimit = config.RateLimit
-pkg authkit, type RateLimit struct
-pkg authkit, type RateLimit struct, Cooldown time.Duration `yaml:"cooldown"`
-pkg authkit, type RateLimit struct, Limit int `yaml:"limit"`
-pkg authkit, type RateLimit struct, Window time.Duration `yaml:"window"`
 pkg authkit, type RegistrationConfig = config.RegistrationConfig
 pkg authkit, type RegistrationConfig struct
 pkg authkit, type RegistrationConfig struct, Agreements []string `yaml:"agreements"`
@@ -464,7 +453,6 @@ pkg authkit, type RegistrationConfig struct, PasswordlessAutoRegistration bool `
 pkg authkit, type RegistrationConfig struct, PasswordlessLogin bool `yaml:"passwordless_login"`
 pkg authkit, type RegistrationConfig struct, UnprovenPasswordSignIn bool `yaml:"unproven_password_sign_in"`
 pkg authkit, type RegistrationConfig struct, Verification iam.RegistrationVerificationPolicy `yaml:"verification"`
-pkg authkit, type RegistrationConfig struct, VerificationSendTimeout time.Duration `yaml:"verification_send_timeout"`
 pkg authkit, type RemoteApplicationConfig = config.RemoteApplicationConfig
 pkg authkit, type RemoteApplicationConfig struct
 pkg authkit, type RemoteApplicationConfig struct, Disabled bool `yaml:"disabled"`
@@ -517,10 +505,7 @@ pkg authkit, type SMSSender interface, CheckHealth(context.Context) error
 pkg authkit, type SMSSender interface, Send(context.Context, iam.SMSMessage) error
 pkg authkit, type SignInConfig = config.SignInConfig
 pkg authkit, type SignInConfig struct
-pkg authkit, type SignInConfig struct, AccountsPerAddress int `yaml:"accounts_per_address"`
-pkg authkit, type SignInConfig struct, AccountsPerDevice int `yaml:"accounts_per_device"`
 pkg authkit, type SignInConfig struct, DPoP config.DPoPMode `yaml:"dpop"`
-pkg authkit, type SignInConfig struct, NewDevicesPerAccount int `yaml:"new_devices_per_account"`
 pkg authkit, type StartOption func(*startOptions)
 pkg authkit, type Tenancy = config.Tenancy
 pkg authkit, type Tenancy uint8
@@ -540,11 +525,9 @@ pkg authkit, type TokenConfig = config.TokenConfig
 pkg authkit, type TokenConfig struct
 pkg authkit, type TokenConfig struct, AccessTokenDuration time.Duration `yaml:"access_token_duration"`
 pkg authkit, type TokenConfig struct, AccountIssuers []string `yaml:"account_issuers"`
-pkg authkit, type TokenConfig struct, AllowPrivateNetworkJWKS bool `yaml:"allow_private_network_jwks"`
 pkg authkit, type TokenConfig struct, EntitlementAllowlist []string `yaml:"entitlement_allowlist"`
 pkg authkit, type TokenConfig struct, RefreshRotationGrace time.Duration `yaml:"refresh_rotation_grace"`
 pkg authkit, type TokenConfig struct, RefreshTokenDuration time.Duration `yaml:"refresh_token_duration"`
-pkg authkit, type TokenConfig struct, SessionMaxPerUser int `yaml:"session_max_per_user"`
 pkg authkit, type TransactionalUserInfo interface
 pkg authkit, type TransactionalUserInfo interface, Get(context.Context, []string) (map[string]userinfo.User, error)
 pkg authkit, type TransactionalUserInfo interface, GetTx(context.Context, pgx.Tx, []string) (map[string]userinfo.User, error)
@@ -738,6 +721,7 @@ pkg authkit/authtest, func EnrollDeviceKey(testing.TB, *authkit.Client, *Outbox,
 pkg authkit/authtest, func EnrollTOTP(testing.TB, *authkit.Client, User) *TOTP
 pkg authkit/authtest, func GrantRole(testing.TB, *authkit.Client, iam.GroupRef, iam.Subject, iam.Role)
 pkg authkit/authtest, func Identity(testing.TB, *authkit.Client, string) auth.Identity
+pkg authkit/authtest, func LiftLimits(*authkit.Config)
 pkg authkit/authtest, func New(testing.TB, ...Option) (*authkit.Client, *Outbox)
 pkg authkit/authtest, func NewAuthorizationServer(testing.TB, ...Option) *AuthorizationServer
 pkg authkit/authtest, func NewDPoPKey(testing.TB) *DPoPKey

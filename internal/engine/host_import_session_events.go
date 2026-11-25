@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ops"
@@ -33,7 +34,7 @@ func (s *Engine) ImportSessionEvents(ctx context.Context, rows []iam.ImportSessi
 		return out, err
 	}
 	now := time.Now().UTC()
-	cutoff := now.Add(-s.cfg.SessionEventRetention)
+	cutoff := now.Add(-config.Tuned(s.cfg).SessionEventRetention)
 	for i, in := range rows {
 		row := iam.ImportSessionEventRow{Index: i, Status: iam.SessionEventRefused}
 		if in.Issuer == "" {
@@ -42,7 +43,7 @@ func (s *Engine) ImportSessionEvents(ctx context.Context, rows []iam.ImportSessi
 		userID, validID := canonicalUUID(in.UserID)
 		if !validID || !validImportedSessionEvent(in, now) {
 			row.Reason = iam.SessionEventInvalid
-		} else if s.cfg.SessionEventRetention >= 0 && in.OccurredAt.Before(cutoff) {
+		} else if config.Tuned(s.cfg).SessionEventRetention >= 0 && in.OccurredAt.Before(cutoff) {
 			row.Reason = iam.SessionEventTooOld
 		} else {
 			outcome, err := s.q.SessionEventImport(ctx, db.SessionEventImportParams{

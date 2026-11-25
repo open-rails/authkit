@@ -576,7 +576,7 @@ const (
 	// restores it and continues this sign-in.
 	AuthAccountRecoveryRequired AuthStatus = "account_recovery_required"
 	// AuthDeviceVerificationRequired: a new device past the account's limit
-	// (Config.SignIn.NewDevicesPerAccount); a code went to the owner's
+	// (ten new devices a day); a code went to the owner's
 	// device_verification.channel. Confirm it at POST
 	// /device-verification/confirm (or resend at /device-verification/send).
 	AuthDeviceVerificationRequired AuthStatus = "device_verification_required"

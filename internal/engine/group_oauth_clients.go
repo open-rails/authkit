@@ -93,7 +93,7 @@ func (s *Engine) validateClient(m *clientMetadata) error {
 	// AuthKit calls it, so it follows the jwks_uri rule (http only with
 	// Token.AllowPrivateNetworkJWKS, for development).
 	if m.backchannel = strings.TrimSpace(m.backchannel); m.backchannel != "" {
-		if err := validateJWKSURI(m.backchannel, s.cfg.Token.AllowPrivateNetworkJWKS); err != nil || strings.Contains(m.backchannel, "#") {
+		if err := validateJWKSURI(m.backchannel, config.Tuned(s.cfg).PrivateNetworkJWKS); err != nil || strings.Contains(m.backchannel, "#") {
 			if err == nil {
 				err = errors.New("backchannel_logout_uri must not have a fragment")
 			}
@@ -118,7 +118,7 @@ func (s *Engine) validateClient(m *clientMetadata) error {
 	m.jwksURI = strings.TrimSpace(m.jwksURI)
 	switch m.method {
 	case iam.OAuthClientPrivateKeyJWT:
-		if err := validateJWKSURI(m.jwksURI, s.cfg.Token.AllowPrivateNetworkJWKS); err != nil {
+		if err := validateJWKSURI(m.jwksURI, config.Tuned(s.cfg).PrivateNetworkJWKS); err != nil {
 			return invalidClient("jwks_uri", err)
 		}
 	case iam.OAuthClientSecretBasic, iam.OAuthClientNone:

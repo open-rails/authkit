@@ -11,6 +11,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 )
 
 const heldInterval = time.Second
@@ -18,8 +19,8 @@ const heldInterval = time.Second
 // heldTiming makes the periodic check observable: a check that starts within
 // half of heldInterval is a re-check, and one that starts later is periodic.
 var heldTiming = authtest.WithConfig(func(c *authkit.Config) {
-	c.SenderHealthInterval = heldInterval
-	c.SenderHealthRecheck = 10 * time.Millisecond
+	config.Tune(c, func(tn *config.Tuning) { tn.SenderHealthInterval = heldInterval })
+	config.Tune(c, func(tn *config.Tuning) { tn.SenderHealthRecheck = 10 * time.Millisecond })
 })
 
 // heldSender is a sender the test drives. Each CheckHealth waits for the
@@ -259,8 +260,8 @@ func TestCriticalSenderHealth(t *testing.T) {
 	t.Run("AK-J40-C04_a_send_its_caller_abandons_or_that_hits_the_send_timeout_brings_no_check_forward", func(t *testing.T) {
 		email, held := holdEmail()
 		f := newFixture(t, held, heldTiming, authtest.WithConfig(func(c *authkit.Config) {
-			c.SenderHealthInterval = time.Minute
-			c.Registration.VerificationSendTimeout = 200 * time.Millisecond
+			config.Tune(c, func(tn *config.Tuning) { tn.SenderHealthInterval = time.Minute })
+			config.Tune(c, func(tn *config.Tuning) { tn.VerificationSendTimeout = 200 * time.Millisecond })
 		}))
 		u := f.user(t)
 		body := map[string]string{"identifier": u.Email, "mode": "login"}

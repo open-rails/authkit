@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/password"
 )
 
@@ -103,7 +104,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 	})
 	t.Run("AK-J04-C05_IP_and_identifier_budgets_are_enforced", func(t *testing.T) {
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["password_login"] = config.RateLimit{Limit: 1, Window: time.Hour}
+			})
 		}))
 		g.call(t, "POST", "/password/login", "", map[string]string{"identifier": "first@example.com", "password": "bad-password"}).want(t, http.StatusUnauthorized, "invalid_credentials")
 		r := g.call(t, "POST", "/password/login", "", map[string]string{"identifier": "different@example.com", "password": "bad-password"})
@@ -118,7 +121,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		h := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
 			c.HTTP.DirectPeerIP = false
 			c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
-			c.HTTP.RateLimits["register_create_identifier"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["register_create_identifier"] = config.RateLimit{Limit: 1, Window: time.Hour}
+			})
 		}))
 		body := map[string]string{"identifier": "budgeted@example.com", "username": "budgetedperson", "password": authtest.Password}
 		a, err := h.requestHeaders(t.Context(), "POST", "/register", "", body, http.Header{"X-Forwarded-For": {"192.0.2.10"}})
@@ -134,7 +139,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 		}
 	})
 	t.Run("AK-J04-C06_unproven_sign_in_is_refused_while_no_channel_can_send", func(t *testing.T) {
-		g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) { c.SenderHealthRecheck = 100 * time.Millisecond }))
+		g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
+			config.Tune(c, func(tn *config.Tuning) { tn.SenderHealthRecheck = 100 * time.Millisecond })
+		}))
 		unproven, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "unproven-outage@example.com", Username: "unprovenoutage", Password: authtest.Password})
 		noError(t, err)
 		phoneProven, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "phone-proven@example.com", Phone: "+12025550177", Username: "phoneproven", Password: authtest.Password, PhoneVerified: true})
@@ -186,7 +193,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 				g := newFixture(t, append([]authtest.Option{proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
 					c.HTTP.DirectPeerIP = false
 					c.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
-					c.HTTP.RateLimits["password_login_identifier"] = authkit.RateLimit{Limit: 2, Window: time.Hour}
+					config.Tune(c, func(tn *config.Tuning) {
+						tn.RateLimits["password_login_identifier"] = config.RateLimit{Limit: 2, Window: time.Hour}
+					})
 				})}, store.deps...)...)
 				u, other, taken := g.user(t), g.user(t), g.user(t)
 				phone, err := g.auth.CreateUser(t.Context(), iam.NewUser{Phone: "+12025550179", PhoneVerified: true, Username: "budgetphone", Password: authtest.Password})
@@ -265,7 +274,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 
 				// A spent budget frees itself as its window passes.
 				h := newFixture(t, append([]authtest.Option{authtest.WithConfig(func(c *authkit.Config) {
-					c.HTTP.RateLimits["password_login_identifier"] = authkit.RateLimit{Limit: 1, Window: 5 * time.Second}
+					config.Tune(c, func(tn *config.Tuning) {
+						tn.RateLimits["password_login_identifier"] = config.RateLimit{Limit: 1, Window: 5 * time.Second}
+					})
 				})}, store.deps...)...)
 				v := h.user(t)
 				h.call(t, "POST", "/password/login", "", map[string]string{"identifier": v.Email, "password": "wrong-password"}).want(t, http.StatusUnauthorized, "invalid_credentials")
@@ -281,7 +292,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 	})
 	t.Run("AK-J04-C08_account_state_shows_only_after_the_password_is_proved", func(t *testing.T) {
 		g := newFixture(t, proofRegistration(), authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 1000, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["password_login"] = config.RateLimit{Limit: 1000, Window: time.Hour}
+			})
 		}))
 		banned, err := g.auth.CreateUser(t.Context(), iam.NewUser{Email: "banned-state@example.com", Phone: "+12025550181", Username: "bannedstate", Password: authtest.Password, EmailVerified: true, PhoneVerified: true})
 		noError(t, err)
@@ -322,7 +335,9 @@ func TestCriticalPasswordAdmission(t *testing.T) {
 	t.Run("AK-J04-C09_missing_account_costs_a_password_check_after_the_hash_budget_was_full", func(t *testing.T) {
 		// A cached dummy hash fails this only as the process's first missing-account sign-in: run it alone to prove that.
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["password_login"] = authkit.RateLimit{Limit: 100000, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["password_login"] = config.RateLimit{Limit: 100000, Window: time.Hour}
+			})
 		}))
 		u := g.user(t)
 		// Ten times the default cost, so a few rounds of these keep the budget full past its one-second wait.
@@ -461,7 +476,7 @@ type deviceStep struct {
 }
 
 func deviceFixture(t *testing.T) *fixture {
-	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.SignIn.NewDevicesPerAccount = 1 }))
+	return newFixture(t, authtest.WithConfig(func(c *authkit.Config) { config.Tune(c, func(tn *config.Tuning) { tn.NewDevicesPerAccount = 1 }) }))
 }
 func (f *fixture) deviceStep(t *testing.T, u authtest.User) (deviceStep, string) {
 	t.Helper()

@@ -16,6 +16,8 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/httpapi"
 )
 
 func proofRegistration() authtest.Option {
@@ -301,11 +303,11 @@ func TestCriticalRegistration(t *testing.T) {
 
 func TestCriticalRegistrationLockout(t *testing.T) {
 	t.Run("AK-J03-C08_one_address_cannot_lock_a_pending_sign_up_out_of_its_code", func(t *testing.T) {
-		defaults := authkit.DefaultRateLimits()
+		defaults := httpapi.DefaultRateLimits()
 		request, confirm := defaults["verify_request"], defaults["verify_confirm"]
 		// No cooldown, so one address spends its whole resend budget now.
 		request.Cooldown = 0
-		f := newFixture(t, proofRegistration(), behindProxy(map[string]authkit.RateLimit{
+		f := newFixture(t, proofRegistration(), behindProxy(map[string]config.RateLimit{
 			"verify_request": request, "verify_confirm": confirm,
 			"verify_request_identifier":  defaults["verify_request_identifier"],
 			"register_create_identifier": defaults["register_create_identifier"],

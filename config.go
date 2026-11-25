@@ -2,7 +2,6 @@ package authkit
 
 import (
 	"github.com/open-rails/authkit/internal/config"
-	"github.com/open-rails/authkit/internal/httpapi"
 )
 
 // The configuration is defined once, in internal/config; these names are how
@@ -54,7 +53,6 @@ type (
 	ProvisioningConfig = config.ProvisioningConfig
 	ProvisioningTarget = config.ProvisioningTarget
 	HTTPConfig         = config.HTTPConfig
-	RateLimit          = config.RateLimit
 )
 
 // OAuth grant types a client may use (OAuthClientConfig.GrantTypes).
@@ -84,7 +82,3 @@ const (
 	NameRetentionForever   = config.NameRetentionForever
 	NameRetentionImmediate = config.NameRetentionImmediate
 )
-
-// DefaultRateLimits returns AuthKit's built-in per-endpoint limits, keyed by
-// bucket name ("default" applies to unlisted buckets).
-func DefaultRateLimits() map[string]RateLimit { return httpapi.DefaultRateLimits() }

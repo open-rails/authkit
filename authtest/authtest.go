@@ -25,7 +25,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"math"
 	"os"
 	"strconv"
 	"sync"
@@ -74,9 +73,9 @@ func WithDeps(fn func(*authkit.Deps)) Option {
 //
 //   - Issuer.
 //   - TwoFactor.TOTPSecretKey: random, so authenticator apps can enroll.
-//   - HTTP: served (DirectPeerIP), with every rate limit lifted (RateLimits).
-//   - SignIn: every limit off, since tests sign many accounts in from one
-//     address.
+//   - HTTP: served (DirectPeerIP), with every rate limit lifted.
+//   - The sign-in limits off, since tests sign many accounts in from one
+//     address. The session cap stays (LiftLimits lifts it too).
 //   - Deps.KeySource: an RSA key generated once per test binary.
 //   - Database.Schema and Database.RiverSchema: the scratch schema, unless set.
 //
@@ -96,9 +95,12 @@ func New(t testing.TB, opts ...Option) (*authkit.Client, *Outbox) {
 		DefaultTenantID: iam.NewTenantID(),
 		Issuer:          Issuer,
 		TwoFactor:       authkit.TwoFactorConfig{TOTPSecretKey: key},
-		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true, RateLimits: unlimited()},
-		SignIn:          authkit.SignInConfig{AccountsPerDevice: -1, AccountsPerAddress: -1, NewDevicesPerAccount: -1},
+		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true},
 	}
+	config.Tune(&cfg, func(t *config.Tuning) {
+		t.NoRateLimits = true
+		t.AccountsPerDevice, t.AccountsPerAddress, t.NewDevicesPerAccount = -1, -1, -1
+	})
 	deps := authkit.Deps{KeySource: signingKeys(), Email: outbox.Email(), SMS: outbox.SMS()}
 	for _, fn := range s.config {
 		fn(&cfg)
@@ -234,11 +236,8 @@ func scratchSchema(t testing.TB, pool *pgxpool.Pool) string {
 	return name
 }
 
-// unlimited lifts every rate-limit bucket out of a test's way.
-func unlimited() map[string]authkit.RateLimit {
-	limits := authkit.DefaultRateLimits()
-	for bucket := range limits {
-		limits[bucket] = authkit.RateLimit{Limit: math.MaxInt32, Window: time.Millisecond}
-	}
-	return limits
-}
+// LiftLimits lifts what a host's test rig would trip, for a Client it builds
+// itself (New already lifts the rate and sign-in limits): every rate limit,
+// the sign-in limits and the session cap. It also admits private-network
+// JWKS URLs. Only tests call it; a production Config has no such setting.
+func LiftLimits(c *authkit.Config) { config.LiftLimits(c) }

@@ -56,8 +56,7 @@ func NewAuthorizationServer(t testing.TB, opts ...Option) *AuthorizationServer {
 	t.Cleanup(server.Close)
 	issuer := server.URL
 	opts = append([]Option{WithConfig(func(c *authkit.Config) {
-		c.Issuer = issuer
-		c.Token.AllowPrivateNetworkJWKS = true
+		c.Issuer = issuer // loopback: its JWKS URLs may be private
 	})}, opts...)
 	auth, outbox := New(t, opts...)
 	h := auth.Handler()

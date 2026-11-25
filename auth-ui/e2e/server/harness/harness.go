@@ -13,6 +13,8 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/httpapi"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/notify"
 )
@@ -43,12 +45,12 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	write := project.Permission("records", "write")
 	project.Role("viewer", read)
 	project.Role("manager", read, write, project.Members.Read, project.Members.Manage, project.Roles.Read, project.Roles.Manage, project.Credentials.Read, project.Credentials.Manage)
-	limits := authkit.DefaultRateLimits()
+	limits := httpapi.DefaultRateLimits()
 	for bucket := range limits {
-		limits[bucket] = authkit.RateLimit{Limit: 10000, Window: time.Minute}
+		limits[bucket] = config.RateLimit{Limit: 10000, Window: time.Minute}
 	}
 	if profile == "limited" {
-		limits["capabilities_read"] = authkit.RateLimit{Limit: 1, Window: time.Minute}
+		limits["capabilities_read"] = config.RateLimit{Limit: 1, Window: time.Minute}
 	}
 	tenant, err := iam.ParseTenantID("00000000-0000-4000-8000-000000001290")
 	if err != nil {
@@ -63,14 +65,17 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 		DefaultTenantID:      tenant,
 		Notifications:        &authkit.NotificationsConfig{Schema: schema, AppID: "critical-browser", Producers: []authkit.NotificationProducer{{Name: "application", TenantID: tenant, Origin: notify.OriginScope{System: "application", Scope: "critical-browser"}, Visibility: notify.VisibilityApp, AppID: "critical-browser"}}},
 		Roles:                roles,
-		HTTP:                 &authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true, RateLimits: limits},
+		HTTP:                 &authkit.HTTPConfig{DirectPeerIP: true, RefreshCookie: true},
 		Database:             authkit.DatabaseConfig{Schema: schema},
 		Issuer:               origin,
-		Token:                authkit.TokenConfig{SessionMaxPerUser: 10},
 		Registration:         authkit.RegistrationConfig{Verification: iam.RegistrationVerificationRequired, PasswordlessLogin: true},
 		TwoFactor:            authkit.TwoFactorConfig{Mode: iam.TwoFactorOptional, TOTPSecretKey: totpKey},
 		PersonalAccessTokens: authkit.PersonalAccessTokensConfig{Enabled: true},
 	}
+	config.Tune(&cfg, func(tn *config.Tuning) {
+		tn.RateLimits = limits
+		tn.SessionMaxPerUser = 10
+	})
 	if profile == "main" {
 		cfg.Tenancy = authkit.TenancyMulti // and an isolated directory
 		cfg.AuthorizationServer = authkit.AuthorizationServerConfig{Clients: []authkit.OAuthClientConfig{{

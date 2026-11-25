@@ -25,6 +25,7 @@ import (
 	authkitgin "github.com/open-rails/authkit/adapters/gin"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/keys"
 )
@@ -243,7 +244,9 @@ func TestCriticalTransport(t *testing.T) {
 			}
 		}
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits = map[string]authkit.RateLimit{"capabilities_read": {Limit: 1, Window: time.Minute}}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits = map[string]config.RateLimit{"capabilities_read": {Limit: 1, Window: time.Minute}}
+			})
 		}))
 		for i := range 2 {
 			r, err := g.requestHeaders(t.Context(), "GET", "/capabilities", "", nil, http.Header{"X-Forwarded-For": {fmt.Sprintf("198.51.100.%d", i+1)}, "CF-Connecting-IP": {fmt.Sprintf("198.51.100.%d", i+1)}})
@@ -323,7 +326,9 @@ func TestCriticalTransport(t *testing.T) {
 		}
 		// The posture alone picks the address a budget is kept for.
 		limited := authtest.WithConfig(func(c *authkit.Config) {
-			c.HTTP.RateLimits["capabilities_read"] = authkit.RateLimit{Limit: 1, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) {
+				tn.RateLimits["capabilities_read"] = config.RateLimit{Limit: 1, Window: time.Hour}
+			})
 		})
 		for _, posture := range []struct {
 			name    string

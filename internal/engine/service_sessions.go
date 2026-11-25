@@ -47,7 +47,7 @@ func (s *Engine) insertRefreshSessionTx(ctx context.Context, q *db.Queries, user
 		return "", "", nil, nil, err
 	}
 	var evicted []string
-	if s.cfg.Token.SessionMaxPerUser > 0 {
+	if config.Tuned(s.cfg).SessionMaxPerUser > 0 {
 		// Serializes session creation per (user, issuer), so the count, evict and
 		// insert below never exceed SessionMaxPerUser under concurrent logins.
 		if err := q.AdvisoryXactLock(ctx, userID+"|"+s.cfg.Issuer); err != nil {
@@ -692,18 +692,18 @@ func (s *Engine) logRevokedSessions(ctx context.Context, userID string, revoked 
 // never exceed the cap. Returns the evicted session ids for the caller to audit after
 // commit (so a logging failure can't roll back the eviction).
 func (s *Engine) enforceSessionLimitTx(ctx context.Context, q *db.Queries, userID, issuer string) ([]string, error) {
-	if s.cfg.Token.SessionMaxPerUser <= 0 {
+	if config.Tuned(s.cfg).SessionMaxPerUser <= 0 {
 		return nil, nil
 	}
 	count, err := q.SessionsCountActive(ctx, db.SessionsCountActiveParams{UserID: userID, Issuer: issuer})
 	if err != nil {
 		return nil, err
 	}
-	if int(count) < s.cfg.Token.SessionMaxPerUser {
+	if int(count) < config.Tuned(s.cfg).SessionMaxPerUser {
 		return nil, nil
 	}
 	// evict-oldest in a single statement so inserting one more lands at the cap
-	excess := int(count) - s.cfg.Token.SessionMaxPerUser + 1
+	excess := int(count) - config.Tuned(s.cfg).SessionMaxPerUser + 1
 	if excess <= 0 {
 		return nil, nil
 	}

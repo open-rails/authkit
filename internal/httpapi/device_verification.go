@@ -12,7 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// A new device past Config.SignIn.NewDevicesPerAccount finishes signing in
+// A new device past the new-device limit (ten a day) finishes signing in
 // with the code its sign-in sent to the account's proven email or phone.
 
 func (s *Service) handleDeviceVerificationSendPOST(w http.ResponseWriter, r *http.Request) {

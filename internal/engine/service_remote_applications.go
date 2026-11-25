@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/ident"
 	"github.com/open-rails/authkit/internal/jose"
@@ -26,7 +27,7 @@ type trustSourcePolicy struct {
 }
 
 func (s *Engine) trustSourcePolicy() trustSourcePolicy {
-	return trustSourcePolicy{AllowPrivateNetworkJWKS: s.cfg.Token.AllowPrivateNetworkJWKS}
+	return trustSourcePolicy{AllowPrivateNetworkJWKS: config.Tuned(s.cfg).PrivateNetworkJWKS}
 }
 
 // normalizeRemoteAppTrustSource validates the mutually-exclusive trust source

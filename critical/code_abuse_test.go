@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/adapters/twilio"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 )
 
 // TestCriticalCodeAbuse covers what keeps bots and SMS pumping off the code
@@ -163,7 +164,7 @@ func TestCriticalCodeAbuse(t *testing.T) {
 	t.Run("AK-J33-C12_unconfirmed_texts_per_number_range_and_per_client_are_capped_and_a_proven_code_gives_its_text_back", func(t *testing.T) {
 		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.Registration.PasswordlessAutoRegistration = true
-			c.HTTP.RateLimits["sms_range"] = authkit.RateLimit{Limit: 2, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) { tn.RateLimits["sms_range"] = config.RateLimit{Limit: 2, Window: time.Hour} })
 		}))
 		start := func(number string) response {
 			return f.call(t, "POST", "/passwordless/start", "", map[string]string{"identifier": number, "mode": "code"})
@@ -183,7 +184,7 @@ func TestCriticalCodeAbuse(t *testing.T) {
 
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.Registration.PasswordlessAutoRegistration = true
-			c.HTTP.RateLimits["sms_client"] = authkit.RateLimit{Limit: 2, Window: time.Hour}
+			config.Tune(c, func(tn *config.Tuning) { tn.RateLimits["sms_client"] = config.RateLimit{Limit: 2, Window: time.Hour} })
 		}), authtest.WithDeps(func(d *authkit.Deps) {
 			d.RequestClient = func(r *http.Request) string { return r.Header.Get("X-Checkout-Merchant") }
 		}))

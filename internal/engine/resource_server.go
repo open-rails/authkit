@@ -94,7 +94,7 @@ type resourceServer struct {
 
 func (s *Engine) newResourceServer() (*resourceServer, error) {
 	rc := s.cfg.Resource
-	client := netguard.Client(netguard.DefaultTimeout, s.cfg.Token.AllowPrivateNetworkJWKS)
+	client := netguard.Client(netguard.DefaultTimeout, config.Tuned(s.cfg).PrivateNetworkJWKS)
 	opts := []verify.VerifierOption{
 		verify.WithHTTPClient(client),
 		verify.WithDPoP(s.redis),
@@ -309,7 +309,7 @@ func (rs *resourceServer) jwksURI(ctx context.Context, issuer, metadata string) 
 	if m.Issuer != issuer {
 		return "", fmt.Errorf("%s names issuer %q", metadata, m.Issuer)
 	}
-	if err := validateJWKSURI(m.JWKSURI, rs.s.cfg.Token.AllowPrivateNetworkJWKS); err != nil {
+	if err := validateJWKSURI(m.JWKSURI, config.Tuned(rs.s.cfg).PrivateNetworkJWKS); err != nil {
 		return "", fmt.Errorf("%s: %w", metadata, err)
 	}
 	return m.JWKSURI, nil

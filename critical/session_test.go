@@ -16,6 +16,7 @@ import (
 	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/verify"
 )
 
@@ -214,7 +215,9 @@ func TestCriticalSessionHistoryImport(t *testing.T) {
 	t.Run("AK-J05-C10_history_import_obeys_configured_and_unlimited_retention", func(t *testing.T) {
 		for _, retention := range []time.Duration{0, 24 * time.Hour, -1} {
 			t.Run(retention.String(), func(t *testing.T) {
-				f := newFixture(t, redisDep, authtest.WithConfig(func(c *authkit.Config) { c.SessionEventRetention = retention }))
+				f := newFixture(t, redisDep, authtest.WithConfig(func(c *authkit.Config) {
+					config.Tune(c, func(tn *config.Tuning) { tn.SessionEventRetention = retention })
+				}))
 				u := f.user(t)
 				old, recent, middle := entry(u.ID, "old"), entry(u.ID, "recent"), entry(u.ID, "middle")
 				old.OccurredAt = time.Now().Add(-366 * 24 * time.Hour)

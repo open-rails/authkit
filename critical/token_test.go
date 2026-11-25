@@ -18,6 +18,7 @@ import (
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/cachepolicy"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
@@ -305,7 +306,7 @@ func TestCriticalTokenProfiles(t *testing.T) {
 		const resource = "https://discovery-resource.example"
 		g := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
 			c.Resource = authkit.ResourceConfig{ID: resource}
-			c.Token.AllowPrivateNetworkJWKS = true
+			config.Tune(c, func(tn *config.Tuning) { tn.PrivateNetworkJWKS = true })
 		}))
 		group, _, _ := g.ownedGroup(t)
 		_, err := g.auth.UpsertRemoteApplication(t.Context(), iam.SystemIdentity(), iam.GroupByID(group.ID), iam.RemoteApplication{Issuer: issuer.URL, Enabled: true, Mode: iam.RemoteApplicationModeJWKS})

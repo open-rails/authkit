@@ -46,7 +46,7 @@ func (a *Client) ImportUsers(ctx context.Context, rows []iam.ImportUser, o iam.I
 // ImportSessionEvents imports up to 1000 historical sign-ins for existing
 // accounts in the selected tenant. Entries commit independently; on a database
 // error completed results are returned. A stable ID per account makes retries
-// and concurrent calls safe. Entries older than SessionEventRetention are
+// and concurrent calls safe. Entries older than the session-event retention (365 days) are
 // refused (negative retention keeps all history). It creates no sessions, sends
 // nothing and changes no account state. Like ImportUsers, options are unsupported.
 func (a *Client) ImportSessionEvents(ctx context.Context, rows []iam.ImportSessionEvent, opts ...Option) (iam.ImportSessionEventsResult, error) {

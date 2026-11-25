@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
 )
 
@@ -171,8 +172,8 @@ func TestCriticalMaintenance(t *testing.T) {
 			c.Username.Renames = true
 			c.Username.RenameInterval = -1
 			c.Username.FormerNames = authkit.NameRetention{Mode: authkit.NameRetentionFinite, Duration: time.Hour}
-			c.EventRetention = time.Hour
-			c.SessionEventRetention = time.Hour
+			config.Tune(c, func(tn *config.Tuning) { tn.EventRetention = time.Hour })
+			config.Tune(c, func(tn *config.Tuning) { tn.SessionEventRetention = time.Hour })
 		}))
 		clock := testclock.Wall()
 		testclock.Use(f.auth, clock.Now)

@@ -13,6 +13,7 @@ import (
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/testclock"
 	"github.com/open-rails/helpers/eventlog"
 )
@@ -139,7 +140,7 @@ func TestCriticalRetainedEvents(t *testing.T) {
 		f.call(t, "GET", "/events", session.AccessToken, nil).want(t, http.StatusForbidden, "forbidden")
 	})
 	t.Run("AK-J26-C05_empty_malformed_and_expired_cursors_are_explicit", func(t *testing.T) {
-		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { c.EventRetention = time.Hour }))
+		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) { config.Tune(c, func(tn *config.Tuning) { tn.EventRetention = time.Hour }) }))
 		clock := testclock.Wall()
 		testclock.Use(f.auth, clock.Now)
 		empty, err := f.auth.ListEvents(t.Context(), iam.EventQuery{Types: []string{"future.unknown.type"}})

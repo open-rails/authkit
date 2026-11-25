@@ -193,7 +193,7 @@ func (s *Service) mounts(f Feature) bool {
 	case FeatureInvitations:
 		return !cfg.Invitations.Disabled
 	case FeatureNewDevices:
-		return cfg.SignIn.NewDevicesPerAccount > 0 || s.smsSender
+		return config.Tuned(cfg).NewDevicesPerAccount > 0 || s.smsSender
 	case FeatureAuthorizationServer:
 		return config.AuthorizationServerEnabled(cfg.AuthorizationServer)
 	case FeatureTokenEndpoint:

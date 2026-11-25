@@ -9,6 +9,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/cursor"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -169,15 +170,15 @@ func (s *Engine) LogSessionFailed(ctx context.Context, userID string, sessionID 
 	})
 }
 
-// pruneSessionEvents enforces Config.SessionEventRetention: bounded DELETE
+// pruneSessionEvents enforces the session-event retention (365 days): bounded DELETE
 // batches walking the occurred_at index until a short batch, so one sweep never
 // runs an unbounded statement. Negative retention keeps events forever.
 // Invoked from cleanupExpiredAuthState (host-scheduled, daily-ish cadence).
 func (s *Engine) pruneSessionEvents(ctx context.Context) error {
-	if s.cfg.SessionEventRetention < 0 {
+	if config.Tuned(s.cfg).SessionEventRetention < 0 {
 		return nil
 	}
-	cutoff := time.Now().UTC().Add(-s.cfg.SessionEventRetention)
+	cutoff := time.Now().UTC().Add(-config.Tuned(s.cfg).SessionEventRetention)
 	return s.pruneSessionEventsBatched(ctx, cutoff, sessionEventsPruneBatchSize)
 }
 

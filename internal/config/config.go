@@ -126,25 +126,6 @@ type Config struct {
 	// leaves it off. Solana Name Service resolution is built in.
 	SolanaNetwork iam.SolanaNetwork `yaml:"solana_network"`
 
-	// SenderHealthInterval is how often Start re-runs the senders'
-	// CheckHealth; 0 defaults to five minutes.
-	SenderHealthInterval time.Duration `yaml:"sender_health_interval"`
-	// SenderHealthRecheck is how soon a sender is checked again after its
-	// first failed check, or after a failed send, instead of waiting
-	// SenderHealthInterval; once two checks in a row have failed, checks
-	// return to SenderHealthInterval. 0 defaults to 30 seconds, and it is never
-	// longer than SenderHealthInterval.
-	SenderHealthRecheck time.Duration `yaml:"sender_health_recheck"`
-
-	// SessionEventRetention is how long session-event history rows
-	// (sign-ins and revocations, with IP and user agent: personal data) are
-	// kept. 0 defaults to 365 days; a negative value keeps them forever.
-	SessionEventRetention time.Duration `yaml:"session_event_retention"`
-
-	// EventRetention keeps committed account/group events independently of
-	// readers. Zero defaults to 90 days; it must be positive after defaulting.
-	EventRetention time.Duration `yaml:"event_retention"`
-
 	// CleanupInterval is how often expired auth state is cleaned up; 0
 	// defaults to one hour.
 	CleanupInterval time.Duration `yaml:"cleanup_interval"`
@@ -152,6 +133,9 @@ type Config struct {
 	// HTTP configures the HTTP surface. Nil keeps the Client headless:
 	// operations and Verifier only.
 	HTTP *HTTPConfig `yaml:"http"`
+
+	// tuning is AuthKit's fixed limits, which only tests change (Tune).
+	tuning Tuning
 }
 
 // TokenConfig is the JWT issuing/verification contract plus session limits.
@@ -162,9 +146,7 @@ type TokenConfig struct {
 	// RefreshTokenDuration is the refresh-session lifetime from sign-in: 0
 	// defaults to 30 days; a negative value means sessions do not expire by age.
 	RefreshTokenDuration time.Duration `yaml:"refresh_token_duration"`
-	// SessionMaxPerUser caps concurrent refresh sessions per user, evicting
-	// the oldest. 0 defaults to 3; a negative value means unlimited.
-	SessionMaxPerUser int `yaml:"session_max_per_user"`
+
 	// RefreshRotationGrace is how long a just-rotated refresh token keeps being
 	// answered with the successor it rotated into instead of being read as
 	// reuse and ending the session. It covers two holders of one token
@@ -185,34 +167,10 @@ type TokenConfig struct {
 	// issued. Issuer is always included; empty means Issuer alone. Every
 	// deployment sharing the store should list the same set.
 	AccountIssuers []string `yaml:"account_issuers"`
-	// AllowPrivateNetworkJWKS permits http and private or loopback JWKS URLs
-	// for remote applications and the issuers verifiers trust, and turns off
-	// the SSRF guard on remote applications' JWKS URLs. Local development only.
-	AllowPrivateNetworkJWKS bool `yaml:"allow_private_network_jwks"`
 }
 
-// SignInConfig limits distinct accounts and devices over a rolling 24 hours.
-// A device is a browser's device cookie (set by the HTTP surface); a client
-// without one is known by its address (per /64 for IPv6). The counts live in
-// the short-lived store every replica shares, never in a history.
+// SignInConfig is how sign-ins are bound.
 type SignInConfig struct {
-	// AccountsPerDevice caps the distinct accounts that sign in, or are
-	// registered, from one device in 24 hours. Signing back into one of them
-	// is always allowed; the next other account is refused with 429
-	// too_many_accounts. 0 defaults to 5; negative turns it off.
-	AccountsPerDevice int `yaml:"accounts_per_device"`
-	// AccountsPerAddress is AccountsPerDevice for a client without a device
-	// cookie, counted per client address, which many people may share. 0
-	// defaults to 20; negative turns it off.
-	AccountsPerAddress int `yaml:"accounts_per_address"`
-	// NewDevicesPerAccount caps the new devices that sign in to one account
-	// in 24 hours. A device that signed in to it within 30 days is not new.
-	// Past the cap, a new device enters a code sent to the account's proven
-	// email or phone (status device_verification_required); an account with
-	// neither is refused with 429 too_many_devices. A sign-in that proved the
-	// owner's email or phone, or a second factor, needs no code. 0 defaults
-	// to 10; negative turns it off.
-	NewDevicesPerAccount int `yaml:"new_devices_per_account"`
 	// DPoP is how this deployment issues tokens to its own users (RFC 9449):
 	// their sign-in sessions and its authorization server's user grants.
 	// Optional, the default, lets each client choose at sign-in: a DPoP key
@@ -299,9 +257,7 @@ type RegistrationConfig struct {
 	// code back to its caller (dev rigs read it there). By default a missing
 	// sender is an error.
 	AllowMissingSenders bool `yaml:"allow_missing_senders"`
-	// VerificationSendTimeout bounds each in-line email or SMS send so an
-	// unreachable provider cannot hang the request. 0 defaults to 15s.
-	VerificationSendTimeout time.Duration `yaml:"verification_send_timeout"`
+
 	// Agreements are the keys of Config.Agreements every self-registration
 	// accepts at their current version: a sign-up by password, code or
 	// identity provider without them is refused with agreement_required, and
@@ -552,11 +508,6 @@ type HTTPConfig struct {
 	// Do not include __Host-: HTTPS adds that prefix automatically. Existing
 	// unqualified cookies migrate after their owner is verified.
 	RefreshCookieName string `yaml:"refresh_cookie_name"`
-
-	// RateLimits overlays bucket limits onto authkit.DefaultRateLimits;
-	// unknown buckets are refused. Limits are in memory and per process unless
-	// Deps.Redis shares them.
-	RateLimits map[string]RateLimit `yaml:"rate_limits"`
 
 	// TrustedProxies are the CIDRs of reverse proxies whose X-Forwarded-For
 	// is honoured.

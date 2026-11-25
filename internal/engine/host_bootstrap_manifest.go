@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/authflow"
+	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
@@ -72,7 +73,7 @@ func (s *Engine) ApplyBootstrapManifest(ctx context.Context, manifest iam.Bootst
 	if err := s.requirePG(); err != nil {
 		return iam.BootstrapResult{}, err
 	}
-	if err := validateBootstrapManifest(manifest, s.cfg.Token.AllowPrivateNetworkJWKS); err != nil {
+	if err := validateBootstrapManifest(manifest, config.Tuned(s.cfg).PrivateNetworkJWKS); err != nil {
 		return iam.BootstrapResult{}, err
 	}
 	checkRole := func(role iam.Role) error {

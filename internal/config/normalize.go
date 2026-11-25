@@ -16,7 +16,6 @@ import (
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/lang"
-	"github.com/open-rails/authkit/internal/ratelimit"
 )
 
 // Defaults Normalize applies.
@@ -33,13 +32,9 @@ const (
 	DefaultRenameInterval    = 72 * time.Hour
 	DefaultNameRetention     = 90 * 24 * time.Hour
 
-	maxTokenEntitlements           = 32
-	maxTokenEntitlementNameBytes   = 128
-	maxTokenEntitlementBytes       = 2048
-	defaultVerificationSendTimeout = 15 * time.Second
-	DefaultAccountsPerDevice       = 5
-	DefaultAccountsPerAddress      = 20
-	DefaultNewDevicesPerAccount    = 10
+	maxTokenEntitlements         = 32
+	maxTokenEntitlementNameBytes = 128
+	maxTokenEntitlementBytes     = 2048
 )
 
 // Normalize applies every default and checks every rule of c and d, once:
@@ -65,7 +60,9 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 	if err := normalizeToken(&c.Token, c.Issuer); err != nil {
 		return Config{}, nil, err
 	}
-	c.SignIn = NormalizeSignIn(c.SignIn)
+	if err := normalizeTuning(&c); err != nil {
+		return Config{}, nil, err
+	}
 	switch c.SignIn.DPoP {
 	case "":
 		c.SignIn.DPoP = DPoPOptional
@@ -141,22 +138,7 @@ func Normalize(c Config, d Deps) (_ Config, degraded []error, err error) {
 		return Config{}, nil, err
 	}
 	normalizeLanguages(&c.Languages, degrade)
-	if c.SenderHealthInterval <= 0 {
-		c.SenderHealthInterval = 5 * time.Minute
-	}
-	if c.SenderHealthRecheck <= 0 {
-		c.SenderHealthRecheck = 30 * time.Second
-	}
-	c.SenderHealthRecheck = min(c.SenderHealthRecheck, c.SenderHealthInterval)
-	if c.SessionEventRetention == 0 {
-		c.SessionEventRetention = 365 * 24 * time.Hour
-	}
-	if c.EventRetention == 0 {
-		c.EventRetention = 90 * 24 * time.Hour
-	}
-	if c.EventRetention < time.Second {
-		return Config{}, nil, errors.New("authkit: EventRetention must be at least one second")
-	}
+
 	if c.Database.RiverSchema, err = NormalizeRiverSchema(c.Database.RiverSchema); err != nil {
 		return Config{}, nil, err
 	}
@@ -223,24 +205,6 @@ func normalizeRemoteApplications(apps []RemoteApplicationConfig, degrade func(er
 	return out
 }
 
-// NormalizeSignIn applies the sign-in limit defaults; a negative limit is off
-// and stays negative.
-func NormalizeSignIn(c SignInConfig) SignInConfig {
-	for _, f := range []struct {
-		value *int
-		def   int
-	}{
-		{&c.AccountsPerDevice, DefaultAccountsPerDevice},
-		{&c.AccountsPerAddress, DefaultAccountsPerAddress},
-		{&c.NewDevicesPerAccount, DefaultNewDevicesPerAccount},
-	} {
-		if *f.value == 0 {
-			*f.value = f.def
-		}
-	}
-	return c
-}
-
 // normalizeIssuer checks the issuer, the one URL the HTTP surface, links and
 // relying-party names derive from, and defaults FrontendURL to its origin.
 func normalizeIssuer(c *Config) error {
@@ -283,9 +247,7 @@ func normalizeToken(t *TokenConfig, issuer string) error {
 		}
 	}
 	t.AccountIssuers = accountIssuers
-	if t.SessionMaxPerUser == 0 {
-		t.SessionMaxPerUser = 3
-	}
+
 	if t.RefreshTokenDuration == 0 {
 		t.RefreshTokenDuration = 30 * 24 * time.Hour
 	}
@@ -347,9 +309,7 @@ func normalizeRegistration(r *RegistrationConfig) error {
 		return fmt.Errorf("authkit: invalid NativeUserRegistrationMode %q (want one of: open, invite_only, closed)", r.NativeUserMode)
 	}
 	r.NativeUserMode = mode
-	if r.VerificationSendTimeout <= 0 {
-		r.VerificationSendTimeout = defaultVerificationSendTimeout
-	}
+
 	return nil
 }
 
@@ -593,9 +553,6 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 		return errors.New("authkit: a client-IP posture is required — set HTTPConfig.TrustedProxies/CloudflareProxies for the proxies in front, DirectPeerIP to assert there are none, or Deps.ClientIP; behind an undeclared proxy every client shares one rate-limit bucket")
 	case postures > 1:
 		return errors.New("authkit: declare one client-IP posture, not several — HTTPConfig.TrustedProxies/CloudflareProxies for the proxies in front, DirectPeerIP for none, or Deps.ClientIP for the host's own")
-	}
-	if err := ratelimit.ValidateLimits(h.RateLimits); err != nil {
-		return err
 	}
 
 	if d.Email == nil && d.SMS == nil {

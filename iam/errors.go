@@ -99,13 +99,13 @@ var (
 	ErrEventCursorExpired           Error = errmodel.E(errmodel.CodeEventCursorExpired)
 )
 
-// Sign-in limits (Config.SignIn), both 429 with Retry-After.
+// Sign-in limits, both 429 with Retry-After.
 var (
-	// ErrTooManyAccounts refuses another account from a device past
-	// AccountsPerDevice (or AccountsPerAddress).
+	// ErrTooManyAccounts refuses another account from a device past five a
+	// day (or from an address without a device cookie past 20).
 	ErrTooManyAccounts Error = errmodel.ErrTooManyAccounts
-	// ErrTooManyDevices refuses a new device past NewDevicesPerAccount when
-	// the account has no proven email or phone to send it a code.
+	// ErrTooManyDevices refuses a new device past ten a day when the account
+	// has no proven email or phone to send it a code.
 	ErrTooManyDevices Error = errmodel.ErrTooManyDevices
 )
 
