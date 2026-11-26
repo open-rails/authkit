@@ -13,6 +13,7 @@ import { useTask } from "#authui/react/task"
 import { useAuth } from "#authui/react/useAuth"
 import { AuthUiRoot } from "#authui/scope"
 import { Spinner } from "#authui/ui/spinner"
+import { isEntryStep } from "./labels.ts"
 import { FormAlert, StepHeader, SubmitButton } from "./parts.tsx"
 import type { SignInFlowProps, SignInStep } from "./SignInFlow.tsx"
 import { SignInPanel } from "./SignInPanel.tsx"
@@ -55,17 +56,15 @@ export function AcceptInvitation({
     setAccepted({ membership })
     onAccepted?.(membership)
   }
-  // A visitor who arrives signed out stays in the sign-in flow until it
-  // finishes: its session starts before its last steps (backup codes).
-  const [phase, setPhase] = useState<"sign_in" | "accept" | null>(null)
-  if (phase === null && status === "signed_out") setPhase("sign_in")
+  // A sign-in under way stays on screen until it finishes, though its
+  // session starts before its last steps (backup codes).
+  const [signingIn, setSigningIn] = useState(false)
   const current =
-    phase ??
-    (status === "signed_in"
-      ? "accept"
-      : status === "signed_out"
-        ? "sign_in"
-        : null)
+    signingIn || status === "signed_out"
+      ? "sign_in"
+      : status === "signed_in"
+        ? "accept"
+        : null
 
   const card = (children: ReactNode) => (
     <AuthUiRoot className={cn("w-full max-w-md", className)}>
@@ -144,13 +143,14 @@ export function AcceptInvitation({
       inviteCode={invitation.registers ? invitation.code : undefined}
       initialTab={invitation.registers ? "register" : "login"}
       onStepChange={(step) => {
-        if (step === "login" || step === "register") entry.current = step
+        if (isEntryStep(step)) entry.current = step
+        else if (step !== "done") setSigningIn(true)
         if (step === "verify_registration") entry.current = "register"
         flow.onStepChange?.(step)
       }}
       onSignedIn={(result) => {
+        setSigningIn(false)
         if (invitation.registers && entry.current === "register") accept(null)
-        else setPhase("accept")
         flow.onSignedIn?.(result)
       }}
     />
