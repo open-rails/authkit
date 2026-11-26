@@ -2046,14 +2046,14 @@ export function readSetupToken(hash: string): string | null {
 }
 
 // The code of an invitation link (Frontend.InvitePath): an invite link's
-// #code=, or an email invitation's #invite_code=, which also registers.
+// #link_code=, or an email invitation's #invite_code=, which also registers.
 export function readInvitation(
   hash: string
 ): { code: string; registers: boolean } | null {
   const params = new URLSearchParams(hash.replace(/^#/, ""))
   const invite = params.get("invite_code")
   if (invite) return { code: invite, registers: true }
-  const code = params.get("code")
+  const code = params.get("link_code")
   return code ? { code, registers: false } : null
 }
 

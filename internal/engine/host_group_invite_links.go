@@ -43,12 +43,12 @@ func (s *Engine) externalInvitesEnabled() bool {
 	return mode == iam.RegistrationModeOpen || mode == iam.RegistrationModeInviteOnly
 }
 
-// inviteURL builds the host-facing accept-invite link: BaseURL + the configured
-// Frontend.InvitePath + #code=. The fragment never reaches a server; the SPA
-// reads the code and POSTs it to redeem.
+// inviteURL builds the host-facing accept-invite link: FrontendURL + /invite
+// + #link_code=. The fragment never reaches a server; the SPA reads the code
+// and POSTs it to redeem. A bare #code= is an OIDC step-up's return.
 func (s *Engine) inviteURL(code string) string {
 	q := url.Values{}
-	q.Set("code", code)
+	q.Set("link_code", code)
 	return s.authkitURL(config.InvitePath, q)
 }
 

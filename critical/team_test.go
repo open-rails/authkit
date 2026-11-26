@@ -139,6 +139,10 @@ func TestCriticalTeam(t *testing.T) {
 		r.want(t, http.StatusCreated, "")
 		var link iam.InvitationCreated
 		decode(t, r.body, &link)
+		// Not #code=: a page's OIDC step-up return handler would take it.
+		if fragmentValue(t, link.URL, "link_code") != link.Code {
+			t.Fatalf("invite link %q does not carry its code as link_code", link.URL)
+		}
 		revoke := "/groups/root/invitations/" + link.Invitation.ID
 		staleAgain := authtest.StaleSession(t, f.auth, f.signIn(t, owner).AccessToken)
 		f.call(t, "DELETE", revoke, staleAgain, nil).expect(t, http.StatusUnauthorized, "step_up_required")

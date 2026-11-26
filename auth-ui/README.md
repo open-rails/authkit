@@ -392,7 +392,8 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
 - Sign-in link landing: on `/passwordless` beneath AuthKit's `FrontendURL`,
   `<PasswordlessLink token={readLinkFragment(location.hash)?.token} navigate={(to) => router.replace(to)} />`
   spends the emailed link once and finishes every later step in place.
-- Invitation landing: on `/invite`,
+- Invitation landing: on `/invite` (an invite link's `#link_code=`, an email
+  invitation's `#invite_code=`),
   `<AcceptInvitation invitation={readInvitation(location.hash)} onAccepted={(membership) => ...} />`
   signs the visitor in, or up with an emailed invitation (which then holds
   its role), and accepts it into a signed-in account.
