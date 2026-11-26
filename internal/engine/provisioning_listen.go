@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/open-rails/authkit/internal/config"
 )
 
 // provisioningChannel is where the users triggers say they recorded a change
@@ -13,8 +15,10 @@ import (
 const provisioningChannel = "authkit_provisioning"
 
 // listenProvisioning queues a target's run when the users triggers record a
-// change for it, and every target's on each (re)connect, which catches up a
-// change made while it was disconnected. It runs from Start until Close.
+// change for it. The provisioning_changes rows are the truth and a
+// notification only a wake-up: every target is woken on each (re)connect and
+// every Tuning.ListenerCheck, which catches up a change whose notification was
+// lost. It runs from Start until Close.
 func (s *Engine) listenProvisioning(ctx context.Context) {
 	wait := time.Second
 	for {
@@ -35,10 +39,14 @@ func (s *Engine) listenProvisioning(ctx context.Context) {
 	}
 }
 
-// listenProvisioningOnce listens on a connection of its own, not the pool's,
-// until it fails; listened reports that it got as far as listening.
+// listenerPing bounds the round trip that proves the listener's connection
+// alive at each check.
+const listenerPing = 5 * time.Second
+
+// listenProvisioningOnce listens on a session of its own (dialSession) until
+// it fails; listened reports that it got as far as listening.
 func (s *Engine) listenProvisioningOnce(ctx context.Context) (listened bool, err error) {
-	conn, err := pgx.ConnectConfig(ctx, s.pg.Config().ConnConfig.Copy())
+	conn, err := s.dialSession(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -50,25 +58,44 @@ func (s *Engine) listenProvisioningOnce(ctx context.Context) (listened bool, err
 	if _, err := conn.Exec(ctx, "LISTEN "+provisioningChannel); err != nil {
 		return false, err
 	}
-	// Read after LISTEN, so no change is missed between the two.
-	for _, t := range s.provisioning {
-		if err := s.wakeProvisioning(ctx, t); err != nil {
-			return true, err
-		}
-	}
+	every := config.Tuned(s.cfg).ListenerCheck
 	for {
-		n, err := conn.WaitForNotification(ctx)
-		if err != nil {
-			return true, err
-		}
-		var change struct{ Schema, Issuer, Target string }
-		if json.Unmarshal([]byte(n.Payload), &change) != nil || change.Schema != s.dbSchema() || change.Issuer != s.cfg.Issuer {
-			continue
-		}
-		if t := s.provisioningTarget(change.Target); t != nil {
+		// Read after LISTEN, so no change is missed between the two.
+		for _, t := range s.provisioning {
 			if err := s.wakeProvisioning(ctx, t); err != nil {
 				return true, err
 			}
+		}
+		check := time.Now().Add(every)
+		for {
+			wait, cancel := context.WithDeadline(ctx, check)
+			n, err := conn.WaitForNotification(wait)
+			cancel()
+			if ctx.Err() != nil {
+				return true, ctx.Err()
+			}
+			if err != nil {
+				if !time.Now().Before(check) {
+					break
+				}
+				return true, err
+			}
+			var change struct{ Schema, Issuer, Target string }
+			if json.Unmarshal([]byte(n.Payload), &change) != nil || change.Schema != s.dbSchema() || change.Issuer != s.cfg.Issuer {
+				continue
+			}
+			if t := s.provisioningTarget(change.Target); t != nil {
+				if err := s.wakeProvisioning(ctx, t); err != nil {
+					return true, err
+				}
+			}
+		}
+		// A LISTEN already held changes nothing: the round trip is the ping.
+		ping, cancel := context.WithTimeout(ctx, listenerPing)
+		_, err := conn.Exec(ping, "LISTEN "+provisioningChannel)
+		cancel()
+		if err != nil {
+			return true, err
 		}
 	}
 }
