@@ -201,7 +201,8 @@ test("AK-UI-23: the Team page invites by email, the invitee signs up into the ro
       .getByRole("button", { name: "Revoke", exact: true })
       .click()
     await expect(newest).toContainText("Revoked")
-    await guest.goto(`/invite?accept-invitation${linkHash}`)
+    // Another query, so the page loads anew rather than only its fragment.
+    await guest.goto(`/invite?accept-invitation&link${linkHash}`)
     await guest
       .getByRole("button", { name: "Accept invitation", exact: true })
       .click()
