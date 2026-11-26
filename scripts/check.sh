@@ -54,28 +54,5 @@ if [[ "$mode" != workflows ]]; then
     test -z "$(git ls-files --others --exclude-standard -- internal/db)"
   fi
 
-  # Released migrations are immutable and new ones are numbered after them.
-  migrations=internal/migrations/postgres
-  release=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
-  last=0
-  for path in $(git ls-tree --name-only "$release" -- "$migrations/" | grep '\.sql$'); do
-    # Releases through v1.24.0 carry migratekit's dead `-- parent:` header, which no ledger hashed.
-    blob=$(git cat-file blob "$release:$path" | sed '1{/^-- parent: /d;}' | git hash-object --stdin)
-    number=$(basename "$path")
-    number=${number%%_*}
-    if [[ -f $path && $(git hash-object "$path") == "$blob" ]]; then
-      if (( 10#$number > last )); then last=$((10#$number)); fi
-    else
-      echo "migration $path released in $release was changed or removed" >&2
-      exit 1
-    fi
-  done
-  for added in $(git diff --name-only --diff-filter=A "$release" -- "$migrations/*.sql"); do
-    number=$(basename "$added")
-    number=${number%%_*}
-    if (( 10#$number <= last )); then
-      echo "new migration $added must be numbered after $last (released in $release)" >&2
-      exit 1
-    fi
-  done
+  scripts/check-released-migrations.sh
 fi

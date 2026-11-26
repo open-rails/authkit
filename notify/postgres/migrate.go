@@ -17,7 +17,7 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
-var migrationPaths = []string{"migrations/001_inbox.sql", "migrations/002_action_requested.sql", "migrations/003_receipt_state.sql", "migrations/004_app_visibility.sql", "migrations/005_app_erasure.sql", "migrations/006_producer_mutations.sql"}
+var migrationPaths = []string{"migrations/001_inbox.sql"}
 
 func schemaName(schema string) (string, error) {
 	if schema == "" || len(schema) > 63 || strings.TrimSpace(schema) != schema || strings.ContainsRune(schema, 0) {
