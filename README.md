@@ -253,6 +253,7 @@ Mounting gives your users the routes below under `/auth/v1`, plus the public key
 | `POST /auth/v1/device-verification/confirm`, `/send` | finish signing in on a new device with the code sent to the account's owner, or send it again |
 | `POST /auth/v1/account/recovery/confirm` | undo deleting your own account, within 30 days, and go on signing in |
 | `POST /auth/v1/invitations/redeem` | accept an invitation |
+| `POST /auth/v1/setup` | create the first owner with the setup link the server logged, then sign in ([the first owner](docs/rbac.md#the-first-owner)) |
 
 Sign-ins are limited per device over 24 hours: 5 accounts per browser (20 per address for a client without AuthKit's device cookie), and 10 new devices per account. Signing back into a counted account, or from a device the account used in the last 30 days, is never limited by these counts. Failed passwords are also limited per identifier (`password_login_identifier`, see [HTTP](docs/http.md#client-addresses-and-rate-limits)). Past the device limit, a new device enters a code sent to the owner's email or phone, which a posted password doesn't get you.
 
@@ -358,7 +359,7 @@ adding a verified replacement first permits removing the old factor.
 | `GET /auth/v1/groups/{group_id}/roles` | the roles this group has |
 | `GET /auth/v1/groups/{group_id}/roles/{role}` | one of them, and what it grants |
 | `GET /auth/v1/groups/{group_id}/invitations` | its invitations |
-| `POST /auth/v1/groups/{group_id}/invitations` | invite someone with a link, or by email |
+| `POST /auth/v1/groups/{group_id}/invitations` | invite someone with a link, or by email (where email is unavailable, answered with its link to share) |
 | `DELETE /auth/v1/groups/{group_id}/invitations/{id}` | revoke one |
 
 **Site admins** (need the matching `root:` permission, and a recent sign-in for account changes; staff change only accounts they outrank, so demote a peer first. Bans, deletions, sign-outs and contact changes are recorded with who made them in `Client.ListEvents`, for your audit log.)
@@ -381,7 +382,7 @@ adding a verified replacement first permits removing the old factor.
 | `PATCH /auth/v1/admin/tenants/{tenant_id}` | [rename](docs/tenant-directories.md#tenant-names) it (`root:tenants:manage`) |
 | `GET /auth/v1/admin/tenants/by-slug/{slug}` | the tenant a current or former name belongs to (`root:tenants:read`) |
 
-Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Passwordless sign-in, device keys and personal access tokens are opt-in route groups: add `iam.RoutePasswordless`, `iam.RouteDeviceKeys` or `iam.RoutePersonalAccessTokens` to `HTTP.Groups` (nil is `iam.DefaultRouteGroups()`). Leave `iam.RouteInvitations` out, and the invitation routes go.
+Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Passwordless sign-in, device keys and personal access tokens are opt-in route groups: add `iam.RoutePasswordless`, `iam.RouteDeviceKeys` or `iam.RoutePersonalAccessTokens` to `HTTP.Groups` (nil is `iam.DefaultRouteGroups()`). Leave `iam.RouteInvitations` out, and the invitation routes go; leave `iam.RouteSetup` out, and Start logs no setup link. `GET /auth/v1/capabilities` lists the groups served as `route_groups`, so a console knows which panels it can show.
 
 Group API keys belong to the organization; their creator is audit information. Optional [personal access tokens](docs/personal-access-tokens.md) are a separate, user-owned credential, on only with `iam.RoutePersonalAccessTokens`.
 

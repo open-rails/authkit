@@ -23,7 +23,10 @@ const (
 	// RouteInvitations is invite links and emailed invitations into a
 	// group, and redeeming them. Without it only the host's own
 	// Client.CreateInvitation calls issue any.
-	RouteInvitations      RouteGroup = "invitations"
+	RouteInvitations RouteGroup = "invitations"
+	// RouteSetup is the first administrator's setup: while no account holds
+	// a role on root, Start logs a single-use link that creates the owner.
+	RouteSetup            RouteGroup = "setup"
 	RouteRegistration     RouteGroup = "registration"
 	RouteAccount          RouteGroup = "account"
 	RouteAdmin            RouteGroup = "admin"
@@ -98,5 +101,5 @@ const (
 // group but the opt-in RouteDeviceKeys, RoutePasswordless and
 // RoutePersonalAccessTokens. Append those to it to mount them too.
 func DefaultRouteGroups() []RouteGroup {
-	return []RouteGroup{RouteAuth, RouteRegistration, RouteAccount, RouteAdmin, RoutePermissionGroups, RouteInvitations, RouteBrowserOIDC, RouteAuthorizationServer, RouteSCIM}
+	return []RouteGroup{RouteAuth, RouteRegistration, RouteAccount, RouteAdmin, RoutePermissionGroups, RouteInvitations, RouteSetup, RouteBrowserOIDC, RouteAuthorizationServer, RouteSCIM}
 }

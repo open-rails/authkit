@@ -245,6 +245,7 @@ func (s *Engine) Start(ctx context.Context, fleet *river.Client[pgx.Tx]) error {
 	}
 	s.startProvisioningListener()
 	s.startSenderHealth()
+	s.announceSetup(ctx)
 	return nil
 }
 

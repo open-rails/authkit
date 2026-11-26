@@ -25,6 +25,8 @@ Every route lives beneath the issuer's path, `{path}` (empty for an issuer at it
 
 - `HTTPConfig.Groups` selects the route groups (`iam.RouteGroup`); nil is `iam.DefaultRouteGroups()`, every group but the opt-in ones: passwordless sign-in (`iam.RoutePasswordless`), device keys (`iam.RouteDeviceKeys`) and personal access tokens (`iam.RoutePersonalAccessTokens`). Each of those features is on exactly when its group is mounted.
 - Without `iam.RouteInvitations` invitations are off: the four invitation routes go, `/capabilities` reports `invitations.enabled` false, and issuing or redeeming one is `invitations_disabled`.
+- Without `iam.RouteSetup` Start logs no setup link and `POST /setup` goes ([the first owner](rbac.md#the-first-owner)).
+- `/capabilities` lists the groups that serve at least one route as `route_groups`.
 - Within a mounted group, a route is mounted only when its feature is on, such as `Registration`, `TwoFactor`, `AuthorizationServer.Clients`, `SolanaNetwork` or `Deps.Providers`. The OpenAPI entry's `x-authkit-mounted-when` names the feature.
 - `Client.Routes()` lists what is mounted.
 - `Deps.Wrap` decorates each handler (logging, tracing, CORS), or replaces one the host serves itself, JWKS included. AuthKit sets no CORS headers of its own.
@@ -34,7 +36,7 @@ Every route lives beneath the issuer's path, `{path}` (empty for an issuer at it
 
 - The refresh token lives only in an `HttpOnly` issuer-specific `__Host-authkit_rt_<issuer-hash>` cookie, and never in a response body.
 - The single-page app and AuthKit must share an origin. Cookie mounts refuse cross-site requests (by `Origin` and `Sec-Fetch-Site`) and refresh tokens sent in bodies.
-- Links in emails and the OIDC return go to fixed routes beneath `Config.FrontendURL`: `/verify`, `/reset`, `/passwordless`, `/invite`, `/authorize` and `/login/callback`.
+- Links in emails and the OIDC return go to fixed routes beneath `Config.FrontendURL`: `/verify`, `/reset`, `/passwordless`, `/invite`, `/setup`, `/authorize` and `/login/callback`.
 - Register one redirect URI at each identity provider: `{issuer}/oidc/{provider}/callback`. Sign-in, linking and step-up all return there.
 
 ## Client addresses and rate limits

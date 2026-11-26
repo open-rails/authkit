@@ -19,8 +19,10 @@ import (
 // answered once (201), or emails an invitation (202). The 202 is the same for
 // every address, so it never reveals whether an account holds it; the role
 // lands only when the recipient registers with it, or redeems it signed in to
-// the account that proved the address. On root, an email with no role
-// invites someone to register (root:users:invite).
+// the account that proved the address. Where email is unavailable nothing is
+// sent and the invitation is answered like a link (201), for the inviter to
+// share. On root, an email with no role invites someone to register
+// (root:users:invite).
 func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	var body InvitationCreateRequest
 	if err := decodeJSON(r, &body); err != nil {
@@ -57,8 +59,13 @@ func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, 
 	if s.rateLimitedByIdentifier(w, r, RLInviteCreate, n.Email) {
 		return
 	}
-	if _, err := s.svc.CreateInvitation(r.Context(), who, iam.GroupByID(g.ID), n); err != nil {
+	created, err := s.svc.CreateInvitation(r.Context(), who, iam.GroupByID(g.ID), n)
+	if err != nil {
 		s.writeError(w, err)
+		return
+	}
+	if !created.Emailed {
+		writeJSON(w, http.StatusCreated, created)
 		return
 	}
 	accepted(w)

@@ -17,6 +17,7 @@ const (
 	PasswordResetPath = "/reset"
 	PasswordlessPath  = "/passwordless"
 	InvitePath        = "/invite"
+	SetupPath         = "/setup"
 	AuthorizePath     = "/authorize"
 )
 

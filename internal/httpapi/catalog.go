@@ -451,8 +451,9 @@ func Catalog() []RouteSpec {
 			Responses: replyNoContent, serve: groupOp(OpRoleDelete)},
 		{Method: GET, Path: "/groups/{group_id}/invitations", Group: invitations, Auth: permission, Perm: OpInvitationsList.catalogPermission(), Bucket: RLGroupRead,
 			Query: PageQuery{}, Responses: replyOK(iam.ListPage[iam.Invitation]{}), serve: groupOp(OpInvitationsList)},
-		// A link answers its code once (201); an emailed invitation answers
-		// 202 whoever holds the address.
+		// A link answers its code once (201), as does an email invitation
+		// where email is unavailable; an emailed one answers 202 whoever
+		// holds the address.
 		{Method: POST, Path: "/groups/{group_id}/invitations", Group: invitations, Auth: permission, Perm: OpInvitationCreate.catalogPermission(), Bucket: RLInviteCreate,
 			Request: InvitationCreateRequest{}, Responses: []Reply{{http.StatusCreated, iam.InvitationCreated{}}, {http.StatusAccepted, nil}}, serve: groupOp(OpInvitationCreate)},
 		{Method: DELETE, Path: "/groups/{group_id}/invitations/{id}", Group: invitations, Auth: permission, Perm: OpInvitationRevoke.catalogPermission(), Bucket: RLGroupWrite,
@@ -487,6 +488,10 @@ func Catalog() []RouteSpec {
 			Responses: replyNoContent, serve: groupOp(OpRemoteAppDelete)},
 		{Method: POST, Path: "/invitations/redeem", Group: invitations, Auth: session, Bucket: RLInviteRedeem,
 			Request: InvitationRedeemRequest{}, Responses: replyOK(iam.Membership{}), serve: handle((*Service).handleInvitationRedeemPOST)},
+		// The first administrator: a setup link's token creates the owner,
+		// then signs in as /password/login does.
+		{Method: POST, Path: "/setup", Group: iam.RouteSetup, Auth: public, Bucket: RLInviteRedeem,
+			Request: SetupRequest{}, Responses: signedIn, serve: handle((*Service).handleSetupPOST)},
 
 		// Browser OIDC: navigations and the provider's one callback, which
 		// completes a login, link or step-up alike. A callback asked for JSON

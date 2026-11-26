@@ -11,7 +11,9 @@ import (
 // address that let it register. Each dies with its creator's authority.
 
 // CreateInvitation creates an invite link (n.Email empty) that grants n.Role
-// to the signed-in account redeeming it, or emails an invitation to n.Email.
+// to the signed-in account redeeming it, or emails an invitation to n.Email
+// when email is available (InvitationCreated.Emailed); else the inviter shares
+// its URL.
 // A link, and an email invitation carrying a role, need the group's
 // <persona>:members:manage and coverage of the role; a plain email invitation
 // (no role) is created in the root or owning tenant group and needs its

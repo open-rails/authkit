@@ -5,7 +5,7 @@ caller pool and no runtime configuration, preserving memberships and create
 events on replay, refusing invalid/conflicting/deleted groups, and converging
 concurrent migrations and cancelled-call retries.
 
-`scenarios.json` names the 214 Go scenarios. The separate `auth-ui` suite requires nine J29 scenario IDs, exercised with the selected client methods in 18 browser/client cases; its result checker also requires the exact set of 18 executable case IDs. The required result checker rejects failures, skips, missing scenario passes, and duplicate scenario IDs; a passing nested branch cannot qualify a failed parent scenario.
+`scenarios.json` names the 219 Go scenarios. The separate `auth-ui` suite requires nine J29 scenario IDs, exercised with the selected client methods in 23 browser/client cases; its result checker also requires the exact set of 23 executable case IDs. The required result checker rejects failures, skips, missing scenario passes, and duplicate scenario IDs; a passing nested branch cannot qualify a failed parent scenario.
 
 Run the backend suite with `scripts/check.sh workflows`, or select a journey locally with `go test -run 'TestCriticalSessions' -v ./critical`. Set `AUTHKIT_TEST_DATABASE_URL`, `AUTHKIT_TEST_REDIS_URL` and `AUTHKIT_TEST_PGBOUNCER_URL` (PgBouncer in transaction mode in front of that database) to disposable services. Each journey owns a PostgreSQL schema and runs in parallel with the others, except the few marked Serial, which change process-wide state, share Redis keys or time themselves; no test skips because a service is missing. `scripts/check.sh contracts` retains compiler/vet, sqlc generation/validation, and released migration checks.
 
