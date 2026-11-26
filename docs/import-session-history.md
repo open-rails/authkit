@@ -59,5 +59,5 @@ Imported entries list through `ListSessionEvents` and the existing admin history
 view, with no session ID. They create no sessions, notifications or account
 events, and do not change account state. Set legacy `LastLogin` separately through
 `ImportUsers` with `ImportMerge`; use the latest successful source sign-in.
-Migration 0027 adds a nullable import key and a partial unique index, with no
-backfill of native history.
+The import key is a nullable column with a partial unique index; native history
+has none.

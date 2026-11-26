@@ -438,4 +438,4 @@ More: [resource server](docs/resource-server.md), [keys](docs/keys.md), [tokens]
 
 Contributing: changes go to the open release candidate named in [OPEN.md](OPEN.md), not to master ([branches and CI](docs/ci.md)).
 
-See [the retained event log](docs/event-log.md) for native and HTTP readers, independent cursors, and migration from removed `OnEvent` callbacks.
+See [the retained event log](docs/event-log.md) for native and HTTP readers and independent cursors.

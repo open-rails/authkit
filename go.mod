@@ -12,7 +12,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/mr-tron/base58 v1.3.0
 	github.com/nyaruka/phonenumbers v1.8.1
-	github.com/open-rails/migratekit v1.11.2
+	github.com/open-rails/migratekit v1.13.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/riverqueue/river v0.49.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.49.0

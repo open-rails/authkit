@@ -45,9 +45,7 @@ if [[ "$mode" != workflows ]]; then
       sqlc_sep='?'
     fi
     export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}${sqlc_sep}options=-csearch_path%3Dprofiles%2Cpublic"
-    go run ./internal/cmd/migrate \
-      -dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles \
-      -legacy-tenant-id 00000000-0000-4000-8000-000000000001
+    go run ./internal/cmd/migrate -dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles
     go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate -f internal/db/sqlc.yaml
     go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet -f internal/db/sqlc.yaml
     git diff --exit-code -- internal/db

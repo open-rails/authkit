@@ -39,8 +39,9 @@ type Config struct {
 	// DefaultTenantID is multi-tenant only: the tenant ordinary account
 	// operations and HTTP authentication act in when no trusted tenant view
 	// or resolver selects one; zero refuses such operations
-	// (iam.ErrTenantRequired). A single-tenant deployment names no tenant
-	// anywhere: its one tenant is the database's (Client.TenantID).
+	// (iam.ErrTenantRequired). New creates it in a database holding no
+	// tenant. A single-tenant deployment names no tenant anywhere: its one
+	// tenant is the database's (Client.TenantID).
 	DefaultTenantID iam.TenantID `yaml:"default_tenant_id"`
 	// Database names the PostgreSQL schemas AuthKit's and River's tables live
 	// in. New creates or upgrades them.

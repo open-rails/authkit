@@ -189,21 +189,6 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/go
-      # A rewrite of applied migrations (a fold into the baseline) must build
-      # the database its base's migrations build: identical pg_dump output in
-      # two schemas. pg_dump 18 is the service container's.
-      - name: Rewritten migrations build the base's schema
-        env:
-          BASE_SHA: ${{ needs.changes.outputs.base_sha }}
-          PG_CONTAINER: ${{ job.services.postgres.id }}
-        run: |
-          set -euo pipefail
-          base="${BASE_SHA:-$(git merge-base HEAD origin/master)}"
-          if [[ -z "$(git diff --name-only --diff-filter=a "$base" HEAD -- internal/migrations/postgres notify/postgres/migrations)" ]]; then
-            echo 'No migration of the base was changed or removed.'
-            exit 0
-          fi
-          go run ./scripts/schemaproof -ref "$base" -dsn "$AUTHKIT_TEST_DATABASE_URL" -pg-dump "docker exec $PG_CONTAINER pg_dump"
       - run: scripts/check.sh contracts
 
   # Keep the security boundary explicit while avoiding four independent CI

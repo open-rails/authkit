@@ -15,27 +15,31 @@ import (
 	"github.com/open-rails/migratekit"
 )
 
+// MigrationOptions configure Migrate.
+type MigrationOptions struct {
+	// Tenancy is the deployment's Config.Tenancy. Single-tenant, Migrate
+	// creates the one tenant a database without one needs (under TenantID,
+	// else a new ID), adopts the one a database holds, and refuses a database
+	// with more, or with another than TenantID.
+	Tenancy config.Tenancy
+	// TenantID is the tenant a database holding none is created with: one
+	// whose ID must match another system's, such as a ContentKit business.
+	// Multi-tenant it is the deployment's default tenant (New passes
+	// DefaultTenantID); a database already holding a tenant is unchanged.
+	TenantID iam.TenantID
+	// Logger receives the migrators' logs. Nil is slog.Default().
+	Logger *slog.Logger
+}
+
 // Migrate creates or upgrades AuthKit's tables in db.Schema and River's in
 // db.RiverSchema through pool, whose role then owns them. New runs it before
 // anything else touches the database; replicas booting together serialize on
 // advisory locks, so it is safe to run concurrently. A schema a newer build
 // already migrated passes unchanged: migrations this build does not know are
-// left as they are.
-type MigrationOptions struct {
-	// Tenancy is the deployment's Config.Tenancy. Single-tenant, Migrate
-	// creates the one tenant a database without one needs (under
-	// LegacyTenantID, else a new ID), adopts the one a database holds, and
-	// refuses a database with more, or with another than LegacyTenantID.
-	Tenancy config.Tenancy
-	// LegacyTenantID names the tenant that adopts the accounts of a database
-	// from before tenants (AuthKit before v1.30). Multi-tenant such a
-	// database refuses to migrate without it; single-tenant a new ID is
-	// used. It never merges directories.
-	LegacyTenantID iam.TenantID
-	// Logger receives the migrators' logs. Nil is slog.Default().
-	Logger *slog.Logger
-}
-
+// left as they are. Applied migrations never change: a schema that ran a
+// migration whose file differs from this build's, as every schema built
+// before v1.58.0 did, is refused before anything is applied
+// (migratekit.ErrMigrationEdited) and is rebuilt.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, options ...MigrationOptions) error {
 	if pool == nil {
 		return errors.New("authkit: migrating needs Deps.Postgres")
@@ -48,25 +52,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 		opts = options[0]
 	}
 	log := logx.Or(opts.Logger)
-	legacy := opts.LegacyTenantID
-	if legacy.IsZero() && opts.Tenancy == config.TenancySingle {
-		legacy = iam.NewTenantID()
-	}
-	if !legacy.IsZero() {
-		// The migration setting belongs only to this owned handle. Never mutate
-		// the host pool or interpolate a configured ID into migration SQL.
-		cfg := pool.Config().Copy()
-		if cfg.ConnConfig.RuntimeParams == nil {
-			cfg.ConnConfig.RuntimeParams = map[string]string{}
-		}
-		cfg.ConnConfig.RuntimeParams["authkit.legacy_tenant_id"] = legacy.String()
-		owned, err := pgxpool.NewWithConfig(ctx, cfg)
-		if err != nil {
-			return fmt.Errorf("authkit: prepare tenant migration connection: %w", err)
-		}
-		defer owned.Close()
-		pool = owned
-	}
 	normalized, err := config.NormalizeSchema(db.Schema)
 	if err != nil {
 		return err
@@ -84,10 +69,11 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 		return fmt.Errorf("authkit: create PostgreSQL migrator: %w", err)
 	}
 	defer migrator.Close()
-	// Strict integrity: an edited applied migration refuses unless the schema
-	// is unchanged.
-	migrator = migrator.WithSchema(normalized).WithStrictIntegrity().WithWarnFunc(migrationWarnings(ctx, log))
+	migrator = migrator.WithSchema(normalized).WithImmutableMigrations().WithWarnFunc(migrationWarnings(ctx, log))
 	if err := migrator.ApplyMigrations(ctx, migrations); err != nil {
+		if errors.Is(err, migratekit.ErrMigrationEdited) {
+			return fmt.Errorf("authkit: %w", rebuild(normalized, err))
+		}
 		return fmt.Errorf("authkit: apply PostgreSQL migrations to schema %q: %w", normalized, err)
 	}
 	// The account inbox lives beside the accounts.
@@ -100,11 +86,18 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, db config.DatabaseConfig, 
 		return fmt.Errorf("authkit: migrate River: %w", err)
 	}
 	if opts.Tenancy == config.TenancySingle {
-		if _, err := soleTenant(ctx, log, pool, db, opts.LegacyTenantID, true); err != nil {
-			return err
-		}
+		_, err := soleTenant(ctx, log, pool, db, opts.TenantID, true)
+		return err
+	}
+	if !opts.TenantID.IsZero() {
+		return firstTenant(ctx, log, pool, db, opts.TenantID)
 	}
 	return nil
+}
+
+// rebuild explains a schema whose applied migrations this build changed.
+func rebuild(schema string, err error) error {
+	return fmt.Errorf("schema %q ran migrations this build does not carry unchanged; AuthKit's migrations never change once released, and a database built before v1.58.0 is rebuilt: %w", schema, err)
 }
 
 // migrationWarnings logs migratekit's warnings through log.

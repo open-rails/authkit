@@ -29,7 +29,7 @@ require (
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/nyaruka/phonenumbers v1.8.1 // indirect
 	github.com/open-rails/helpers v1.22.1 // indirect
-	github.com/open-rails/migratekit v1.11.2 // indirect
+	github.com/open-rails/migratekit v1.13.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/redis/go-redis/v9 v9.23.0 // indirect
 	github.com/riverqueue/river v0.49.0 // indirect

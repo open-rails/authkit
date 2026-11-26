@@ -57,15 +57,6 @@ Use the configured AuthKit schema instead of `profiles` where it differs.
 Boundary event IDs also detect incompatible restored history. Restores must not
 reuse a stream epoch merely because numeric positions happen to match.
 
-The migration copies any still-retained legacy event once, deduplicated across
-issuer deliveries. Previously delivered/deleted history is unavailable and is
-not invented. It removes the old ordinary-event table and subscriber flag,
-and retires pending ordinary-event and account-cleanup River jobs while
-preserving their required domain cleanup receipts. Stop old account writers
-before migrating every participating fleet; migration refuses active legacy
-workers. `Deps.OnEvent` is removed: migrate hosts to `ListEvents` before adopting
-this version.
-
 Hosts that apply account events can run AuthKit's loop instead of their own.
 `tenant.StartAccountEvents(ctx, authkit.AccountEventOptions{Pool, Schema, Handle, Sync, Reconcile})`
 reads the tenant stream and then the authority stream into `Handle`, every
@@ -127,24 +118,11 @@ to the cursor, with at most 100 supplied types and a 100 default/500 maximum pag
 Native Kinds-only queries retain their historical exact strings, including outer
 whitespace; Types queries use the common trimmed normalization.
 
-Migration0025 moves the existing facts into the shared PostgreSQL engine,
-keeping recorded times, positions, IDs and deployment epoch unchanged. Old read
-names remain compatibility views; the former allocator/write queries are gone.
-Shared paging uses the historical AuthKit cursor codec and missing-floor-ID
-compatibility; it does not reissue historical facts. Existing empty-scope cursors
-retain the singleton epoch when their first shared stream is created. There is
-no new tenant foreign key that could delete retained historical facts.
-
-Imported recording times may be nonmonotonic. Retention preserves every younger
-row and excludes individually expired rows, even when they appear after a younger
-position. This is the existing retained-only contract, not lossless catch-up of
-expired history; migration copies the physical rows and timestamps unchanged.
-Pruning deletes only an expired prefix. New shared writes have monotonic recording
-timestamps, so this historical gap case does not arise for them.
-
-Stop older writers and keep a database backup before applying0025. It changes
-writer storage and must be coordinated across the fleet; rolling back the binary
-alone does not restore the retired writer tables.
+Events live in Helpers' shared PostgreSQL engine (`eventlog_events`,
+`eventlog_streams`). Every stream takes the deployment's epoch
+(`event_log_instance`), so a cursor issued before its stream's first event stays
+valid. There is no tenant foreign key that could delete retained facts. Pruning
+deletes only an expired prefix.
 
 The remote constructor is deliberately an event reader, not a general remote
 `*Client`. General client transport readiness is design-only for future work,

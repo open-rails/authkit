@@ -1,47 +1,7 @@
--- AuthKit's PostgreSQL 18+ schema. A table comes before every table that
--- references it and is followed by its constraints, indexes, comments,
--- functions and triggers. The migration is transactional and never drops or
--- adopts existing AuthKit relations.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = current_schema() AND c.relname IN (
-      'account_deletion_deliveries',
-      'account_deletions',
-      'account_delivery_fleets',
-      'account_events',
-      'account_registration_invites',
-      'api_keys',
-      'bootstrap_applies',
-      'ephemeral_kv',
-      'group_invite_links',
-      'group_remote_application_roles',
-      'group_user_roles',
-      'mfa_factors',
-      'mfa_settings',
-      'name_claims',
-      'permission_groups',
-      'refresh_sessions',
-      'refresh_token_history',
-      'remote_applications',
-      'role_catalogs',
-      'session_events',
-      'usable_users',
-      'user_device_keys',
-      'user_passkey_handles',
-      'user_passkeys',
-      'user_passwords',
-      'user_providers',
-      'users'
-    )
-  ) THEN
-    RAISE EXCEPTION 'unsupported AuthKit schema: use a fresh AuthKit schema and reset only its scoped migration ledger'
-      USING ERRCODE = '55000';
-  END IF;
-END;
-$$;
-
+-- AuthKit's PostgreSQL 18+ schema, as of v1.58.0. A table comes before every
+-- table that references it and is followed by its constraints, indexes,
+-- comments, functions and triggers. Released migrations never change: a schema
+-- change is a new migration, numbered after the last.
 SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '300s';
 
@@ -567,18 +527,6 @@ CREATE TRIGGER permission_group_identity_immutable
   FOR EACH ROW WHEN (NEW.id IS DISTINCT FROM OLD.id OR NEW.persona IS DISTINCT FROM OLD.persona)
   EXECUTE FUNCTION permission_group_identity_immutable();
 CREATE TRIGGER permission_groups_tenant_immutable BEFORE UPDATE OF tenant_id ON permission_groups FOR EACH ROW EXECUTE FUNCTION preserve_tenant_ownership();
-
--- A deployment that names its first tenant (MigrationOptions.LegacyTenantID)
--- gets it with its canonical group.
-DO $$
-DECLARE named uuid := NULLIF(current_setting('authkit.legacy_tenant_id', true), '')::uuid;
-BEGIN
-  IF named IS NOT NULL THEN
-    INSERT INTO tenants(id, slug) VALUES (named, 'tenant-' || replace(named::text, '-', ''));
-    INSERT INTO permission_groups(id, persona, tenant_id) VALUES (named, 'tenant', named);
-  END IF;
-END;
-$$;
 
 -- A role has one text form everywhere: `<persona>:<name>`.
 CREATE TABLE group_user_roles (

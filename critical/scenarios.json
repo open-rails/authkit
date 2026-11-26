@@ -7,6 +7,7 @@
   "AK-J01-C06": "a non-URL or plain-http issuer or frontend base URL refuses startup, except http on a loopback host",
   "AK-J01-C07": "a deployment logs only through Deps.Logger: its migrators, its River fleet, its key source, its Redis fallback and the verify gates over it, with nothing reaching slog.Default()",
   "AK-J01-C08": "development keys a loopback issuer generated into its key directory sign across restarts, refuse startup for any other issuer, which never generates; provisioned keys serve any issuer",
+  "AK-J01-C09": "a schema an earlier migration chain built (every one before v1.58.0) is refused by Migrate, New and a validating start, naming the rebuild, and nothing is applied",
   "AK-J02-C01": "two tenants sharing email/username; allowed public-user projection returns the scoped public identity without private contact or credential fields",
   "AK-J02-C02": "bootstrap repeat and last-owner constraints",
   "AK-J02-C03": "failed import/transaction rollback and retry",

@@ -320,9 +320,9 @@ pkg authkit, type MemberPerms struct, Read iam.Perm
 pkg authkit, type MemberPerms struct, embedded config.Resource
 pkg authkit, type MigrationOptions = engine.MigrationOptions
 pkg authkit, type MigrationOptions struct
-pkg authkit, type MigrationOptions struct, LegacyTenantID iam.TenantID
 pkg authkit, type MigrationOptions struct, Logger *slog.Logger
 pkg authkit, type MigrationOptions struct, Tenancy config.Tenancy
+pkg authkit, type MigrationOptions struct, TenantID iam.TenantID
 pkg authkit, type NotificationAdoption = notify.Adoption
 pkg authkit, type NotificationDelivery struct
 pkg authkit, type NotificationProducer = config.NotificationProducer
