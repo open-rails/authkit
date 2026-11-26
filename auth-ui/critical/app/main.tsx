@@ -36,7 +36,9 @@ const baseUrl = params.has("limited")
     ? "/unproved/v1"
     : params.has("firstrun")
       ? "/firstrun/v1"
-      : "/auth/v1"
+      : params.has("noemail")
+        ? "/noemail/v1"
+        : "/auth/v1"
 // Transparent public-boundary coverage only: real methods and results are
 // unchanged. No arguments, credentials or response data are recorded.
 function observe<T extends object>(target: T, boundary: string): T {

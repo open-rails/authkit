@@ -97,7 +97,19 @@ func run(addr, origin, dist, app string) error {
 	if err = firstrun.Start(ctx); err != nil {
 		return err
 	}
+	// A deployment without email: invitations are handed over as links.
+	noemail, err := harness.New(ctx, origin+"/noemail", "critical_ui_noemail", pool, "noemail", nil)
+	if err != nil {
+		return err
+	}
+	defer noemail.Close(context.WithoutCancel(ctx))
+	if err = noemail.Start(ctx); err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
+	if err = noemail.Mount(mux); err != nil {
+		return err
+	}
 	if err = firstrun.Mount(mux); err != nil {
 		return err
 	}
@@ -110,7 +122,7 @@ func run(addr, origin, dist, app string) error {
 	if err = unproved.Mount(mux); err != nil {
 		return err
 	}
-	fixture(mux, rt, unproved, isolated)
+	fixture(mux, rt, unproved, noemail, isolated)
 	mux.HandleFunc("GET /__fixture/setup-link", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]string{"url": firstrun.SetupLink()})
 	})
@@ -145,7 +157,7 @@ func reply(w http.ResponseWriter, status int, value any) {
 
 // All controls seed through trusted public host methods. Outcomes under test are
 // observed through the real SDK/HTTP surface; no direct table mutations exist.
-func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime, isolated *authkit.Client) {
+func fixture(mux *http.ServeMux, rt, unproved, noemail *harness.Runtime, isolated *authkit.Client) {
 	mux.HandleFunc("POST /__fixture/notification", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			UserID, ID string
@@ -173,8 +185,11 @@ func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime, isolated *authki
 
 	mux.HandleFunc("GET /__fixture/deliveries", func(w http.ResponseWriter, r *http.Request) {
 		outbox := rt.Outbox
-		if r.URL.Query().Get("profile") == "unproved" {
+		switch r.URL.Query().Get("profile") {
+		case "unproved":
 			outbox = unproved.Outbox
+		case "noemail":
+			outbox = noemail.Outbox
 		}
 		reply(w, 200, outbox.Messages("", r.URL.Query().Get("to")))
 	})
@@ -188,8 +203,11 @@ func fixture(mux *http.ServeMux, rt, unproved *harness.Runtime, isolated *authki
 			return
 		}
 		client := rt.Client
-		if in.Profile == "unproved" {
+		switch in.Profile {
+		case "unproved":
 			client = unproved.Client
+		case "noemail":
+			client = noemail.Client
 		}
 		if in.Isolated {
 			client = isolated

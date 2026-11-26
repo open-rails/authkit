@@ -128,13 +128,18 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 		cfg.HTTP.Groups = slices.DeleteFunc(cfg.HTTP.Groups, func(g iam.RouteGroup) bool { return g == iam.RouteInvitations })
 	}
 	setup := &setupLinks{next: slog.NewTextHandler(os.Stderr, nil), mu: &sync.Mutex{}, urls: &[]string{}}
-	client, err := authkit.New(ctx, cfg, authkit.Deps{
+	deps := authkit.Deps{
 		Logger:        slog.New(setup),
 		Postgres:      pool,
 		KeySource:     keys.Static{Active: signer, Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()}, TOTP: totpKey},
 		RequestTenant: requestTenant,
 		Email:         outbox.Email(), SMS: outbox.SMS(),
-	})
+	}
+	// A deployment that sends no email, nor any text.
+	if profile == "noemail" {
+		deps.Email, deps.SMS = nil, nil
+	}
+	client, err := authkit.New(ctx, cfg, deps)
 	if err != nil {
 		return nil, err
 	}
