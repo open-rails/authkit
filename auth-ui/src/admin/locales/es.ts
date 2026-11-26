@@ -78,6 +78,10 @@ export const es: AdminMessageTree = {
     send: "Invitar",
     link: "Enlace de invitación",
     sent: "Se envió una invitación a {email}.",
+    notEmailed:
+      "El correo no está configurado en este servidor: envía a {email} el enlace de abajo.",
+    emailUnavailable:
+      "El correo no está configurado en este servidor: obtendrás un enlace para compartir.",
     list: "Invitaciones enviadas",
     empty: "Todavía no hay invitaciones.",
     recipient: "Destinatario",

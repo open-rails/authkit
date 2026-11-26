@@ -43,9 +43,12 @@ type Invitation struct {
 }
 
 // InvitationCreated is a new invitation with its code and link, shown this
-// once; only the code's hash is stored.
+// once; only the code's hash is stored. Emailed reports that an email
+// invitation was sent; when email is unavailable it is not, and the inviter
+// shares URL instead.
 type InvitationCreated struct {
 	Invitation Invitation `json:"invitation"`
 	Code       string     `json:"code"`
 	URL        string     `json:"url"`
+	Emailed    bool       `json:"emailed"`
 }

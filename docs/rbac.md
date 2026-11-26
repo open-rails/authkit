@@ -17,6 +17,17 @@ Every persona has an `owner` role (`channel:owner`) that holds `<persona>:*`. `i
 
 `root:owner` holds `root:*` and every other persona's `<persona>:*`, so the site owner can act in every group, like a root role holding `Channel.All()` (below).
 
+### The first owner
+
+A deployment that signs its own staff in needs its first administrator without a default password or a shell. While no usable account holds a role on root and `iam.RouteSetup` is mounted (it is by default), `Client.Start` logs a single-use setup link at warning level: `{FrontendURL}/setup#token=…`, valid 24 hours. Opening it (auth-ui's `OwnerSetup`) creates the owner account with an email, username and password of its own (`POST /setup`), holding `root:owner`; the owner's first sign-in enrolls a second factor before any session exists. The email stays unproven, as for any account a host creates.
+
+- Only the token's hash is stored, and one link lives at a time. A restart while it lives logs only its expiry; the first start after it expires logs a new one.
+- Once anyone holds a root role, Start logs nothing and its link creates nobody (`setup_link_invalid`).
+- `Client.IssueSetupLink` is the break-glass: a host command run from the server's shell issues a fresh link, replacing a live one, that creates an owner even while administrators exist. To invite instead, `Client.CreateInvitation` with `iam.SystemIdentity()` on `iam.RootGroup()`.
+- In a multi-tenant deployment the owner is created in the request's tenant, so set `DefaultTenantID`.
+
+Then the owner adds the team from the members routes below (auth-ui's `MembersAdmin` on `root`): an invitation by email lands its role when the invitee signs up with it; where email is unavailable, the invitation is answered with its link for the inviter to share. Every change on root needs a recent sign-in.
+
 ### Root roles reach every group
 
 A persona's role may hold only that persona's permissions. A root role may hold any persona's permissions, and holding it on root applies them in every group of that persona. The README's `Admin` is `rbac.Root.Role("admin", Channel.All(), …)`: it can do everything in every channel. `root:` permissions count only on root itself.

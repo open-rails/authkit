@@ -410,10 +410,20 @@ export function Invitations(props: InvitationsProps) {
         </Body>
       </Section>
     )
-  return <EnabledInvitations {...props} />
+  return (
+    <EnabledInvitations
+      {...props}
+      emailAvailable={capabilities.data.channels.email}
+    />
+  )
 }
 
-function EnabledInvitations({ group, access, roles }: InvitationsProps) {
+function EnabledInvitations({
+  group,
+  access,
+  roles,
+  emailAvailable,
+}: InvitationsProps & { emailAvailable: boolean }) {
   const { t } = useAdminMessages()
   const { client, language } = useAdmin()
   const emailId = useId()
@@ -423,6 +433,7 @@ function EnabledInvitations({ group, access, roles }: InvitationsProps) {
   const [role, setRole] = useState("")
   const [link, setLink] = useState<string | null>(null)
   const [status, setStatus] = useState("")
+  const [unsent, setUnsent] = useState(false)
   const [revoking, setRevoking] = useState<Invitation | null>(null)
   const page = useCallback(
     (cursor?: string, signal?: AbortSignal) =>
@@ -447,8 +458,16 @@ function EnabledInvitations({ group, access, roles }: InvitationsProps) {
           ReturnType<typeof client.createInvitation>
         >
         setLink(made?.url ?? null)
+        // An email invitation answered with its link was not sent.
         const sentTo = (data as { email: string }).email
-        setStatus(sentTo ? t("invitations.sent", { email: sentTo }) : "")
+        setUnsent(!!sentTo && !!made)
+        setStatus(
+          !sentTo
+            ? ""
+            : made
+              ? t("invitations.notEmailed", { email: sentTo })
+              : t("invitations.sent", { email: sentTo })
+        )
         setEmail("")
       } else {
         setStatus(t("invitations.revokedDone"))
@@ -483,7 +502,11 @@ function EnabledInvitations({ group, access, roles }: InvitationsProps) {
             >
               <FormField
                 label={t("invitations.email")}
-                hint={t("invitations.emailHint")}
+                hint={
+                  emailAvailable
+                    ? t("invitations.emailHint")
+                    : t("invitations.emailUnavailable")
+                }
                 htmlFor={emailId}
               >
                 <Input
@@ -519,8 +542,10 @@ function EnabledInvitations({ group, access, roles }: InvitationsProps) {
               </Button>
             </form>
             <ErrorText error={actions.error} />
+            {status && (
+              <Notice tone={unsent ? "warning" : "success"}>{status}</Notice>
+            )}
             {link && <SecretField label={t("invitations.link")} value={link} />}
-            {status && <Notice tone="success">{status}</Notice>}
           </Body>
         </Section>
       )}

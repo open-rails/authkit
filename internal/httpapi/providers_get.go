@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/open-rails/authkit/iam"
@@ -76,7 +77,20 @@ func (s *Service) Capabilities() Capabilities {
 		TwoFactor:   TwoFactorCapabilities{Mode: cfg.TwoFactor, Methods: s.svc.TwoFactorMethods()},
 		Invitations: InvitationCapabilities{Enabled: config.InvitationsOn(cfg)},
 		Languages:   cfg.Languages,
+		RouteGroups: s.servedRouteGroups(),
 	}
+}
+
+// servedRouteGroups lists the mounted groups that serve a route, in catalog
+// order.
+func (s *Service) servedRouteGroups() []iam.RouteGroup {
+	out := []iam.RouteGroup{}
+	for _, route := range Catalog() {
+		if config.Mounted(s.cfg, route.Group) && s.mounts(route.MountedWhen) && !slices.Contains(out, route.Group) {
+			out = append(out, route.Group)
+		}
+	}
+	return out
 }
 
 // nonNil is v, or an empty list for nil: the wire's lists are never null.

@@ -150,43 +150,8 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 	if err := s.requirePG(); err != nil {
 		return iam.User{}, err
 	}
-	var email, phone *string
-	if v := strings.TrimSpace(n.Email); v != "" {
-		if err := contact.ValidateEmail(v); err != nil {
-			return iam.User{}, err
-		}
-		v = contact.NormalizeEmail(v)
-		email = &v
-	}
-	if v := strings.TrimSpace(n.Phone); v != "" {
-		if err := contact.ValidatePhone(v); err != nil {
-			return iam.User{}, err
-		}
-		v = contact.NormalizePhone(v)
-		phone = &v
-	}
-	if (email == nil && n.EmailVerified) || (phone == nil && n.PhoneVerified) {
-		return iam.User{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("verified"))
-	}
-	username := naming.Canonical(n.Username)
-	if err := naming.ValidateImport(username); err != nil {
-		return iam.User{}, err
-	}
-	var hash string
-	if n.Password != "" {
-		if err := s.ValidatePassword(n.Password, username, deref(email)); err != nil {
-			return iam.User{}, err
-		}
-		var err error
-		if hash, err = password.HashArgon2id(ctx, n.Password); err != nil {
-			return iam.User{}, err
-		}
-	}
-	userID, err := newUUIDV7String()
+	acct, err := s.prepareUser(ctx, n)
 	if err != nil {
-		return iam.User{}, err
-	}
-	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
 		return iam.User{}, err
 	}
 	var tx pgx.Tx
@@ -199,27 +164,86 @@ func (s *Engine) CreateUser(ctx context.Context, n iam.NewUser, opts ...ops.Opti
 		return iam.User{}, err
 	}
 	defer tx.Rollback(ctx)
-	now := time.Now().UTC()
-	err = s.qtx(tx).UserImportInsert(ctx, db.UserImportInsertParams{TenantID: s.tenantKey(ctx),
-		ID: userID, Email: email, PhoneNumber: phone, Username: &username, AtTime: s.namingNow(),
-		EmailVerified: n.EmailVerified, PhoneVerified: n.PhoneVerified, PublicMetadata: []byte(`{}`), CreatedAt: now, UpdatedAt: now,
-	})
-	if err != nil {
-		return iam.User{}, mapUserUniqueViolation(err)
-	}
-	if hash != "" {
-		if err := s.qtx(tx).UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: userID, PasswordHash: hash, HashAlgo: "argon2id"}); err != nil {
-			return iam.User{}, err
-		}
-	}
-	if err := s.emitEvents(ctx, tx, iam.SystemIdentity(), userEvent(iam.EventUserRegistered, userID)); err != nil {
-		return iam.User{}, err
-	}
-	out, err := userIn(ctx, tx, userID)
+	out, err := s.insertUser(ctx, tx, acct)
 	if err != nil {
 		return iam.User{}, err
 	}
 	return out, tx.Commit(ctx)
+}
+
+// preparedUser is a validated NewUser with its id, admitted name and
+// password hash, ready to insert.
+type preparedUser struct {
+	id, username, hash           string
+	email, phone                 *string
+	emailVerified, phoneVerified bool
+}
+
+// prepareUser validates n and does the work that needs no transaction: the
+// password hash and the host's name admission.
+func (s *Engine) prepareUser(ctx context.Context, n iam.NewUser) (preparedUser, error) {
+	var email, phone *string
+	if v := strings.TrimSpace(n.Email); v != "" {
+		if err := contact.ValidateEmail(v); err != nil {
+			return preparedUser{}, err
+		}
+		v = contact.NormalizeEmail(v)
+		email = &v
+	}
+	if v := strings.TrimSpace(n.Phone); v != "" {
+		if err := contact.ValidatePhone(v); err != nil {
+			return preparedUser{}, err
+		}
+		v = contact.NormalizePhone(v)
+		phone = &v
+	}
+	if (email == nil && n.EmailVerified) || (phone == nil && n.PhoneVerified) {
+		return preparedUser{}, errmodel.E(errmodel.CodeInvalidRequest, errmodel.WithParam("verified"))
+	}
+	username := naming.Canonical(n.Username)
+	if err := naming.ValidateImport(username); err != nil {
+		return preparedUser{}, err
+	}
+	var hash string
+	if n.Password != "" {
+		if err := s.ValidatePassword(n.Password, username, deref(email)); err != nil {
+			return preparedUser{}, err
+		}
+		var err error
+		if hash, err = password.HashArgon2id(ctx, n.Password); err != nil {
+			return preparedUser{}, err
+		}
+	}
+	userID, err := newUUIDV7String()
+	if err != nil {
+		return preparedUser{}, err
+	}
+	if err := s.admitName(ctx, iam.NameAdmissionRequest{UserID: userID, RequestedName: username, Operation: iam.NameCreate}); err != nil {
+		return preparedUser{}, err
+	}
+	return preparedUser{id: userID, username: username, hash: hash, email: email, phone: phone,
+		emailVerified: n.EmailVerified, phoneVerified: n.PhoneVerified}, nil
+}
+
+// insertUser writes a prepared account and its registration event in tx.
+func (s *Engine) insertUser(ctx context.Context, tx pgx.Tx, u preparedUser) (iam.User, error) {
+	now := time.Now().UTC()
+	err := s.qtx(tx).UserImportInsert(ctx, db.UserImportInsertParams{TenantID: s.tenantKey(ctx),
+		ID: u.id, Email: u.email, PhoneNumber: u.phone, Username: &u.username, AtTime: s.namingNow(),
+		EmailVerified: u.emailVerified, PhoneVerified: u.phoneVerified, PublicMetadata: []byte(`{}`), CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		return iam.User{}, mapUserUniqueViolation(err)
+	}
+	if u.hash != "" {
+		if err := s.qtx(tx).UserPasswordUpsert(ctx, db.UserPasswordUpsertParams{UserID: u.id, PasswordHash: u.hash, HashAlgo: "argon2id"}); err != nil {
+			return iam.User{}, err
+		}
+	}
+	if err := s.emitEvents(ctx, tx, iam.SystemIdentity(), userEvent(iam.EventUserRegistered, u.id)); err != nil {
+		return iam.User{}, err
+	}
+	return userIn(ctx, tx, u.id)
 }
 
 // selfEditable are the UserUpdate fields an account may change on itself.

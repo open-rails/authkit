@@ -6187,6 +6187,48 @@
         "x-authkit-rate-limit": "invite_redeem"
       }
     },
+    "/auth/v1/setup": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "An error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-authkit-auth": "public",
+        "x-authkit-rate-limit": "invite_redeem"
+      }
+    },
     "/oidc/{provider}/login": {
       "get": {
         "tags": [
@@ -8944,6 +8986,27 @@
           },
           "paths": {
             "$ref": "#/components/schemas/MountPaths"
+          },
+          "route_groups": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "account",
+                "admin",
+                "auth",
+                "authorization_server",
+                "browser_oidc",
+                "device_keys",
+                "groups",
+                "invitations",
+                "passwordless",
+                "personal_access_tokens",
+                "registration",
+                "scim",
+                "setup"
+              ]
+            }
           }
         },
         "required": [
@@ -8964,7 +9027,8 @@
           "sms",
           "captcha",
           "dpop",
-          "paths"
+          "paths",
+          "route_groups"
         ]
       },
       "CaptchaWidget": {
@@ -9706,12 +9770,16 @@
           },
           "url": {
             "type": "string"
+          },
+          "emailed": {
+            "type": "boolean"
           }
         },
         "required": [
           "invitation",
           "code",
-          "url"
+          "url",
+          "emailed"
         ]
       },
       "InvitationRedeemRequest": {
@@ -12637,6 +12705,23 @@
           "user_agent"
         ]
       },
+      "SetupRequest": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
       "SignInKey": {
         "type": "object",
         "properties": {
@@ -15103,6 +15188,10 @@
     "session_revoked": {
       "status": 401,
       "message": "Your session has ended. Please sign in again."
+    },
+    "setup_link_invalid": {
+      "status": 404,
+      "message": "This setup link is invalid, used or expired. Ask whoever runs the server for a new one."
     },
     "single_tenant": {
       "status": 403,
