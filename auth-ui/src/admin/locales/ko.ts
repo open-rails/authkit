@@ -78,6 +78,10 @@ export const ko: AdminMessageTree = {
     send: "초대",
     link: "초대 링크",
     sent: "{email}(으)로 초대를 보냈습니다.",
+    notEmailed:
+      "이 서버에는 이메일이 설정되어 있지 않습니다. 아래 링크를 {email}에게 보내세요.",
+    emailUnavailable:
+      "이 서버에는 이메일이 설정되어 있지 않습니다. 공유할 링크가 표시됩니다.",
     list: "보낸 초대",
     empty: "아직 초대가 없습니다.",
     recipient: "받는 사람",

@@ -615,6 +615,28 @@ export const en = {
       "This account was deleted and can still be restored. It will be deleted for good {when}, on {date}.",
     confirm: "Restore account",
   },
+  setup: {
+    title: "Set up the owner account",
+    description:
+      "Nobody administers this server yet. The account you create here owns it and can invite everyone else.",
+    missingLink:
+      "Open the setup link from the server's log. It works once, for 24 hours; whoever runs the server can issue a new one.",
+    submit: "Create owner account",
+    mfaNote: "Next, you'll protect the account with a second sign-in step.",
+  },
+  invitation: {
+    title: "You're invited",
+    signUpDescription:
+      "Create your account to accept the invitation, or sign in if you already have one.",
+    signInDescription:
+      "Sign in, or create an account, then accept the invitation.",
+    acceptDescription: "Accept to join with the role you were invited to.",
+    accept: "Accept invitation",
+    accepted: "Invitation accepted",
+    joinedAs: "You joined as {role}.",
+    missingLink:
+      "This invitation link is incomplete. Open it again from your email, or ask for a new one.",
+  },
   callback: {
     completing: "Completing sign-in…",
     errorTitle: "Sign-in failed",

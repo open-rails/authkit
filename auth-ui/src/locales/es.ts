@@ -633,6 +633,23 @@ export const es: AuthUiMessageBundle = {
       "Esta cuenta fue eliminada y aún puede restaurarse. Se eliminará definitivamente {when}, el {date}.",
     confirm: "Restaurar cuenta",
   },
+  setup: {
+    title: "Configura la cuenta de propietario",
+    description: "Nadie administra este servidor todavía. La cuenta que crees aquí será su propietaria y podrá invitar a los demás.",
+    missingLink: "Abre el enlace de configuración del registro del servidor. Funciona una vez, durante 24 horas; quien opera el servidor puede emitir uno nuevo.",
+    submit: "Crear cuenta de propietario",
+    mfaNote: "A continuación protegerás la cuenta con un segundo paso de inicio de sesión.",
+  },
+  invitation: {
+    title: "Te han invitado",
+    signUpDescription: "Crea tu cuenta para aceptar la invitación, o inicia sesión si ya tienes una.",
+    signInDescription: "Inicia sesión o crea una cuenta y luego acepta la invitación.",
+    acceptDescription: "Acepta para unirte con el rol al que te invitaron.",
+    accept: "Aceptar invitación",
+    accepted: "Invitación aceptada",
+    joinedAs: "Te uniste como {role}.",
+    missingLink: "Este enlace de invitación está incompleto. Ábrelo de nuevo desde tu correo o pide uno nuevo.",
+  },
   callback: {
     completing: "Completando el inicio de sesión…",
     errorTitle: "Error al iniciar sesión",
@@ -865,6 +882,7 @@ export const es: AuthUiMessageBundle = {
       "Demasiados cambios de nombre de usuario. Inténtalo más tarde.",
     renames_disabled: "Los cambios de nombre de usuario están deshabilitados.",
     session_revoked: "Tu sesión terminó. Inicia sesión de nuevo.",
+    setup_link_invalid: "Este enlace de configuración no es válido, ya se usó o caducó. Pide uno nuevo a quien opera el servidor.",
     single_tenant:
       "Esta implementación tiene un solo tenant. Para tener más se necesita el modo multitenant.",
     sms_delivery_failed:

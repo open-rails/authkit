@@ -605,6 +605,23 @@ export const ko: AuthUiMessageBundle = {
       "이 계정은 삭제되었지만 아직 복구할 수 있습니다. {when}({date}) 영구적으로 삭제됩니다.",
     confirm: "계정 복구",
   },
+  setup: {
+    title: "소유자 계정 설정",
+    description: "이 서버에는 아직 관리자가 없습니다. 여기서 만드는 계정이 소유자가 되며 다른 사람을 초대할 수 있습니다.",
+    missingLink: "서버 로그에 있는 설정 링크를 여세요. 링크는 24시간 동안 한 번만 사용할 수 있으며, 서버 운영자가 새 링크를 발급할 수 있습니다.",
+    submit: "소유자 계정 만들기",
+    mfaNote: "다음으로 두 번째 로그인 단계로 계정을 보호합니다.",
+  },
+  invitation: {
+    title: "초대받았습니다",
+    signUpDescription: "계정을 만들어 초대를 수락하거나, 이미 계정이 있다면 로그인하세요.",
+    signInDescription: "로그인하거나 계정을 만든 다음 초대를 수락하세요.",
+    acceptDescription: "수락하면 초대받은 역할로 참여합니다.",
+    accept: "초대 수락",
+    accepted: "초대를 수락했습니다",
+    joinedAs: "{role}(으)로 참여했습니다.",
+    missingLink: "이 초대 링크가 완전하지 않습니다. 이메일에서 다시 열거나 새 링크를 요청하세요.",
+  },
   callback: {
     completing: "로그인을 완료하는 중…",
     errorTitle: "로그인 실패",
@@ -824,6 +841,7 @@ export const ko: AuthUiMessageBundle = {
       "사용자명 변경 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.",
     renames_disabled: "사용자명 변경이 비활성화되어 있습니다.",
     session_revoked: "세션이 종료되었습니다. 다시 로그인하세요.",
+    setup_link_invalid: "이 설정 링크는 유효하지 않거나 이미 사용되었거나 만료되었습니다. 서버 운영자에게 새 링크를 요청하세요.",
     single_tenant:
       "이 배포에는 테넌트가 하나뿐입니다. 더 추가하려면 멀티 테넌트 모드가 필요합니다.",
     sms_delivery_failed:

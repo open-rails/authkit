@@ -392,6 +392,15 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
 - Sign-in link landing: on `/passwordless` beneath AuthKit's `FrontendURL`,
   `<PasswordlessLink token={readLinkFragment(location.hash)?.token} navigate={(to) => router.replace(to)} />`
   spends the emailed link once and finishes every later step in place.
+- Invitation landing: on `/invite`,
+  `<AcceptInvitation invitation={readInvitation(location.hash)} onAccepted={(membership) => ...} />`
+  signs the visitor in, or up with an emailed invitation (which then holds
+  its role), and accepts it into a signed-in account.
+- First owner: on `/setup`, the single-use link the server logs while nobody
+  administers it,
+  `<OwnerSetup token={readSetupToken(location.hash)} navigate={(to) => router.replace(to)} />`
+  creates the owner account, then signs it in, enrolling a second factor
+  first. Render it only where AuthKit signs your staff in.
 
 #### Contact-first sign-in
 
@@ -524,7 +533,8 @@ stale sign-in fails the write with "sign in again"), `appearance` (default
 words under `admin`).
 
 The Users and Members invitation views read `invitations.enabled` from the same
-API mount's capabilities. When invitations are disabled, they show a disabled
+API mount's capabilities. Where email is unavailable (`channels.email`), the
+invite form says so and shows the invitation's link to share instead. When invitations are disabled, they show a disabled
 explanation and an inactive Invite button instead of loading or submitting
 invitations. The view waits for feature discovery and offers retry if it fails;
 role grants alone do not enable an application-disabled feature.
@@ -569,8 +579,11 @@ back/forward works with either the host's `navigation` or the history API. An
 excluded or unauthorized deep link shows no access. Only the active panel is
 mounted.
 
-Omit `sections` to offer every permitted section, or select those enabled by your
-deployment. `users={false}` excludes account administration entirely. `users`
+Omit `sections` to offer every permitted section, or select some. Sections whose
+routes the server does not serve (`/capabilities` `route_groups`: `admin` for
+Users, `groups` for the rest) are left out either way, so a host shows the
+console only where AuthKit signs its staff in and lets the server decide the
+rest. `users={false}` excludes account administration entirely. `users`
 otherwise accepts `userPanels`, `confirmWarnings` and `entitlements` from
 `UsersAdmin`; `permissionHelp` is passed to `RolesAdmin`, and
 `remoteApplications={{ scope, tokenEndpoint }}` configures

@@ -1,4 +1,9 @@
-export { createAuthClient, readLinkFragment } from "./client.ts"
+export {
+  createAuthClient,
+  readInvitation,
+  readLinkFragment,
+  readSetupToken,
+} from "./client.ts"
 export type {
   AuthClient,
   AuthClientOptions,

@@ -20,7 +20,9 @@
     "AK-UI-18",
     "AK-UI-19",
     "AK-UI-20",
-    "AK-UI-21"
+    "AK-UI-21",
+    "AK-UI-22",
+    "AK-UI-23"
   ],
   "requiredScenarioIDs": [
     "AK-J29-C01",
@@ -63,6 +65,7 @@
     "AuthClient.changePassword",
     "AuthClient.changePhone",
     "AuthClient.checkAvailability",
+    "AuthClient.completeSetup",
     "AuthClient.completeSignIn",
     "AuthClient.confirmAccountRecovery",
     "AuthClient.confirmDeviceVerification",
@@ -84,6 +87,7 @@
     "AuthClient.onContactProofRequired",
     "AuthClient.onRegistered",
     "AuthClient.ready",
+    "AuthClient.redeemInvitation",
     "AuthClient.refresh",
     "AuthClient.regenerateBackupCodes",
     "AuthClient.register",

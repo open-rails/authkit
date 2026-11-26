@@ -80,6 +80,10 @@ export const de: AdminMessageTree = {
     send: "Einladen",
     link: "Einladungslink",
     sent: "Eine Einladung wurde an {email} gesendet.",
+    notEmailed:
+      "E-Mail ist auf diesem Server nicht eingerichtet: Senden Sie {email} den Link unten.",
+    emailUnavailable:
+      "E-Mail ist auf diesem Server nicht eingerichtet: Sie erhalten einen Link zum Weitergeben.",
     list: "Gesendete Einladungen",
     empty: "Noch keine Einladungen.",
     recipient: "Empfänger",

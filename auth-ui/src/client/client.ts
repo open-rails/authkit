@@ -1254,6 +1254,27 @@ export function createAuthClient(options: AuthClientOptions = {}) {
         })
       }),
 
+    // Spends a setup link's token (readSetupToken) on the owner account, then
+    // signs it in as signInWithPassword does: the owner role makes that
+    // sign-in enroll a second factor first.
+    completeSetup: (input: {
+      token: string
+      email: string
+      username: string
+      password: string
+    }) =>
+      completeSignIn(() =>
+        request("POST", "/setup", {
+          bearer: null,
+          body: {
+            token: input.token,
+            email: input.email.trim(),
+            username: input.username.trim().toLowerCase(),
+            password: input.password,
+          },
+        })
+      ),
+
     // A CodeChallenge (202): a code went to the identifier, and
     // confirmVerification with its challenge finishes the registration.
     register: async (input: {
@@ -2019,6 +2040,23 @@ export function createAuthClient(options: AuthClientOptions = {}) {
 }
 
 // #status=ready&channel=…&token=… on verification, reset and passwordless links.
+// The token of a setup link Start logged (Frontend.SetupPath#token=).
+export function readSetupToken(hash: string): string | null {
+  return new URLSearchParams(hash.replace(/^#/, "")).get("token")
+}
+
+// The code of an invitation link (Frontend.InvitePath): an invite link's
+// #code=, or an email invitation's #invite_code=, which also registers.
+export function readInvitation(
+  hash: string
+): { code: string; registers: boolean } | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ""))
+  const invite = params.get("invite_code")
+  if (invite) return { code: invite, registers: true }
+  const code = params.get("code")
+  return code ? { code, registers: false } : null
+}
+
 export function readLinkFragment(hash: string): LinkFragment | null {
   const params = new URLSearchParams(hash.replace(/^#/, ""))
   const token = params.get("token")

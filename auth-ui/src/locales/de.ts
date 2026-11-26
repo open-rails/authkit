@@ -637,6 +637,30 @@ export const de: AuthUiMessageBundle = {
       "Dieses Konto wurde gelöscht und kann noch wiederhergestellt werden. Es wird {when}, am {date}, endgültig gelöscht.",
     confirm: "Konto wiederherstellen",
   },
+  setup: {
+    title: "Inhaberkonto einrichten",
+    description:
+      "Dieser Server hat noch keinen Administrator. Das Konto, das Sie hier anlegen, ist sein Inhaber und kann alle anderen einladen.",
+    missingLink:
+      "Öffnen Sie den Einrichtungslink aus dem Serverprotokoll. Er funktioniert einmal, 24 Stunden lang; wer den Server betreibt, kann einen neuen ausstellen.",
+    submit: "Inhaberkonto anlegen",
+    mfaNote:
+      "Als Nächstes schützen Sie das Konto mit einem zweiten Anmeldeschritt.",
+  },
+  invitation: {
+    title: "Sie wurden eingeladen",
+    signUpDescription:
+      "Legen Sie Ihr Konto an, um die Einladung anzunehmen, oder melden Sie sich an, wenn Sie bereits eines haben.",
+    signInDescription:
+      "Melden Sie sich an oder legen Sie ein Konto an und nehmen Sie dann die Einladung an.",
+    acceptDescription:
+      "Nehmen Sie an, um mit der Rolle beizutreten, zu der Sie eingeladen wurden.",
+    accept: "Einladung annehmen",
+    accepted: "Einladung angenommen",
+    joinedAs: "Sie sind als {role} beigetreten.",
+    missingLink:
+      "Dieser Einladungslink ist unvollständig. Öffnen Sie ihn erneut aus Ihrer E-Mail oder bitten Sie um einen neuen.",
+  },
   callback: {
     completing: "Anmeldung wird abgeschlossen…",
     errorTitle: "Anmeldung fehlgeschlagen",
@@ -883,6 +907,8 @@ export const de: AuthUiMessageBundle = {
     renames_disabled: "Änderungen des Benutzernamens sind deaktiviert.",
     session_revoked:
       "Ihre Sitzung wurde beendet. Bitte melden Sie sich erneut an.",
+    setup_link_invalid:
+      "Dieser Einrichtungslink ist ungültig, verbraucht oder abgelaufen. Bitten Sie den Betreiber des Servers um einen neuen.",
     single_tenant:
       "Diese Bereitstellung hat einen Mandanten. Weitere erfordern den Mehrmandantenmodus.",
     sms_delivery_failed:

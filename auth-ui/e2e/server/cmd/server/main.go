@@ -88,7 +88,19 @@ func run(addr, origin, dist, app string) error {
 	if err = unproved.Start(ctx); err != nil {
 		return err
 	}
+	// A deployment nobody administers yet: its Start logs the setup link.
+	firstrun, err := harness.New(ctx, origin+"/firstrun", "critical_ui_firstrun", pool, "firstrun", nil)
+	if err != nil {
+		return err
+	}
+	defer firstrun.Close(context.WithoutCancel(ctx))
+	if err = firstrun.Start(ctx); err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
+	if err = firstrun.Mount(mux); err != nil {
+		return err
+	}
 	if err = rt.Mount(mux); err != nil {
 		return err
 	}
@@ -99,6 +111,9 @@ func run(addr, origin, dist, app string) error {
 		return err
 	}
 	fixture(mux, rt, unproved, isolated)
+	mux.HandleFunc("GET /__fixture/setup-link", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, 200, map[string]string{"url": firstrun.SetupLink()})
+	})
 	mux.Handle("GET /__package/", http.StripPrefix("/__package/", http.FileServer(http.Dir(dist))))
 	mux.Handle("GET /__app/", http.StripPrefix("/__app/", http.FileServer(http.Dir(app))))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
