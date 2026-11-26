@@ -415,6 +415,7 @@ func TestCriticalTransactionPooler(t *testing.T) {
 			o.Session = p.session
 			loop, err := view.StartAccountEvents(context.Background(), o)
 			noError(t, err)
+			t.Cleanup(func() { _ = loop.Stop(context.Background()) })
 			loops = append(loops, loop)
 		}
 		eventually(t, "both readers finished a pass", func() bool {
