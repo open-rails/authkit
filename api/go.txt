@@ -210,6 +210,7 @@ pkg authkit, type AccountEventOptions struct, Interval time.Duration
 pkg authkit, type AccountEventOptions struct, Pool *pgxpool.Pool
 pkg authkit, type AccountEventOptions struct, Reconcile []iam.UserStatus
 pkg authkit, type AccountEventOptions struct, Schema string
+pkg authkit, type AccountEventOptions struct, Session *pgxpool.Config
 pkg authkit, type AccountEventOptions struct, Sync func(context.Context, string) error
 pkg authkit, type AgreementConfig = config.AgreementConfig
 pkg authkit, type AgreementConfig struct
@@ -279,6 +280,7 @@ pkg authkit, type Deps struct, OAuthGrants iam.OAuthGrantAuthorizer
 pkg authkit, type Deps struct, OnPurge func(context.Context, iam.UserDeletion) error
 pkg authkit, type Deps struct, PasskeyTopOrigin func(context.Context, string) (bool, error)
 pkg authkit, type Deps struct, Postgres *pgxpool.Pool
+pkg authkit, type Deps struct, PostgresSession *pgxpool.Config
 pkg authkit, type Deps struct, Providers []provider.Provider
 pkg authkit, type Deps struct, Redis redis.UniversalClient
 pkg authkit, type Deps struct, Replays verify.ReplayStore

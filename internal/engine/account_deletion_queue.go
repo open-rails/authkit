@@ -116,10 +116,11 @@ func (s *Engine) runAccountCleanup(ctx context.Context, id int64) error {
 		return err
 	}
 	// River is at least once. Serialize a user's callbacks across replicas and
-	// rescued attempts, then reread the receipt. A dedicated connection keeps
-	// the host's one-slot pool available for callback code and holds no table
-	// transaction while application code runs.
-	lock, err := pgx.ConnectConfig(ctx, s.pg.Config().ConnConfig.Copy())
+	// rescued attempts, then reread the receipt. A session lock on a direct
+	// connection of its own keeps the host's one-slot pool available for
+	// callback code, holds no transaction while application code runs, and
+	// ends with the connection.
+	lock, err := s.dialSession(ctx)
 	if err != nil {
 		return err
 	}

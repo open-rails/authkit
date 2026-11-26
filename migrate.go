@@ -16,7 +16,9 @@ type MigrationOptions = engine.MigrationOptions
 
 // Migrate explicitly prepares AuthKit's and River's schemas without building
 // an AuthKit runtime. It applies migrations even when SkipMigrations is true;
-// that setting controls automatic application startup only.
+// that setting controls automatic application startup only. Its locks are
+// session locks: pool reaches PostgreSQL directly, not through a transaction
+// pooler.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, database DatabaseConfig, options ...MigrationOptions) error {
 	return engine.Migrate(ctx, pool, database, options...)
 }

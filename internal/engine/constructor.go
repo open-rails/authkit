@@ -2,14 +2,18 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/pgsession"
 	"github.com/open-rails/authkit/keys"
 )
 
@@ -71,17 +75,30 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		s.degrade(problem)
 	}
 	if deps.Postgres != nil {
+		if deps.PostgresSession != nil {
+			if deps.PostgresSession.ConnConfig == nil {
+				return nil, errors.New("authkit: Deps.PostgresSession has no connection settings")
+			}
+			if err := pgsession.CheckPooled(deps.Postgres); err != nil {
+				return nil, err
+			}
+		}
 		if err := waitForPostgres(ctx, log, deps.Postgres); err != nil {
 			return nil, err
+		}
+		if deps.PostgresSession != nil {
+			if err := pgsession.CheckSearchPath(ctx, deps.Postgres, pgx.Identifier{"AuthKit_probe_" + rand.Text()}.Sanitize()+", public"); err != nil {
+				return nil, err
+			}
 		}
 		if norm.Database.SkipMigrations {
 			if err := validateMigrations(ctx, log, deps.Postgres, norm.Database); err != nil {
 				return nil, err
 			}
-		} else {
-			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{Tenancy: norm.Tenancy, TenantID: norm.DefaultTenantID, Logger: log}); err != nil {
-				return nil, err
-			}
+		} else if err := migrateDirect(ctx, deps, func(pool *pgxpool.Pool) error {
+			return Migrate(ctx, pool, norm.Database, MigrationOptions{Tenancy: norm.Tenancy, TenantID: norm.DefaultTenantID, Logger: log})
+		}); err != nil {
+			return nil, err
 		}
 		// Single-tenant, the database's one tenant is the default: settings
 		// that name no tenant get it.
@@ -140,6 +157,21 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 		}
 	}
 	return s, nil
+}
+
+// migrateDirect runs migrate on a pool that reaches PostgreSQL directly: the
+// migrators hold session locks. Behind a pooler that is a pool of its own,
+// dialed from Deps.PostgresSession and closed after.
+func migrateDirect(ctx context.Context, deps config.Deps, migrate func(*pgxpool.Pool) error) error {
+	if deps.PostgresSession == nil {
+		return migrate(deps.Postgres)
+	}
+	direct, err := pgxpool.NewWithConfig(ctx, deps.PostgresSession.Copy())
+	if err != nil {
+		return fmt.Errorf("authkit: migration session: %w", err)
+	}
+	defer direct.Close()
+	return migrate(direct)
 }
 
 // postgresBootWait bounds how long New waits for PostgreSQL to answer when
