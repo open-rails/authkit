@@ -15,6 +15,22 @@ services:
       timeout: 3s
       retries: 20
 
+  # Transaction pooling that keeps no prepared statements, for the
+  # transaction-pooler journey (AUTHKIT_TEST_PGBOUNCER_URL).
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.26.1-p0
+    environment:
+      DATABASE_URL: postgres://admin:admin_password@postgres:5432/authkit_db
+      POOL_MODE: transaction
+      AUTH_TYPE: scram-sha-256
+      MAX_PREPARED_STATEMENTS: "0"
+      MAX_CLIENT_CONN: "500"
+    ports:
+      - "127.0.0.1:36432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   redis:
     image: redis:7-alpine
     ports:
