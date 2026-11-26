@@ -12,8 +12,8 @@ durable acceptance, or supply one non-nil same-source-database transaction.
 Remote publishers always queue a durable source delivery job; only workers send
 HTTP. Local publication and withdrawal join the account database transaction.
 
-The `postgres` subpackage contains the inbox persistence, its explicit
-migration and adoption machinery. `Migrate` applies the inbox's migrations
+The `postgres` subpackage contains the inbox persistence and its explicit
+migration. `Migrate` applies the inbox's migrations
 through migratekit (app `authkit_notify`); a released migration never changes,
 so an inbox built before AuthKit v1.58.0 is refused and rebuilt. It is not
 another service or an application-owned inbox. Host-facing API and

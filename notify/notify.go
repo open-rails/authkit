@@ -1,7 +1,7 @@
 // Package notify defines AuthKit account inbox data and the scoped producer
 // interface. AuthKit owns storage and authorization; producers own the domain
 // action that remedies a problem. Reading never resolves that action. Legacy
-// envelopes remain available for explicit data adoption and durable wire replay.
+// envelopes remain available for durable wire replay.
 package notify
 
 import (

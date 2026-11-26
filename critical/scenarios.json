@@ -154,7 +154,6 @@
   "AK-J34-C03": "remote transactional delivery survives rollback restart and lost response",
   "AK-J34-C04": "explicit scope adoption preserves read archive and erasure",
   "AK-J34-C05": "disabled account inbox leaves routes absent",
-  "AK-J34-C06": "exact legacy identity adoption does not replay history or lower revisions",
   "AK-J34-C07": "account purge erases inbox and fences delayed delivery",
   "AK-J34-C08": "withdrawal during recoverable deletion survives restore",
   "AK-J34-C09": "cross-schema one-slot source transaction reads uncommitted account and restores search_path",

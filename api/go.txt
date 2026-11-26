@@ -28,7 +28,6 @@ pkg authkit, method (*AccountEventLoop) Stop(context.Context) error
 pkg authkit, method (*Client) APIBase() string
 pkg authkit, method (*Client) AcceptAgreements(context.Context, string, []iam.AgreementRef, ...Option) error
 pkg authkit, method (*Client) AcceptRemoteInvitation(context.Context, auth.Verified, string) (iam.Role, error)
-pkg authkit, method (*Client) AdoptNotifications(context.Context, string, []notify.Adoption) error
 pkg authkit, method (*Client) AgreementsDue(context.Context, string) ([]iam.Agreement, error)
 pkg authkit, method (*Client) ApplyBootstrapManifest(context.Context, iam.BootstrapManifest, iam.BootstrapOptions, ...Option) (iam.BootstrapResult, error)
 pkg authkit, method (*Client) AuthenticateRequest(context.Context, *http.Request) (auth.Verified, error)
@@ -323,7 +322,6 @@ pkg authkit, type MigrationOptions struct
 pkg authkit, type MigrationOptions struct, Logger *slog.Logger
 pkg authkit, type MigrationOptions struct, Tenancy config.Tenancy
 pkg authkit, type MigrationOptions struct, TenantID iam.TenantID
-pkg authkit, type NotificationAdoption = notify.Adoption
 pkg authkit, type NotificationDelivery struct
 pkg authkit, type NotificationProducer = config.NotificationProducer
 pkg authkit, type NotificationProducer struct
@@ -1877,9 +1875,6 @@ pkg authkit/notify, func ValidateMutation(Mutation) (Mutation, error)
 pkg authkit/notify, func ValidatePublication(Publication) (Publication, error)
 pkg authkit/notify, func ValidateRecipient(Recipient) error
 pkg authkit/notify, func ValidateWithdrawal(Withdrawal) error
-pkg authkit/notify, type Adoption struct
-pkg authkit/notify, type Adoption struct, Current Mutation `json:"current"`
-pkg authkit/notify, type Adoption struct, Previous []Origin `json:"previous"`
 pkg authkit/notify, type AppView struct
 pkg authkit/notify, type AppView struct, AppID string
 pkg authkit/notify, type AppView struct, LegacyOrigins []OriginScope
