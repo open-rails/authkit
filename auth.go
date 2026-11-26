@@ -60,11 +60,12 @@ var _ verify.Authority = (*Client)(nil)
 
 // New builds AuthKit from host configuration and dependencies. It first
 // creates or upgrades AuthKit's and River's tables (Config.Database) through
-// Deps.Postgres, whose role owns them, waiting up to 30 seconds for PostgreSQL
-// to answer; replicas booting together are safe, and a schema a newer build
-// already migrated boots unchanged. ctx bounds the boot-time database work.
-// Database.SkipMigrations validates the existing migration ledgers instead;
-// use Migrate explicitly before starting such an application.
+// Deps.Postgres (Deps.PostgresSession when set), whose role owns them, waiting
+// up to 30 seconds for PostgreSQL to answer; replicas booting together are
+// safe, and a schema a newer build already migrated boots unchanged. ctx
+// bounds the boot-time database work. Database.SkipMigrations validates the
+// existing migration ledgers instead; use Migrate explicitly before starting
+// such an application.
 //
 // New fails only when AuthKit cannot run safely: PostgreSQL unreachable or
 // its migrations failing, no usable signing key, or configuration it cannot

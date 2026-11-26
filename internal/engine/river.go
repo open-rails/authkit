@@ -283,9 +283,10 @@ func (s *Engine) startOwnRiver(ctx context.Context) error {
 		return err
 	}
 	cfg := s.riverConfig(s.cfg.Database.RiverSchema)
-	// Migrate's trigger notifies every insert; the poll only backstops a dropped LISTEN (#477).
+	// Migrate's trigger notifies every insert; the poll only backstops a lost
+	// notification. Behind a pooler River listens on Deps.PostgresSession.
 	cfg.FetchPollInterval = riverFetchBackstop
-	client, err := riverhelpers.New(ctx, pool, cfg, s.RiverJobs())
+	client, err := riverhelpers.NewWithSession(ctx, pool, s.session, cfg, s.RiverJobs())
 	if err != nil {
 		pool.Close()
 		return fmt.Errorf("authkit: construct River: %w", err)

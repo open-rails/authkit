@@ -21,10 +21,21 @@ import (
 type Deps struct {
 	// Postgres is the durable store, required by every host-facing
 	// constructor. New creates or upgrades AuthKit's and River's tables
-	// through it, so its role owns and uses them. It also holds AuthKit's
-	// short-lived auth state (codes, ceremonies, attempt counters), shared by
-	// every replica.
+	// through it (through PostgresSession when set), so its role owns and
+	// uses them. It also holds AuthKit's short-lived auth state (codes,
+	// ceremonies, attempt counters), shared by every replica.
+	//
+	// With PostgresSession it may go through a transaction pooler (PgBouncer
+	// in transaction mode): its DefaultQueryExecMode is then cache_describe,
+	// exec or simple_protocol, and the pooler must keep each client's startup
+	// search_path, which New checks (docs/postgres.md).
 	Postgres *pgxpool.Pool
+	// PostgresSession is a direct configuration of Postgres's database and
+	// role, without the pooler, for what needs a session of its own:
+	// migrations, River's and provisioning's LISTEN and session advisory
+	// locks. AuthKit dials and closes those connections itself. Nil dials
+	// them with Postgres's configuration, which must then be direct.
+	PostgresSession *pgxpool.Config
 
 	// KeySource signs and publishes tokens: keys.Watch(dir) serves a key
 	// directory's keys.json and totp.key (keys.TOTPSource, the TOTP key; TOTP
