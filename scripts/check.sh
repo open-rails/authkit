@@ -10,8 +10,9 @@ export GOWORK=off
 
 if [[ "$mode" != light ]]; then
   if [[ -z "${AUTHKIT_TEST_DATABASE_URL:-}" ]]; then
-    docker compose up -d --wait postgres redis
+    docker compose up -d --wait postgres redis pgbouncer
     export AUTHKIT_TEST_DATABASE_URL='postgres://admin:admin_password@127.0.0.1:35432/authkit_db?sslmode=disable'
+    export AUTHKIT_TEST_PGBOUNCER_URL=${AUTHKIT_TEST_PGBOUNCER_URL:-postgres://admin:admin_password@127.0.0.1:36432/authkit_db?sslmode=disable}
   fi
   export AUTHKIT_TEST_REDIS_URL=${AUTHKIT_TEST_REDIS_URL:-redis://127.0.0.1:36379/0}
   export AUTHKIT_TEST_REQUIRE_DB=1

@@ -18,6 +18,7 @@ env:
   GOMAXPROCS: '2'
   AUTHKIT_TEST_DATABASE_URL: postgres://admin:authkit_ci@127.0.0.1:5432/authkit_ci?sslmode=disable
   AUTHKIT_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+  AUTHKIT_TEST_PGBOUNCER_URL: postgres://admin:authkit_ci@127.0.0.1:6432/authkit_ci?sslmode=disable
 
 concurrency:
   group: validate-${{ github.event.pull_request.draft && format('draft-{0}', github.run_id) || github.event.pull_request.number || github.ref }}
@@ -158,6 +159,17 @@ jobs:
         # shell-quoted command is treated as part of the image reference by
         # that parser and fails before the job starts.
         options: --health-cmd redis-cli --health-interval 5s --health-timeout 5s --health-retries 10
+      # Transaction pooling that keeps no prepared statements, in front of
+      # the postgres service, for the transaction-pooler journey.
+      pgbouncer:
+        image: edoburu/pgbouncer:v1.26.1-p0
+        env:
+          DATABASE_URL: postgres://admin:authkit_ci@postgres:5432/authkit_ci
+          POOL_MODE: transaction
+          AUTH_TYPE: scram-sha-256
+          MAX_PREPARED_STATEMENTS: '0'
+          MAX_CLIENT_CONN: '500'
+        ports: ['6432:5432']
     steps:
       # Use exact release tags for action references in this workflow.
       - uses: actions/checkout@v7.0.1

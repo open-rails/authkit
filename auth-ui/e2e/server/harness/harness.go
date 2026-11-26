@@ -6,8 +6,12 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"log/slog"
 	"net/http"
+	"os"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,6 +29,46 @@ const Persona = "project"
 type Runtime struct {
 	*authkit.Client
 	Outbox *authtest.Outbox
+	setup  *setupLinks
+}
+
+// SetupLink is the last setup link Start logged, "" for none.
+func (r *Runtime) SetupLink() string { return r.setup.last() }
+
+// setupLinks passes every record on to next and keeps the setup links.
+type setupLinks struct {
+	next slog.Handler
+	mu   *sync.Mutex
+	urls *[]string
+}
+
+func (h setupLinks) Enabled(ctx context.Context, l slog.Level) bool { return h.next.Enabled(ctx, l) }
+func (h setupLinks) Handle(ctx context.Context, r slog.Record) error {
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == "url" && strings.Contains(r.Message, "no administrator yet") {
+			h.mu.Lock()
+			*h.urls = append(*h.urls, a.Value.String())
+			h.mu.Unlock()
+		}
+		return true
+	})
+	return h.next.Handle(ctx, r)
+}
+func (h setupLinks) WithAttrs(a []slog.Attr) slog.Handler {
+	h.next = h.next.WithAttrs(a)
+	return h
+}
+func (h setupLinks) WithGroup(g string) slog.Handler {
+	h.next = h.next.WithGroup(g)
+	return h
+}
+func (h *setupLinks) last() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(*h.urls) == 0 {
+		return ""
+	}
+	return (*h.urls)[len(*h.urls)-1]
 }
 
 func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile string, requestTenant func(*http.Request) (iam.TenantID, error)) (*Runtime, error) {
@@ -39,6 +83,7 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	roles := authkit.NewRoles(authkit.CustomRoles)
 	root := roles.Root
 	root.Role("reader", root.Users.Read)
+	root.Role("auditor", root.Users.Read, root.Members.Read)
 	root.Role("operator", root.Users.Read, root.Users.Manage, root.Users.Ban, root.Users.Delete, root.Members.Read, root.Members.Manage, root.Roles.Read, root.Roles.Manage)
 	project := roles.Persona(Persona, authkit.APIKeys, authkit.CustomRoles)
 	read := project.Permission("records", "read")
@@ -62,11 +107,11 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	}
 	outbox := &authtest.Outbox{}
 	cfg := authkit.Config{
-		Roles:           roles,
-		HTTP:            &authkit.HTTPConfig{DirectPeerIP: true, Groups: append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)},
-		Database:        authkit.DatabaseConfig{Schema: schema},
-		Issuer:          origin,
-		TwoFactor:       iam.TwoFactorOptional,
+		Roles:     roles,
+		HTTP:      &authkit.HTTPConfig{DirectPeerIP: true, Groups: append(iam.DefaultRouteGroups(), iam.RoutePasswordless, iam.RoutePersonalAccessTokens)},
+		Database:  authkit.DatabaseConfig{Schema: schema},
+		Issuer:    origin,
+		TwoFactor: iam.TwoFactorOptional,
 	}
 	config.Tune(&cfg, func(tn *config.Tuning) {
 		tn.RateLimits = limits
@@ -82,7 +127,9 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	if profile == "unproved" {
 		cfg.HTTP.Groups = slices.DeleteFunc(cfg.HTTP.Groups, func(g iam.RouteGroup) bool { return g == iam.RouteInvitations })
 	}
+	setup := &setupLinks{next: slog.NewTextHandler(os.Stderr, nil), mu: &sync.Mutex{}, urls: &[]string{}}
 	client, err := authkit.New(ctx, cfg, authkit.Deps{
+		Logger:        slog.New(setup),
 		Postgres:      pool,
 		KeySource:     keys.Static{Active: signer, Public: map[string]crypto.PublicKey{signer.KID(): signer.Public()}, TOTP: totpKey},
 		RequestTenant: requestTenant,
@@ -91,5 +138,5 @@ func New(ctx context.Context, origin, schema string, pool *pgxpool.Pool, profile
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{Client: client, Outbox: outbox}, nil
+	return &Runtime{Client: client, Outbox: outbox, setup: setup}, nil
 }

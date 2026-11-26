@@ -183,6 +183,7 @@ export type Capabilities = {
   captcha: CaptchaWidget | null
   dpop: string
   paths: MountPaths
+  route_groups: ("account" | "admin" | "auth" | "authorization_server" | "browser_oidc" | "device_keys" | "groups" | "invitations" | "passwordless" | "personal_access_tokens" | "registration" | "scim" | "setup")[]
 }
 
 export type CaptchaWidget = {
@@ -385,6 +386,7 @@ export type InvitationCreated = {
   invitation: Invitation
   code: string
   url: string
+  emailed: boolean
 }
 
 export type InvitationRedeemRequest = {
@@ -1063,6 +1065,13 @@ export type SessionEvent = {
   reason: string | null
   ip: string | null
   user_agent: string | null
+}
+
+export type SetupRequest = {
+  token?: string
+  email?: string
+  username?: string
+  password?: string
 }
 
 export type SignInKey = {

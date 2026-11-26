@@ -253,6 +253,7 @@ Mounting gives your users the routes below under `/auth/v1`, plus the public key
 | `POST /auth/v1/device-verification/confirm`, `/send` | finish signing in on a new device with the code sent to the account's owner, or send it again |
 | `POST /auth/v1/account/recovery/confirm` | undo deleting your own account, within 30 days, and go on signing in |
 | `POST /auth/v1/invitations/redeem` | accept an invitation |
+| `POST /auth/v1/setup` | create the first owner with the setup link the server logged, then sign in ([the first owner](docs/rbac.md#the-first-owner)) |
 
 Sign-ins are limited per device over 24 hours: 5 accounts per browser (20 per address for a client without AuthKit's device cookie), and 10 new devices per account. Signing back into a counted account, or from a device the account used in the last 30 days, is never limited by these counts. Failed passwords are also limited per identifier (`password_login_identifier`, see [HTTP](docs/http.md#client-addresses-and-rate-limits)). Past the device limit, a new device enters a code sent to the owner's email or phone, which a posted password doesn't get you.
 
@@ -358,7 +359,7 @@ adding a verified replacement first permits removing the old factor.
 | `GET /auth/v1/groups/{group_id}/roles` | the roles this group has |
 | `GET /auth/v1/groups/{group_id}/roles/{role}` | one of them, and what it grants |
 | `GET /auth/v1/groups/{group_id}/invitations` | its invitations |
-| `POST /auth/v1/groups/{group_id}/invitations` | invite someone with a link, or by email |
+| `POST /auth/v1/groups/{group_id}/invitations` | invite someone with a link, or by email (where email is unavailable, answered with its link to share) |
 | `DELETE /auth/v1/groups/{group_id}/invitations/{id}` | revoke one |
 
 **Site admins** (need the matching `root:` permission, and a recent sign-in for account changes; staff change only accounts they outrank, so demote a peer first. Bans, deletions, sign-outs and contact changes are recorded with who made them in `Client.ListEvents`, for your audit log.)
@@ -381,7 +382,7 @@ adding a verified replacement first permits removing the old factor.
 | `PATCH /auth/v1/admin/tenants/{tenant_id}` | [rename](docs/tenant-directories.md#tenant-names) it (`root:tenants:manage`) |
 | `GET /auth/v1/admin/tenants/by-slug/{slug}` | the tenant a current or former name belongs to (`root:tenants:read`) |
 
-Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Passwordless sign-in, device keys and personal access tokens are opt-in route groups: add `iam.RoutePasswordless`, `iam.RouteDeviceKeys` or `iam.RoutePersonalAccessTokens` to `HTTP.Groups` (nil is `iam.DefaultRouteGroups()`). Leave `iam.RouteInvitations` out, and the invitation routes go.
+Switch on social logins (Google, Apple, GitHub, Discord) or API keys, and AuthKit mounts their routes too. Passwordless sign-in, device keys and personal access tokens are opt-in route groups: add `iam.RoutePasswordless`, `iam.RouteDeviceKeys` or `iam.RoutePersonalAccessTokens` to `HTTP.Groups` (nil is `iam.DefaultRouteGroups()`). Leave `iam.RouteInvitations` out, and the invitation routes go; leave `iam.RouteSetup` out, and Start logs no setup link. `GET /auth/v1/capabilities` lists the groups served as `route_groups`, so a console knows which panels it can show.
 
 Group API keys belong to the organization; their creator is audit information. Optional [personal access tokens](docs/personal-access-tokens.md) are a separate, user-owned credential, on only with `iam.RoutePersonalAccessTokens`.
 
@@ -428,13 +429,13 @@ channel provisioning uses this operation through its AuthKit migration adapter.
 
 Account deletion uses one `authkit_account_delete_due` batch job per issuer, scheduled at the earliest deletion's `purge_at`, rather than a future River job per account. The 30-day recovery deadline remains authoritative; issuer cleanup callbacks must finish before the account row is removed. See [account deletion](docs/identity.md) for timing.
 
-`Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `Config.Database.Schema`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running. AuthKit's own client takes a pool of `Config.Database.RiverConns` connections (default 5), copied from `Deps.Postgres`, beside the main pool (`Deps.Postgres`'s size) and an ephemeral one (a quarter of it, at least 2): a host that budgets its PostgreSQL connections counts all three.
+`Start` runs AuthKit's background jobs (account deletion, events, cleanup) on its own [River](https://riverqueue.com) client in `Config.Database.RiverSchema` (default `Config.Database.Schema`), whose tables `New` creates. An app that already runs a River fleet builds it in that schema with `riverhelpers.New(ctx, db, riverConfig, auth.RiverJobs(), …)` (`github.com/open-rails/helpers/river`) and calls `auth.Start(ctx, authkit.WithRiverClient(fleet))` instead; the app starts and stops that fleet, and `auth.Close` leaves it running. AuthKit's own client takes a pool of `Config.Database.RiverConns` connections (default 5), copied from `Deps.Postgres`, beside the main pool (`Deps.Postgres`'s size) and an ephemeral one (a quarter of it, at least 2): a host that budgets its PostgreSQL connections counts all three. Behind PgBouncer in transaction mode, `Deps.PostgresSession` names the direct connection for migrations, `LISTEN` and session locks: see [PostgreSQL and PgBouncer](docs/postgres.md).
 
 `New` fails only when AuthKit can't run safely: PostgreSQL still unreachable after 30 seconds (or `ctx`), migrations failing, no usable signing key, or configuration it can't read without weakening auth. A misconfigured or unreachable optional dependency switches off only what needs it: an identity provider is disabled (its sign-ins answer `provider_unavailable`), a remote application's tokens are refused, email flows answer `email_unavailable`, and limits stay per process while Redis is down. `auth.Ready(ctx)` is the readiness check (PostgreSQL, River, signing key); `auth.Probes()` lists the optional dependencies and degraded features for your dependency supervisor, none of which fails readiness.
 
 A service whose callers sign in elsewhere sets `Config.Resource`: `auth.Authenticator()` then also admits the access tokens its trusted issuers mint for it, bound to their group ([resource server](docs/resource-server.md)). Every session this instance issues its own users is DPoP-bound. That never changes how tokens are validated: a bound token needs its proof, an unbound token is a bearer token, whoever issued it.
 
-More: [resource server](docs/resource-server.md), [keys](docs/keys.md), [tokens](docs/tokens.md), [SCIM provisioning and user info](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
+More: [resource server](docs/resource-server.md), [keys](docs/keys.md), [PostgreSQL and PgBouncer](docs/postgres.md), [tokens](docs/tokens.md), [SCIM provisioning and user info](docs/scim.md), [subject, invoker, credential](docs/identity.md), [HTTP](docs/http.md), [RBAC](docs/rbac.md), [security](SECURITY.md), [v1 stability](docs/stability.md)
 
 Contributing: changes go to the open release candidate named in [OPEN.md](OPEN.md), not to master ([branches and CI](docs/ci.md)).
 

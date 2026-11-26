@@ -73,6 +73,7 @@ pkg authkit, method (*Client) Handler() http.Handler
 pkg authkit, method (*Client) ImportSessionEvents(context.Context, []iam.ImportSessionEvent, ...Option) (iam.ImportSessionEventsResult, error)
 pkg authkit, method (*Client) ImportSolanaLinks(context.Context, []iam.ImportSolanaLink, ...Option) (iam.ImportSolanaLinksResult, error)
 pkg authkit, method (*Client) ImportUsers(context.Context, []iam.ImportUser, iam.ImportOptions, ...Option) (iam.ImportResult, error)
+pkg authkit, method (*Client) IssueSetupLink(context.Context) (iam.SetupLink, error)
 pkg authkit, method (*Client) KnownPermission(iam.Perm) bool
 pkg authkit, method (*Client) LinkProvider(context.Context, string, iam.ProviderLink, ...Option) error
 pkg authkit, method (*Client) ListAPIKeys(context.Context, iam.GroupRef, iam.PageRequest) (iam.ListPage[iam.APIKey], error)
@@ -210,6 +211,7 @@ pkg authkit, type AccountEventOptions struct, Interval time.Duration
 pkg authkit, type AccountEventOptions struct, Pool *pgxpool.Pool
 pkg authkit, type AccountEventOptions struct, Reconcile []iam.UserStatus
 pkg authkit, type AccountEventOptions struct, Schema string
+pkg authkit, type AccountEventOptions struct, Session *pgxpool.Config
 pkg authkit, type AccountEventOptions struct, Sync func(context.Context, string) error
 pkg authkit, type AgreementConfig = config.AgreementConfig
 pkg authkit, type AgreementConfig struct
@@ -279,6 +281,7 @@ pkg authkit, type Deps struct, OAuthGrants iam.OAuthGrantAuthorizer
 pkg authkit, type Deps struct, OnPurge func(context.Context, iam.UserDeletion) error
 pkg authkit, type Deps struct, PasskeyTopOrigin func(context.Context, string) (bool, error)
 pkg authkit, type Deps struct, Postgres *pgxpool.Pool
+pkg authkit, type Deps struct, PostgresSession *pgxpool.Config
 pkg authkit, type Deps struct, Providers []provider.Provider
 pkg authkit, type Deps struct, Redis redis.UniversalClient
 pkg authkit, type Deps struct, Replays verify.ReplayStore
@@ -932,6 +935,7 @@ pkg authkit/iam, const RoutePermissionGroups RouteGroup = "groups"
 pkg authkit/iam, const RoutePersonalAccessTokens RouteGroup = "personal_access_tokens"
 pkg authkit/iam, const RouteRegistration RouteGroup = "registration"
 pkg authkit/iam, const RouteSCIM RouteGroup = "scim"
+pkg authkit/iam, const RouteSetup RouteGroup = "setup"
 pkg authkit/iam, const SessionEventAccountSessionsRevoked SessionEventKind = "account_sessions_revoked"
 pkg authkit/iam, const SessionEventCreated SessionEventKind = "session_created"
 pkg authkit/iam, const SessionEventDeletedAccount ImportSessionEventReason = "deleted_account"
@@ -1381,6 +1385,7 @@ pkg authkit/iam, type Invitation struct, Role Role `json:"role"`
 pkg authkit/iam, type Invitation struct, TenantID TenantID `json:"tenant_id"`
 pkg authkit/iam, type InvitationCreated struct
 pkg authkit/iam, type InvitationCreated struct, Code string `json:"code"`
+pkg authkit/iam, type InvitationCreated struct, Emailed bool `json:"emailed"`
 pkg authkit/iam, type InvitationCreated struct, Invitation Invitation `json:"invitation"`
 pkg authkit/iam, type InvitationCreated struct, URL string `json:"url"`
 pkg authkit/iam, type JWK struct
@@ -1672,6 +1677,9 @@ pkg authkit/iam, type SessionEventQuery struct, Page PageRequest
 pkg authkit/iam, type SessionRef struct
 pkg authkit/iam, type SessionRef struct, DeviceKeyID string
 pkg authkit/iam, type SessionRef struct, SessionID string
+pkg authkit/iam, type SetupLink struct
+pkg authkit/iam, type SetupLink struct, ExpiresAt time.Time `json:"expires_at"`
+pkg authkit/iam, type SetupLink struct, URL string `json:"url"`
 pkg authkit/iam, type SolanaNetwork string
 pkg authkit/iam, type Subject struct
 pkg authkit/iam, type Subject struct, ID string `json:"id"`
@@ -1803,6 +1811,7 @@ pkg authkit/iam, var ErrRoleNotEditable Error
 pkg authkit/iam, var ErrRoleNotFound Error
 pkg authkit/iam, var ErrSMSDestinationRefused Error
 pkg authkit/iam, var ErrSessionRevoked Error
+pkg authkit/iam, var ErrSetupLinkInvalid Error
 pkg authkit/iam, var ErrSigningNotConfigured Error
 pkg authkit/iam, var ErrSingleTenant Error
 pkg authkit/iam, var ErrSubjectMFARequired Error

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/pgsession"
 )
 
 // AccountEventOptions configures a host's account event loop. Schema holds the
@@ -19,8 +20,12 @@ import (
 type AccountEventOptions struct {
 	Interval time.Duration // zero uses thirty seconds
 	Pool     *pgxpool.Pool
-	Schema   string
-	Handle   func(context.Context, iam.Event) error
+	// Session is a direct configuration of Pool's database, for the reader
+	// election's session lock when Pool goes through a transaction pooler.
+	// Nil dials Pool's configuration.
+	Session *pgxpool.Config
+	Schema  string
+	Handle  func(context.Context, iam.Event) error
 	// Sync applies one account's current state. It retries parked and due
 	// accounts, and syncs every account in the Reconcile statuses (deleted,
 	// banned or both) before first use or after an operator resets the
@@ -45,11 +50,12 @@ type AccountEventLoop struct {
 
 // StartAccountEvents reads this tenant view's events and the authority events
 // into the host. It runs one bounded pass immediately and then every thirty
-// seconds. A dedicated advisory-lock connection elects one reader per host
-// schema and tenant without occupying a pooled connection while a handler uses
-// the database. An event whose Handle fails, overruns or panics parks its
-// account for Sync and the stream moves on. Stopping parks nothing: an unfinished
-// page is delivered again.
+// seconds. A session advisory lock on a direct connection of its own
+// (AccountEventOptions.Session) elects one reader per host schema and tenant
+// without occupying a pooled connection while a handler uses the database. An
+// event whose Handle fails, overruns or panics parks its account for Sync and
+// the stream moves on. Stopping parks nothing: an unfinished page is delivered
+// again.
 func (a *Client) StartAccountEvents(ctx context.Context, o AccountEventOptions) (*AccountEventLoop, error) {
 	if a == nil || a.tenantID.IsZero() || o.Pool == nil || o.Schema == "" || o.Handle == nil || o.Sync == nil {
 		return nil, errors.New("authkit: account events need a ForTenant view, Pool, Schema, Handle and Sync")
@@ -223,8 +229,12 @@ func (r *AccountEventLoop) poll(ctx context.Context) (err error) {
 		}
 	}()
 	o, tenant := r.options, r.client.tenantID.String()
+	session := o.Session
+	if session == nil {
+		session = o.Pool.Config()
+	}
 	connect, finishConnect := context.WithTimeout(ctx, 30*time.Second)
-	conn, err := pgx.ConnectConfig(connect, o.Pool.Config().ConnConfig)
+	conn, err := pgsession.Dial(connect, session)
 	finishConnect()
 	if err != nil {
 		return err

@@ -146,6 +146,7 @@ export const AUTHKIT_ROUTES: readonly AuthKitRoute[] = [
   { method: "PATCH", path: "/auth/v1/groups/{group_id}/remote-applications/{id}", group: "groups", auth: "permission", permission: "<persona>:credentials:manage", stepUp: false, mountedWhen: "remote_applications" },
   { method: "DELETE", path: "/auth/v1/groups/{group_id}/remote-applications/{id}", group: "groups", auth: "permission", permission: "<persona>:credentials:manage", stepUp: false, mountedWhen: "remote_applications" },
   { method: "POST", path: "/auth/v1/invitations/redeem", group: "invitations", auth: "session", permission: null, stepUp: false, mountedWhen: null },
+  { method: "POST", path: "/auth/v1/setup", group: "setup", auth: "public", permission: null, stepUp: false, mountedWhen: null },
   { method: "GET", path: "/oidc/{provider}/login", group: "browser_oidc", auth: "public", permission: null, stepUp: false, mountedWhen: "oidc" },
   { method: "GET", path: "/oidc/{provider}/callback", group: "browser_oidc", auth: "public", permission: null, stepUp: false, mountedWhen: "oidc" },
   { method: "POST", path: "/oidc/{provider}/callback", group: "browser_oidc", auth: "public", permission: null, stepUp: false, mountedWhen: "oidc" },

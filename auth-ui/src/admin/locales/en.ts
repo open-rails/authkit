@@ -78,6 +78,10 @@ export const en = {
     send: "Invite",
     link: "Invitation link",
     sent: "An invitation went to {email}.",
+    notEmailed:
+      "Email isn't set up on this server: copy the link below to {email}.",
+    emailUnavailable:
+      "Email isn't set up on this server: you'll get a link to share.",
     list: "Sent invitations",
     empty: "No invitations yet.",
     recipient: "Recipient",

@@ -85,9 +85,11 @@ type Engine struct {
 	entitlements       func(context.Context, []string) (map[string][]string, error)
 	entitlementHolders func(context.Context, string) ([]string, error)
 	pg                 *pgxpool.Pool
-	q                  *db.Queries
-	schema             string       // validated Postgres schema name; db.DefaultSchema when unset
-	groupSchema        *rbac.Schema // compiled Config.Roles (nil ⇒ root-only default)
+	// session is Deps.PostgresSession: nil when pg reaches PostgreSQL directly.
+	session     *pgxpool.Config
+	q           *db.Queries
+	schema      string       // validated Postgres schema name; db.DefaultSchema when unset
+	groupSchema *rbac.Schema // compiled Config.Roles (nil ⇒ root-only default)
 	// oauthGrants is the host's OAuth grant authorizer (Deps.OAuthGrants), nil for the defaults.
 	oauthGrants       iam.OAuthGrantAuthorizer
 	solanaSNSResolver SolanaSNSResolver

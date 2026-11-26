@@ -12,6 +12,7 @@ import (
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/dpop"
+	"github.com/open-rails/authkit/internal/pgsession"
 )
 
 func (s *Engine) applyDeps(d config.Deps) error {
@@ -35,6 +36,9 @@ func (s *Engine) applyDeps(d config.Deps) error {
 			return err
 		}
 		s.ephemeral = &ephemeralKV{pool: ephemeralPool, q: db.New(ephemeralPool), tenant: s.tenantID}
+		if d.PostgresSession != nil {
+			s.session = d.PostgresSession.Copy()
+		}
 	}
 	s.redis = d.Redis
 	s.replays = dpop.NewReplays(d.Redis, d.Replays, s.log)
@@ -57,12 +61,24 @@ func (s *Engine) applyDeps(d config.Deps) error {
 	return nil
 }
 
+// dialSession opens a connection of its own for what a transaction pooler
+// cannot carry, LISTEN and session advisory locks: from
+// Deps.PostgresSession, else from the pool's configuration.
+func (s *Engine) dialSession(ctx context.Context) (*pgx.Conn, error) {
+	if s.session != nil {
+		return pgsession.Dial(ctx, s.session)
+	}
+	return pgsession.Dial(ctx, s.pg.Config())
+}
+
 // schemaPool creates an AuthKit-owned pool whose every connection resolves
 // unqualified AuthKit SQL against schema, followed by public. The caller's
 // pool is never modified: hosts commonly share it with unrelated queries,
 // and changing its search_path would leak AuthKit's namespace into those
 // queries. The clone preserves the host pool's connection hooks, then applies
-// the AuthKit search_path after the host's AfterConnect hook has run.
+// the AuthKit search_path after the host's AfterConnect hook has run. The
+// search_path is a startup parameter, which a transaction pooler keeps per
+// client; the session SET only re-asserts the same value.
 func schemaPool(source *pgxpool.Pool, schema string, tune ...func(*pgxpool.Config)) (*pgxpool.Pool, error) {
 	if source == nil {
 		return nil, nil

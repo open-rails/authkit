@@ -150,6 +150,7 @@ export type AuthErrorCode =
   | "sender_proof_required"
   | "server_busy"
   | "session_revoked"
+  | "setup_link_invalid"
   | "single_tenant"
   | "sms_delivery_failed"
   | "sms_unavailable"
@@ -332,6 +333,7 @@ export const AUTH_ERROR_STATUS: Readonly<Record<AuthErrorCode, number>> = {
   sender_proof_required: 401,
   server_busy: 503,
   session_revoked: 401,
+  setup_link_invalid: 404,
   single_tenant: 403,
   sms_delivery_failed: 502,
   sms_unavailable: 503,
@@ -515,6 +517,7 @@ export const AUTH_ERROR_MESSAGES = {
   sender_proof_required: "The token requires sender proof.",
   server_busy: "The server is busy. Try again in a moment.",
   session_revoked: "Your session has ended. Please sign in again.",
+  setup_link_invalid: "This setup link is invalid, used or expired. Ask whoever runs the server for a new one.",
   single_tenant: "This deployment has one tenant. More need multi-tenant mode.",
   sms_delivery_failed: "We couldn't deliver the text message. Please try again, or contact support.",
   sms_unavailable: "SMS is currently unavailable. Please use email instead.",

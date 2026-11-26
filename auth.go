@@ -27,7 +27,7 @@ import (
 // verify's middleware takes: verify.Required(client),
 // verify.RequirePermission(client, perm).
 //
-// Start, Close, RiverJobs, Ready, Probes, EmailAvailable, EmailHealth,
+// Start, Close, RiverJobs, IssueSetupLink, Ready, Probes, EmailAvailable, EmailHealth,
 // SMSAvailable, SMSHealth, TwoFactorMethods, Handler, APIBase, Routes, Mount
 // and the request verification methods (auth_verify.go) are embedding-only:
 // they wire the in-process deployment, and a Client of a remote deployment
@@ -60,11 +60,12 @@ var _ verify.Authority = (*Client)(nil)
 
 // New builds AuthKit from host configuration and dependencies. It first
 // creates or upgrades AuthKit's and River's tables (Config.Database) through
-// Deps.Postgres, whose role owns them, waiting up to 30 seconds for PostgreSQL
-// to answer; replicas booting together are safe, and a schema a newer build
-// already migrated boots unchanged. ctx bounds the boot-time database work.
-// Database.SkipMigrations validates the existing migration ledgers instead;
-// use Migrate explicitly before starting such an application.
+// Deps.Postgres (Deps.PostgresSession when set), whose role owns them, waiting
+// up to 30 seconds for PostgreSQL to answer; replicas booting together are
+// safe, and a schema a newer build already migrated boots unchanged. ctx
+// bounds the boot-time database work. Database.SkipMigrations validates the
+// existing migration ledgers instead; use Migrate explicitly before starting
+// such an application.
 //
 // New fails only when AuthKit cannot run safely: PostgreSQL unreachable or
 // its migrations failing, no usable signing key, or configuration it cannot
@@ -127,7 +128,9 @@ func WithRiverClient(fleet *river.Client[pgx.Tx]) StartOption {
 // auth-state maintenance) and the senders' health checks. With no options it
 // builds and runs AuthKit's own River client in Config.Database.RiverSchema; with
 // WithRiverClient the jobs run on the host's fleet. Jobs queued before Start
-// wait for it. Call it once, before serving.
+// wait for it. Call it once, before serving. With iam.RouteSetup mounted and
+// no usable account holding a root role, it logs the setup link that creates
+// the owner (IssueSetupLink).
 func (a *Client) Start(ctx context.Context, opts ...StartOption) error {
 	if a.borrowed {
 		return errors.New("authkit: start the owning client, not a tenant view")
@@ -158,6 +161,16 @@ func (a *Client) Close(ctx context.Context) error {
 	}
 	a.http.Close()
 	return a.engine.Close(ctx)
+}
+
+// IssueSetupLink issues a single-use link, valid 24 hours, that creates an
+// owner account: the host's break-glass, for a command run from its own
+// shell, like Vault's generate-root. It replaces the link Start logged, and
+// works while administrators exist; Start's own link dies once anyone holds a
+// root role. It needs iam.RouteSetup mounted. The link opens
+// Config.FrontendURL's /setup page (auth-ui's OwnerSetup).
+func (a *Client) IssueSetupLink(ctx context.Context) (iam.SetupLink, error) {
+	return a.engine.IssueSetupLink(a.operationContext(ctx))
 }
 
 // Logger is what AuthKit logs through: Deps.Logger, or slog.Default() when

@@ -78,6 +78,10 @@ export const ja: AdminMessageTree = {
     send: "招待",
     link: "招待リンク",
     sent: "{email} に招待を送りました。",
+    notEmailed:
+      "このサーバーではメールが設定されていません。下のリンクを {email} に送ってください。",
+    emailUnavailable:
+      "このサーバーではメールが設定されていません。共有用のリンクが表示されます。",
     list: "送信済みの招待",
     empty: "まだ招待はありません。",
     recipient: "宛先",

@@ -389,6 +389,14 @@ type InvitationRedeemRequest struct {
 	Code string `json:"code"`
 }
 
+// SetupRequest spends a setup link's token on the owner account.
+type SetupRequest struct {
+	Token    string `json:"token"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 type GroupQuery struct {
 	GroupID string `query:"group_id"`
 }
@@ -459,6 +467,10 @@ type Capabilities struct {
 	// DPoP is "required": every sign-in proves a DPoP key (RFC 9449).
 	DPoP  string     `json:"dpop"`
 	Paths MountPaths `json:"paths"`
+	// RouteGroups are the route groups this deployment serves, each with at
+	// least one route mounted: a console shows what they serve (groups:
+	// members and roles; invitations; admin: accounts; setup).
+	RouteGroups []iam.RouteGroup `json:"route_groups"`
 }
 
 // MountPaths are the serving mount's anchors as full paths, so a client that

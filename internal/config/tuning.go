@@ -36,6 +36,9 @@ type Tuning struct {
 	// SessionEventRetention keeps session-event history, personal data
 	// (365 days); negative keeps it forever.
 	SessionEventRetention time.Duration
+	// ListenerCheck is how often the provisioning listener pings its
+	// connection and catches up from the durable changes (30s).
+	ListenerCheck time.Duration
 }
 
 // Defaults of Tuning.
@@ -96,6 +99,9 @@ func normalizeTuning(c *Config) error {
 	t.SenderHealthRecheck = min(t.SenderHealthRecheck, t.SenderHealthInterval)
 	if t.VerificationSendTimeout <= 0 {
 		t.VerificationSendTimeout = 15 * time.Second
+	}
+	if t.ListenerCheck <= 0 {
+		t.ListenerCheck = 30 * time.Second
 	}
 	if t.EventRetention == 0 {
 		t.EventRetention = 90 * 24 * time.Hour

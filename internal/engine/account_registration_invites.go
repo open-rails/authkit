@@ -57,17 +57,18 @@ func (s *Engine) accountRegistrationInviteURL(code string) string {
 	return s.authkitURL(config.InvitePath, q)
 }
 
-func (s *Engine) sendAccountRegistrationInviteEmail(ctx context.Context, email, inviteURL string) {
-	if s.email == nil {
-		return
+// sendAccountRegistrationInviteEmail emails the invitation when email is
+// available, reporting whether it went. A failed send does not fail the
+// invitation: the inviter gets its URL to share instead.
+func (s *Engine) sendAccountRegistrationInviteEmail(ctx context.Context, email, inviteURL string) bool {
+	if !s.EmailAvailable() {
+		return false
 	}
-	// Deliberate availability-over-consistency: the invite CREATE already succeeded
-	// and the inviter got the URL back (they can share it any channel), so a failed
-	// email must not fail the call — but it must be LOUD, or the recipient silently
-	// never hears about the invite (#223's original bug class).
 	if err := s.sendEmail(ctx, iam.EmailMessage{Kind: iam.MessageInvite, To: email, Language: s.messageLanguage(ctx, ""), Link: inviteURL}); err != nil {
-		s.log.ErrorContext(ctx, "authkit: account-registration invite email failed; the invite exists and the inviter holds its URL", "error", err)
+		s.log.ErrorContext(ctx, "authkit: account-registration invite email failed; the inviter holds its URL", "error", err)
+		return false
 	}
+	return true
 }
 
 func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email string) (bool, error) {

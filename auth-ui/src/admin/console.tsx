@@ -5,6 +5,7 @@ import { useAccessWith, useUsersAccessWith, usersAccess } from "./access.ts"
 import { ApiKeysAdmin } from "./api-keys.tsx"
 import { useAdmin } from "./context.ts"
 import { useAdminMessages } from "./i18n.ts"
+import { useLoad } from "./load.ts"
 import { MembersAdmin } from "./members.tsx"
 import { OAuthClientsAdmin } from "./oauth-clients.tsx"
 import { ErrorText, Loading, NoAccess, ViewTabs } from "./parts.tsx"
@@ -32,7 +33,10 @@ export type AuthAdminSection = (typeof SECTIONS)[number]
 export interface AuthAdminProps extends AdminProps {
   /** The host-controlled group for group administration. Default `root`. */
   group?: string
-  /** Sections enabled by this host's AuthKit configuration; all by default. */
+  /**
+   * Sections to show; all by default. Those whose routes the server does not
+   * serve (`/capabilities` `route_groups`) are left out either way.
+   */
   sections?: readonly AuthAdminSection[]
   /** The account directory (root/default or a tenant) stays separate from the selected group. */
   users?:
@@ -110,7 +114,19 @@ function Console({
     () => usersAccess(root, users ? users.tenantId : undefined),
     [root, users]
   )
-  const enabled = new Set(sections)
+  // The panels whose routes the server serves; all while unknown.
+  const capabilities = useLoad("capabilities", (signal) =>
+    client.capabilities(signal)
+  )
+  const served = capabilities.data
+    ? new Set<string>(capabilities.data.route_groups)
+    : null
+  const serves = (group: string) => served === null || served.has(group)
+  const enabled = new Set(
+    sections.filter((section) =>
+      serves(section === "users" ? "admin" : "groups")
+    )
+  )
   const permitted = {
     users: users !== false && accounts.any,
     members: scoped.members.read || scoped.invite,
@@ -125,6 +141,7 @@ function Console({
   const requested = router.segments[0]
   const selected = requested ?? available[0]
   const checking =
+    capabilities.loading ||
     (enabled.has("users") && users !== false && root.status === "loading") ||
     (SECTIONS.some((section) => section !== "users" && enabled.has(section)) &&
       scoped.status === "loading")

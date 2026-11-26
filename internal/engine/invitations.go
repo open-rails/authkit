@@ -29,7 +29,8 @@ import (
 )
 
 // CreateInvitation creates an invite link (n.Email empty), or emails an
-// invitation to n.Email. A link, and an email invitation carrying a role, need
+// invitation to n.Email when email is available (Emailed). A link, and an
+// email invitation carrying a role, need
 // CAP(<p>:members:manage) plus COVER(role) in ref; a plain email invitation
 // (no role) is issued in the root or owning tenant group and needs its users:invite permission.
 // Only a user or the system issues credentials. The code is returned once.
@@ -162,7 +163,7 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a auth.Identity, ref
 	if err := s.rememberProofRoute(ctx, "registration-invite", secret.Hash(out.Code), time.Until(expiresAt)); err != nil {
 		return iam.InvitationCreated{}, err
 	}
-	s.sendAccountRegistrationInviteEmail(ctx, email, out.URL)
+	out.Emailed = s.sendAccountRegistrationInviteEmail(ctx, email, out.URL)
 	return out, nil
 }
 

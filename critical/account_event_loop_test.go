@@ -102,7 +102,9 @@ func (f *fixture) accountCursor(t *testing.T, stream string) string {
 // resync reads one account_resyncs row: attempts and seconds until due, by database time.
 func (f *fixture) resync(t *testing.T, userID string) (attempts int, dueIn float64, ok bool) {
 	t.Helper()
-	err := f.pool.QueryRow(t.Context(), "SELECT attempts, extract(epoch FROM due_at-now())::float8 FROM "+pgx.Identifier{f.schema, "account_resyncs"}.Sanitize()+" WHERE user_id=$1", userID).Scan(&attempts, &dueIn)
+	// clock_timestamp, not now(): a park committed after this statement's
+	// transaction began but before its snapshot would read as due later.
+	err := f.pool.QueryRow(t.Context(), "SELECT attempts, extract(epoch FROM due_at-clock_timestamp())::float8 FROM "+pgx.Identifier{f.schema, "account_resyncs"}.Sanitize()+" WHERE user_id=$1", userID).Scan(&attempts, &dueIn)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, 0, false
 	}

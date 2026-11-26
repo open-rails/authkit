@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client"
 import {
   createAuthClient,
   createIssuerClient,
+  readInvitation,
+  readSetupToken,
   transportFailure,
   readAuthKitError,
 } from "@openrails/auth-ui/client"
@@ -12,10 +14,12 @@ import {
   createAdminClient,
 } from "@openrails/auth-ui/admin"
 import {
+  AcceptInvitation,
   AccountSecurity,
   NotificationBell,
   NotificationInbox,
   AuthUiProvider,
+  OwnerSetup,
   SignInDialog,
 } from "@openrails/auth-ui"
 import {
@@ -30,7 +34,9 @@ const baseUrl = params.has("limited")
   ? "/limited/v1"
   : params.has("unproved")
     ? "/unproved/v1"
-    : "/auth/v1"
+    : params.has("firstrun")
+      ? "/firstrun/v1"
+      : "/auth/v1"
 // Transparent public-boundary coverage only: real methods and results are
 // unchanged. No arguments, credentials or response data are recorded.
 function observe<T extends object>(target: T, boundary: string): T {
@@ -175,6 +181,23 @@ export function App() {
         </>
       )}
       <output data-testid="profile-email">{user?.email ?? ""}</output>
+      {params.has("owner-setup") && (
+        <OwnerSetup
+          token={readSetupToken(location.hash)}
+          navigate={(to) => {
+            history.replaceState(null, "", to)
+            events.push({ kind: "owner-ready" })
+          }}
+        />
+      )}
+      {params.has("accept-invitation") && (
+        <AcceptInvitation
+          invitation={readInvitation(location.hash)}
+          onAccepted={(membership) =>
+            events.push({ kind: "accepted", status: membership?.role })
+          }
+        />
+      )}
       {session.status === "authenticated" && params.has("admin-group") && (
         <AuthAdmin
           key={session.userId}

@@ -1,3 +1,7 @@
+export {
+  AcceptInvitation,
+  type AcceptInvitationProps,
+} from "./AcceptInvitation.tsx"
 export { AuthCallback, type AuthCallbackProps } from "./AuthCallback.tsx"
 export { BackupCodes, type BackupCodesProps } from "./BackupCodes.tsx"
 export { Captcha } from "./Captcha.tsx"
@@ -21,6 +25,7 @@ export {
   type NewDeviceVerificationProps,
 } from "./NewDeviceVerification.tsx"
 export { OAuthAuthorize, type OAuthAuthorizeProps } from "./OAuthAuthorize.tsx"
+export { OwnerSetup, type OwnerSetupProps } from "./OwnerSetup.tsx"
 export {
   PasswordlessLink,
   type PasswordlessLinkProps,
