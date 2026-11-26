@@ -56,20 +56,7 @@ Soft deletion continues AuthKit's existing recovery policy.
 
 ## Storage and migration
 
-The inbox lives in `Database.Schema`: `Migrate` (and `New`) creates it with the rest of AuthKit's tables. A tenant's notifications are scoped `authkit:<tenant UUID>` (`Client.NotificationScope`).
-
-`Client.AdoptNotifications` performs a separate, operator-invoked exact-identity
-migration for producers changing legacy event IDs to stable issue IDs. Each
-`notify.Adoption` contains exact `Previous` origins and one `Current` mutation.
-Run it with old writers stopped. An existing canonical receipt wins; otherwise
-the newest matching previous receipt (created_at, ID descending) retains its ID,
-read/archive state and becomes canonical. Redundant prior receipts remain hidden.
-Conflicting visibility or producer scope refuses the batch. Only unversioned
-legacy receipts may acquire classification; versioned unclassified records are
-refused rather than silently changing their producer identity/hash. Replay cannot lower
-a canonical producer revision. An active current issue with no previous/current
-receipt is skipped; a withdrawn issue can create a hidden ordering tombstone.
-This never replays unconsumed history into a new visible inbox.
+The inbox lives in `Database.Schema`: `Migrate` (and `New`) creates it with the rest of AuthKit's tables, recording its migrations in migratekit's ledger as app `authkit_notify`. A tenant's notifications are scoped `authkit:<tenant UUID>` (`Client.NotificationScope`).
 
 ## Host wiring
 
@@ -95,8 +82,7 @@ The HTTP endpoints are `GET /me/notifications`, `GET /me/notifications/{id}`,
 
 Required qualification covers local transaction rollback, authenticated HTTP
 isolation, producer/source spoofing denial, stale and out-of-order mutations,
-withdrawal before publication, account erasure, preserved migrated inbox state,
-and durable remote delivery/retry. Frontend coverage must exercise listing and
+withdrawal before publication, account erasure and durable remote delivery/retry. Frontend coverage must exercise listing and
 receipt state independently from domain resolution.
 
 AuthKit's host and each engine it embeds register their own producer with `Client.Notifications`. The channel does not invent new security notices or mirror every email; concrete notification policy remains explicit in the producer.
@@ -112,7 +98,4 @@ A previously revisioned receipt with nonempty source subject or workflow status
 therefore cannot be rewritten by a minimal publication at the same revision.
 That is a semantic change and still returns `ErrConflict`; producers must
 deliberately advance their durable revision and drain old obligations during
-cutover. Canonical notice envelopes replay unchanged. Explicit adoption of
-unversioned legacy receipts sets the chosen canonical current envelope before
-new publishers resume, preserving receipt ID/read/archive state. The package
-move alone does not waive ordering or content-conflict checks.
+cutover. Canonical notice envelopes replay unchanged.

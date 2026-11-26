@@ -79,7 +79,7 @@ func New(ctx context.Context, cfg config.Config, deps config.Deps) (_ *Engine, e
 				return nil, err
 			}
 		} else {
-			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{Tenancy: norm.Tenancy, LegacyTenantID: norm.DefaultTenantID, Logger: log}); err != nil {
+			if err := Migrate(ctx, deps.Postgres, norm.Database, MigrationOptions{Tenancy: norm.Tenancy, TenantID: norm.DefaultTenantID, Logger: log}); err != nil {
 				return nil, err
 			}
 		}

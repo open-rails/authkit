@@ -45,37 +45,12 @@ if [[ "$mode" != workflows ]]; then
       sqlc_sep='?'
     fi
     export SQLC_DATABASE_URL="${AUTHKIT_TEST_DATABASE_URL}${sqlc_sep}options=-csearch_path%3Dprofiles%2Cpublic"
-    go run ./internal/cmd/migrate \
-      -dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles \
-      -legacy-tenant-id 00000000-0000-4000-8000-000000000001
+    go run ./internal/cmd/migrate -dsn "$AUTHKIT_TEST_DATABASE_URL" -schema profiles
     go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate -f internal/db/sqlc.yaml
     go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 vet -f internal/db/sqlc.yaml
     git diff --exit-code -- internal/db
     test -z "$(git ls-files --others --exclude-standard -- internal/db)"
   fi
 
-  # Released migrations are immutable and new ones are numbered after them.
-  migrations=internal/migrations/postgres
-  release=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
-  last=0
-  for path in $(git ls-tree --name-only "$release" -- "$migrations/" | grep '\.sql$'); do
-    # Releases through v1.24.0 carry migratekit's dead `-- parent:` header, which no ledger hashed.
-    blob=$(git cat-file blob "$release:$path" | sed '1{/^-- parent: /d;}' | git hash-object --stdin)
-    number=$(basename "$path")
-    number=${number%%_*}
-    if [[ -f $path && $(git hash-object "$path") == "$blob" ]]; then
-      if (( 10#$number > last )); then last=$((10#$number)); fi
-    else
-      echo "migration $path released in $release was changed or removed" >&2
-      exit 1
-    fi
-  done
-  for added in $(git diff --name-only --diff-filter=A "$release" -- "$migrations/*.sql"); do
-    number=$(basename "$added")
-    number=${number%%_*}
-    if (( 10#$number <= last )); then
-      echo "new migration $added must be numbered after $last (released in $release)" >&2
-      exit 1
-    fi
-  done
+  scripts/check-released-migrations.sh
 fi

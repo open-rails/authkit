@@ -120,15 +120,3 @@ func (a *Client) SetNotificationRead(ctx context.Context, userID, id string, rea
 func (a *Client) SetNotificationDismissed(ctx context.Context, userID, id string, dismissed bool) (notify.Item, error) {
 	return a.ops.SetNotificationDismissed(a.operationContext(ctx), userID, id, dismissed)
 }
-
-// NotificationAdoption maps exact legacy receipt origins to one current issue.
-// It is maintenance data, not a runtime alias or wildcard deletion interface.
-type NotificationAdoption = notify.Adoption
-
-// AdoptNotifications runs a bounded explicit cutover batch while old writers
-// are stopped. A current-identity receipt wins; otherwise the newest matching
-// legacy receipt wins (created_at, ID descending). Its ID/read/archive survive;
-// redundant legacy receipts remain hidden. Producer state never moves backwards.
-func (a *Client) AdoptNotifications(ctx context.Context, producer string, batch []notify.Adoption) error {
-	return a.engine.AdoptNotifications(a.operationContext(ctx), producer, batch)
-}

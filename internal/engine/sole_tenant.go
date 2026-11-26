@@ -24,23 +24,8 @@ var errSeveralTenants = errors.New("authkit: the database holds more than one te
 // it as CreateTenant would, under named or a new ID; one is adopted; several,
 // or one other than named, are refused.
 func soleTenant(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, database config.DatabaseConfig, named iam.TenantID, create bool) (iam.TenantID, error) {
-	schema, err := config.NormalizeSchema(database.Schema)
-	if err != nil {
-		return iam.TenantID{}, err
-	}
-	database.Schema = schema
-	owned, err := schemaPool(pool, schema, func(c *pgxpool.Config) { c.MaxConns, c.MinConns = 1, 0 })
-	if err != nil {
-		return iam.TenantID{}, err
-	}
-	defer owned.Close()
-	s := &Engine{log: log, cfg: config.Config{Database: database}, pg: owned, q: db.New(owned), schema: schema, groupSchema: rbac.Default(), now: time.Now}
 	var id iam.TenantID
-	err = s.withAuthorityMutation(ctx, iam.SystemIdentity(), func(st *permissionGroupStore) error {
-		ids, err := db.New(st.q).FirstTwoTenants(ctx)
-		if err != nil {
-			return err
-		}
+	err := withTenants(ctx, log, pool, database, func(s *Engine, st *permissionGroupStore, ids []string) error {
 		switch len(ids) {
 		case 0:
 			if !create {
@@ -49,19 +34,59 @@ func soleTenant(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, datab
 			if id = named; id.IsZero() {
 				id = iam.NewTenantID()
 			}
-			return s.createTenantIn(ctx, st, id, "tenant-"+strings.ReplaceAll(id.String(), "-", ""))
+			return s.createTenantIn(ctx, st, id, placeholderSlug(id))
 		case 1:
+			var err error
 			if id, err = iam.ParseTenantID(ids[0]); err != nil {
 				return err
 			}
 			if !named.IsZero() && named != id {
-				return fmt.Errorf("authkit: DefaultTenantID %s is not the single-tenant database's tenant %s", named, id)
+				return fmt.Errorf("authkit: tenant %s is not the single-tenant database's tenant %s", named, id)
 			}
 			return nil
 		}
 		return errSeveralTenants
 	})
 	return id, err
+}
+
+// firstTenant gives a multi-tenant database that holds no tenant its default
+// tenant id, as CreateTenant would; one holding any is unchanged.
+func firstTenant(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, database config.DatabaseConfig, id iam.TenantID) error {
+	return withTenants(ctx, log, pool, database, func(s *Engine, st *permissionGroupStore, ids []string) error {
+		if len(ids) > 0 {
+			return nil
+		}
+		return s.createTenantIn(ctx, st, id, placeholderSlug(id))
+	})
+}
+
+// placeholderSlug names a tenant Migrate created until it is renamed.
+func placeholderSlug(id iam.TenantID) string {
+	return "tenant-" + strings.ReplaceAll(id.String(), "-", "")
+}
+
+// withTenants runs fn under the authority lock with the database's first two
+// tenant IDs.
+func withTenants(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, database config.DatabaseConfig, fn func(*Engine, *permissionGroupStore, []string) error) error {
+	schema, err := config.NormalizeSchema(database.Schema)
+	if err != nil {
+		return err
+	}
+	database.Schema = schema
+	owned, err := schemaPool(pool, schema, func(c *pgxpool.Config) { c.MaxConns, c.MinConns = 1, 0 })
+	if err != nil {
+		return err
+	}
+	defer owned.Close()
+	s := &Engine{log: log, cfg: config.Config{Database: database}, pg: owned, q: db.New(owned), schema: schema, groupSchema: rbac.Default(), now: time.Now}
+	return s.withAuthorityMutation(ctx, iam.SystemIdentity(), func(st *permissionGroupStore) error {
+		ids, err := db.New(st.q).FirstTwoTenants(ctx)
+		if err != nil {
+			return err
+		}
+		return fn(s, st, ids)
+	})
 }
 
 // singleTenant refuses ctx's tenant other than a single-tenant deployment's.

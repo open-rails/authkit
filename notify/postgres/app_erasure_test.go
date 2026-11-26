@@ -79,28 +79,3 @@ func TestAppErasureRejectsOldSnapshot(t *testing.T) {
 		t.Fatal("old snapshot bypassed app erasure")
 	}
 }
-
-func TestAppErasureSurvivesInboxMerge(t *testing.T) {
-	source, _, sourceSchema := database(t)
-	target, _, _ := database(t)
-	ctx := t.Context()
-	in := input("app-replay")
-	in.Visibility, in.AppID = notify.VisibilityApp, "app-a"
-	if _, err := target.Publish(ctx, in); err != nil {
-		t.Fatal(err)
-	}
-	if err := source.EraseAppRecipient(ctx, in.Recipient, "app-a", notify.OriginScope{}); err != nil {
-		t.Fatal(err)
-	}
-	if err := target.MergeFrom(ctx, []LegacyScope{{Schema: sourceSchema, Scope: source.scope}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := target.Publish(ctx, in); !errors.Is(err, notify.ErrRecipientErased) {
-		t.Fatalf("merged fence lost: %v", err)
-	}
-	in.Origin.ID = "tenant-survives"
-	in.Visibility, in.AppID = notify.VisibilityTenant, ""
-	if _, err := target.Publish(ctx, in); err != nil {
-		t.Fatal(err)
-	}
-}

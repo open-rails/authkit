@@ -293,37 +293,3 @@ func TestOldTransactionSnapshotCannotResurrectErasedRecipient(t *testing.T) {
 		})
 	}
 }
-
-func TestClassificationMigrationKeepsOlderWorkflowProducersWorking(t *testing.T) {
-	s, pool, schema := database(t)
-	ctx := t.Context()
-	// Recreate the prior schema in this test's isolated namespace, with one
-	// already-persisted workflow item, then perform the real additive upgrade.
-	before, err := s.Publish(ctx, input("before-upgrade"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `ALTER TABLE `+s.table+` DROP COLUMN action_requested, DROP COLUMN source_subject, DROP COLUMN dismissed_at, DROP COLUMN visibility CASCADE, DROP COLUMN app_id CASCADE, DROP COLUMN producer_revision CASCADE, DROP COLUMN withdrawn CASCADE, DROP COLUMN producer_hash CASCADE; DELETE FROM `+pgx.Identifier{schema, "notify_migrations"}.Sanitize()+` WHERE version>=2`); err != nil {
-		t.Fatal(err)
-	}
-	if err = Migrate(ctx, pool, schema); err != nil {
-		t.Fatal(err)
-	}
-	// A still-running older binary omits the new optional column entirely.
-	_, err = pool.Exec(ctx, `INSERT INTO `+s.table+`(scope,id,audience,recipient,source,source_scope,source_id,kind,data,created_at,status) VALUES($1,'older-producer','user','alice','billing.example','merchant-1','old-writer','payment.failed','{}',now(),'open')`, s.scope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	page, err := s.List(ctx, before.Recipient, notify.ListOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(page.Items) != 2 {
-		t.Fatalf("upgrade lost items: %+v", page)
-	}
-	for _, n := range page.Items {
-		if !n.ActionRequested || n.Status != notify.StatusOpen || n.Origin.Subject != "" || n.DismissedAt != nil {
-			t.Fatalf("workflow category lost: %+v", n)
-		}
-	}
-}

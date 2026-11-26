@@ -101,4 +101,4 @@ key, err := ak.CreateAPIKey(ctx, iam.SystemIdentity(), group, iam.NewAPIKey{
 
 `Client.RemoteUserInfo(ref, issuer)` is the group's users of issuer as a `authkit/userinfo.Lookup`, keyed by subject: the email, the name (`displayName`, else `name.formatted`, else the given and family names) and the username. An inactive user (`active: false`) is absent. A library reads a customer's contact through it by the issuer and subject of the customer's token.
 
-Retention: a SCIM `DELETE` deletes the user, and deleting the group deletes its directory. Migration 0013 adds `remote_users` and `api_keys.provisions_for`.
+Retention: a SCIM `DELETE` deletes the user, and deleting the group deletes its directory.
