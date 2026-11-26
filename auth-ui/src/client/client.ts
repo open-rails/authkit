@@ -2045,16 +2045,17 @@ export function readSetupToken(hash: string): string | null {
   return new URLSearchParams(hash.replace(/^#/, "")).get("token")
 }
 
-// The code of an invitation link (Frontend.InvitePath): an invite link's
-// #link_code=, or an email invitation's #invite_code=, which also registers.
-export function readInvitation(
-  hash: string
-): { code: string; registers: boolean } | null {
+// An invitation from its link (Frontend.InvitePath): an email invitation's
+// #invite_code= or an invite link's #link_code=. Either code signs its holder
+// up, or an account signed in accepts it.
+export type InvitationLink = { code: string; kind: "email" | "link" }
+
+export function readInvitation(hash: string): InvitationLink | null {
   const params = new URLSearchParams(hash.replace(/^#/, ""))
   const invite = params.get("invite_code")
-  if (invite) return { code: invite, registers: true }
+  if (invite) return { code: invite, kind: "email" }
   const code = params.get("link_code")
-  return code ? { code, registers: false } : null
+  return code ? { code, kind: "link" } : null
 }
 
 export function readLinkFragment(hash: string): LinkFragment | null {

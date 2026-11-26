@@ -72,6 +72,16 @@ func (q *Queries) AccountInviteConsume(ctx context.Context, id string) error {
 	return err
 }
 
+const accountInviteEmailed = `-- name: AccountInviteEmailed :exec
+UPDATE account_registration_invites SET emailed_at = now() WHERE id = $1
+`
+
+// An email invitation's code went to its address alone once it is emailed.
+func (q *Queries) AccountInviteEmailed(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, accountInviteEmailed, id)
+	return err
+}
+
 const accountInviteForRevoke = `-- name: AccountInviteForRevoke :one
 SELECT COALESCE(role, '')::text AS role, revoked_at, consumed_at FROM account_registration_invites
 WHERE tenant_id=NULLIF($1::text,'')::uuid AND id = $2 AND (permission_group_id = $3::uuid OR ($4::boolean AND permission_group_id IS NULL))
@@ -103,42 +113,6 @@ func (q *Queries) AccountInviteForRevoke(ctx context.Context, arg AccountInviteF
 	return i, err
 }
 
-const accountInviteForUpdate = `-- name: AccountInviteForUpdate :one
-SELECT i.id, i.permission_group_id, i.role, g.persona, i.tenant_id::text AS tenant_id
-FROM account_registration_invites i LEFT JOIN permission_groups g ON g.id = i.permission_group_id
-WHERE i.tenant_id=NULLIF($1::text,'')::uuid AND i.code_hash = $2 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at > now()
-  AND (i.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = i.invited_by))
-  AND i.permission_group_id IS NOT DISTINCT FROM $3::uuid
-FOR UPDATE OF i
-`
-
-type AccountInviteForUpdateParams struct {
-	TenantID string
-	CodeHash string
-	GroupID  *string
-}
-
-type AccountInviteForUpdateRow struct {
-	ID                string
-	PermissionGroupID *string
-	Role              *string
-	Persona           *string
-	TenantID          string
-}
-
-func (q *Queries) AccountInviteForUpdate(ctx context.Context, arg AccountInviteForUpdateParams) (AccountInviteForUpdateRow, error) {
-	row := q.db.QueryRow(ctx, accountInviteForUpdate, arg.TenantID, arg.CodeHash, arg.GroupID)
-	var i AccountInviteForUpdateRow
-	err := row.Scan(
-		&i.ID,
-		&i.PermissionGroupID,
-		&i.Role,
-		&i.Persona,
-		&i.TenantID,
-	)
-	return i, err
-}
-
 const accountInviteGroupByCode = `-- name: AccountInviteGroupByCode :one
 SELECT permission_group_id::uuid AS group_id FROM account_registration_invites
 WHERE tenant_id=NULLIF($1::text,'')::uuid AND code_hash = $2 AND permission_group_id IS NOT NULL
@@ -154,24 +128,6 @@ func (q *Queries) AccountInviteGroupByCode(ctx context.Context, arg AccountInvit
 	var group_id string
 	err := row.Scan(&group_id)
 	return group_id, err
-}
-
-const accountInviteGroupLive = `-- name: AccountInviteGroupLive :one
-SELECT i.permission_group_id FROM account_registration_invites i
-WHERE i.tenant_id=NULLIF($1::text,'')::uuid AND i.code_hash = $2 AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at > now()
-  AND (i.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = i.invited_by))
-`
-
-type AccountInviteGroupLiveParams struct {
-	TenantID string
-	CodeHash string
-}
-
-func (q *Queries) AccountInviteGroupLive(ctx context.Context, arg AccountInviteGroupLiveParams) (*string, error) {
-	row := q.db.QueryRow(ctx, accountInviteGroupLive, arg.TenantID, arg.CodeHash)
-	var permission_group_id *string
-	err := row.Scan(&permission_group_id)
-	return permission_group_id, err
 }
 
 const accountInviteInsert = `-- name: AccountInviteInsert :one
@@ -212,6 +168,15 @@ func (q *Queries) AccountInviteInsert(ctx context.Context, arg AccountInviteInse
 	return i, err
 }
 
+const accountInviteLock = `-- name: AccountInviteLock :exec
+SELECT id FROM account_registration_invites WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) AccountInviteLock(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, accountInviteLock, id)
+	return err
+}
+
 const accountInvitesRevokeInvitedBy = `-- name: AccountInvitesRevokeInvitedBy :exec
 UPDATE account_registration_invites SET revoked_at = now()
 WHERE invited_by = $1::uuid AND revoked_at IS NULL AND consumed_at IS NULL
@@ -220,6 +185,62 @@ WHERE invited_by = $1::uuid AND revoked_at IS NULL AND consumed_at IS NULL
 func (q *Queries) AccountInvitesRevokeInvitedBy(ctx context.Context, userID string) error {
 	_, err := q.db.Exec(ctx, accountInvitesRevokeInvitedBy, userID)
 	return err
+}
+
+const invitationByCode = `-- name: InvitationByCode :one
+SELECT i.kind, i.id, i.group_id, i.persona, i.role, i.email, i.emailed, i.used_at, i.revoked_at, i.expires_at, i.issuer_live FROM (
+  SELECT 'group_invite_links'::text AS kind, l.id, l.permission_group_id::text AS group_id, g.persona, l.role, ''::text AS email, false::boolean AS emailed,
+    l.redeemed_at AS used_at, l.revoked_at, l.expires_at,
+    (l.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = l.invited_by))::boolean AS issuer_live
+  FROM group_invite_links l JOIN permission_groups g ON g.id = l.permission_group_id
+  WHERE l.tenant_id=NULLIF($1::text,'')::uuid AND l.code_hash = $2
+  UNION ALL
+  SELECT 'account_registration_invites'::text, a.id, COALESCE(a.permission_group_id::text, '')::text, COALESCE(g.persona, '')::text, COALESCE(a.role, '')::text,
+    a.email::text, (a.emailed_at IS NOT NULL)::boolean, a.consumed_at, a.revoked_at, a.expires_at,
+    (a.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.invited_by))::boolean
+  FROM account_registration_invites a LEFT JOIN permission_groups g ON g.id = a.permission_group_id
+  WHERE a.tenant_id=NULLIF($1::text,'')::uuid AND a.code_hash = $2) i
+`
+
+type InvitationByCodeParams struct {
+	TenantID string
+	CodeHash string
+}
+
+type InvitationByCodeRow struct {
+	Kind       string
+	ID         string
+	GroupID    string
+	Persona    string
+	Role       string
+	Email      string
+	Emailed    bool
+	UsedAt     *time.Time
+	RevokedAt  *time.Time
+	ExpiresAt  *time.Time
+	IssuerLive bool
+}
+
+// InvitationByCode is the invitation of either kind whose code hashes to
+// code_hash: an invite link (email ”) or an email invitation, with its group
+// (” for none) and whether it was emailed.
+func (q *Queries) InvitationByCode(ctx context.Context, arg InvitationByCodeParams) (InvitationByCodeRow, error) {
+	row := q.db.QueryRow(ctx, invitationByCode, arg.TenantID, arg.CodeHash)
+	var i InvitationByCodeRow
+	err := row.Scan(
+		&i.Kind,
+		&i.ID,
+		&i.GroupID,
+		&i.Persona,
+		&i.Role,
+		&i.Email,
+		&i.Emailed,
+		&i.UsedAt,
+		&i.RevokedAt,
+		&i.ExpiresAt,
+		&i.IssuerLive,
+	)
+	return i, err
 }
 
 const invitationsByGroup = `-- name: InvitationsByGroup :many
@@ -412,6 +433,15 @@ func (q *Queries) InviteLinkInsert(ctx context.Context, arg InviteLinkInsertPara
 	var i InviteLinkInsertRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
 	return i, err
+}
+
+const inviteLinkLock = `-- name: InviteLinkLock :exec
+SELECT id FROM group_invite_links WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) InviteLinkLock(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, inviteLinkLock, id)
+	return err
 }
 
 const inviteLinkRedeem = `-- name: InviteLinkRedeem :exec

@@ -648,6 +648,7 @@ export const es: AuthUiMessageBundle = {
     accept: "Aceptar invitación",
     accepted: "Invitación aceptada",
     joinedAs: "Te uniste como {role}.",
+    unproven: "{address} aún no está verificada: este servidor no pudo enviarle un código. Puedes verificarla más tarde desde tu cuenta.",
     missingLink: "Este enlace de invitación está incompleto. Ábrelo de nuevo desde tu correo o pide uno nuevo.",
   },
   callback: {

@@ -60,18 +60,32 @@ INSERT INTO account_registration_invites (email, invited_by, code_hash, expires_
 VALUES (sqlc.arg(email), sqlc.narg(invited_by)::uuid, sqlc.arg(code_hash), sqlc.arg(expires_at), sqlc.narg(group_id)::uuid, sqlc.narg(role)::text, sqlc.arg(catalog_issuer)::text, sqlc.arg(tenant_id)::uuid)
 RETURNING id, created_at;
 
--- name: AccountInviteGroupLive :one
-SELECT i.permission_group_id FROM account_registration_invites i
-WHERE i.tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND i.code_hash = sqlc.arg(code_hash) AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at > now()
-  AND (i.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = i.invited_by));
+-- An email invitation's code went to its address alone once it is emailed.
+-- name: AccountInviteEmailed :exec
+UPDATE account_registration_invites SET emailed_at = now() WHERE id = sqlc.arg(id);
 
--- name: AccountInviteForUpdate :one
-SELECT i.id, i.permission_group_id, i.role, g.persona, i.tenant_id::text AS tenant_id
-FROM account_registration_invites i LEFT JOIN permission_groups g ON g.id = i.permission_group_id
-WHERE i.tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND i.code_hash = sqlc.arg(code_hash) AND i.revoked_at IS NULL AND i.consumed_at IS NULL AND i.expires_at > now()
-  AND (i.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = i.invited_by))
-  AND i.permission_group_id IS NOT DISTINCT FROM sqlc.narg(group_id)::uuid
-FOR UPDATE OF i;
+-- InvitationByCode is the invitation of either kind whose code hashes to
+-- code_hash: an invite link (email '') or an email invitation, with its group
+-- ('' for none) and whether it was emailed.
+-- name: InvitationByCode :one
+SELECT i.kind, i.id, i.group_id, i.persona, i.role, i.email, i.emailed, i.used_at, i.revoked_at, i.expires_at, i.issuer_live FROM (
+  SELECT 'group_invite_links'::text AS kind, l.id, l.permission_group_id::text AS group_id, g.persona, l.role, ''::text AS email, false::boolean AS emailed,
+    l.redeemed_at AS used_at, l.revoked_at, l.expires_at,
+    (l.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = l.invited_by))::boolean AS issuer_live
+  FROM group_invite_links l JOIN permission_groups g ON g.id = l.permission_group_id
+  WHERE l.tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND l.code_hash = sqlc.arg(code_hash)
+  UNION ALL
+  SELECT 'account_registration_invites'::text, a.id, COALESCE(a.permission_group_id::text, '')::text, COALESCE(g.persona, '')::text, COALESCE(a.role, '')::text,
+    a.email::text, (a.emailed_at IS NOT NULL)::boolean, a.consumed_at, a.revoked_at, a.expires_at,
+    (a.invited_by IS NULL OR EXISTS(SELECT 1 FROM usable_users WHERE id = a.invited_by))::boolean
+  FROM account_registration_invites a LEFT JOIN permission_groups g ON g.id = a.permission_group_id
+  WHERE a.tenant_id=NULLIF(sqlc.arg(tenant_id)::text,'')::uuid AND a.code_hash = sqlc.arg(code_hash)) i;
+
+-- name: InviteLinkLock :exec
+SELECT id FROM group_invite_links WHERE id = sqlc.arg(id) FOR UPDATE;
+
+-- name: AccountInviteLock :exec
+SELECT id FROM account_registration_invites WHERE id = sqlc.arg(id) FOR UPDATE;
 
 -- name: AccountInviteGroupByCode :one
 SELECT permission_group_id::uuid AS group_id FROM account_registration_invites

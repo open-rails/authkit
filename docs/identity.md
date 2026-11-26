@@ -39,9 +39,14 @@ Events (`Client.ListEvents`) record who made a change the same way: `subject_kin
 
 ## Registration
 
-`Config.Registration` is `open` (the default), `invite_only` or `closed`. Every sign-up proves its email or phone before the account exists: it stays pending until its code is confirmed. Unless `closed`, a contact proven by passwordless sign-in (`iam.RoutePasswordless`) creates its account, once invited when `invite_only`.
+`Config.Registration` is `open` (the default), `invite_only` or `closed`. A sign-up proves its email or phone before the account exists: it stays pending until its code is confirmed. Unless `closed`, a contact proven by passwordless sign-in (`iam.RoutePasswordless`) creates its account, once invited when `invite_only`.
 
-The host operations (`CreateUser`, bootstrap, imports, SCIM) work in every mode, and the accounts they create sign in by password with an unproven contact. Such an account stays unproven: no code is sent for it, normal sign-in checks (2FA, restoring a deleted account) still apply, and so do proof-dependent restrictions, including adding sign-in methods.
+An invitation's code, an invite link's or an email invitation's, is the credential that admits a sign-up (under `invite_only` too) and lands the invitation's role in the same transaction, once. A code that is not live refuses the sign-up: `invitation_not_found` (unknown or used), `invitation_revoked` or `invitation_expired`. Two sign-ups with an invitation skip the code:
+
+- An emailed invitation registered at the address it went to: its code reached that mailbox alone (the inviter never sees it), so the address is proven.
+- Any invitation where the address's channel cannot deliver (no email sender, or none for SMS): the account is created at once and its contact stays unproven, as for the setup link's owner. Without that code step, an invitation's holder learns whether an address already has an account (`email_in_use`).
+
+The host operations (`CreateUser`, bootstrap, imports, SCIM) work in every mode, and the accounts they create sign in by password with an unproven contact, as does an invitation's account where no code could be sent. Such an account stays unproven: no code is sent for it, normal sign-in checks (2FA, restoring a deleted account) still apply, and so do proof-dependent restrictions, including adding sign-in methods.
 
 A sign-up waiting on its code answers 202 `{"challenge": "…"}`, and `POST /verify/confirm` takes `{"challenge", "code"}` (or the emailed link's `{"token"}`). A resend, or anyone's `POST /verify/request` for the address, sends another code under its own challenge and leaves the first good, so nobody can spend someone else's sign-up code; see [HTTP](http.md#client-addresses-and-rate-limits).
 

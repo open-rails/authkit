@@ -30,10 +30,14 @@ import (
 // email or phone that an account holds answers like a free one and its owner
 // is notified (registerTakenContact); ErrEmailInUse and ErrPhoneInUse then
 // only mean a pending sign-up holds it.
+//
+// A presented invitation must be live (presentedInvite). It registers at once
+// where no code can be sent, the contact unproven, and an emailed one
+// registered at its own address proves it.
 func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authflow.RegisterOutcome, error) {
 	if token := strings.TrimSpace(in.AccountInviteToken); token != "" {
 		var err error
-		ctx, err = s.proofContext(ctx, "registration-invite", secret.Hash(token))
+		ctx, err = s.proofContext(ctx, "invitation", secret.Hash(token))
 		if err != nil {
 			return authflow.RegisterOutcome{}, err
 		}
@@ -72,6 +76,11 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	if isPhone == isEmail {
 		return authflow.RegisterOutcome{}, errmodel.ErrInvalidIdentifier
 	}
+	// Before the password is hashed, so a dead code costs one read.
+	invite, err := s.presentedInvite(ctx, in.AccountInviteToken)
+	if err != nil {
+		return authflow.RegisterOutcome{}, err
+	}
 	phc, err := password.HashArgon2id(ctx, in.Password)
 	if err != nil {
 		return authflow.RegisterOutcome{}, stageErr("hash_password", err)
@@ -82,7 +91,9 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	ctx = contextWithRegistrationAgreements(ctx, agreements)
 	if isPhone {
 		phone := contact.NormalizePhone(identifier)
-		if requiresVerification && !s.SMSAvailable() {
+		// An invitation admits a sign-up no code can reach.
+		verify := requiresVerification && (invite == nil || s.SMSAvailable())
+		if verify && !s.SMSAvailable() {
 			return authflow.RegisterOutcome{}, errmodel.ErrSMSUnavailable
 		}
 		phoneTaken, usernameTaken, err := s.CheckPhoneRegistrationConflict(ctx, phone, username)
@@ -93,7 +104,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 			return authflow.RegisterOutcome{}, iam.ErrUsernameInUse
 		}
 		out := authflow.RegisterOutcome{Username: username, Phone: &phone}
-		if requiresVerification {
+		if verify {
 			if phoneTaken && s.pendingChangeTargetTaken(ctx, kindRegisterPhone, phone) {
 				return authflow.RegisterOutcome{}, iam.ErrPhoneInUse
 			}
@@ -116,7 +127,10 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 	}
 
 	email := contact.NormalizeEmail(identifier)
-	if requiresVerification && !s.EmailAvailable() {
+	// An emailed invitation proves its own address; any invitation admits a
+	// sign-up no code can reach.
+	verify := requiresVerification && !invite.proves(email) && (invite == nil || s.EmailAvailable())
+	if verify && !s.EmailAvailable() {
 		return authflow.RegisterOutcome{}, errmodel.ErrEmailUnavailable
 	}
 	emailTaken, usernameTaken, err := s.CheckPendingRegistrationConflict(ctx, email, username)
@@ -127,7 +141,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		return authflow.RegisterOutcome{}, iam.ErrUsernameInUse
 	}
 	out := authflow.RegisterOutcome{Username: username, Email: &email}
-	if requiresVerification {
+	if verify {
 		// Every attempt leaves a pending sign-up, taken address or not, so
 		// this says nothing about an account.
 		if emailTaken && s.pendingChangeTargetTaken(ctx, kindRegisterEmail, email) {
@@ -139,8 +153,7 @@ func (s *Engine) Register(ctx context.Context, in authflow.RegisterInput) (authf
 		}
 		return out, nil
 	}
-	// Without required proof a fresh sign-up signs in, which a taken address
-	// cannot imitate.
+	// Signed in at once, a fresh sign-up cannot imitate a taken address.
 	if emailTaken {
 		return authflow.RegisterOutcome{}, iam.ErrEmailInUse
 	}
@@ -170,7 +183,7 @@ func (s *Engine) registerPending(ctx context.Context, kind pendingChangeKind, ta
 // its password at sign-in (passwordRejected) like a fresh one. No code is
 // sent for it; the account's owner is notified instead.
 func (s *Engine) registerTakenContact(ctx context.Context, kind pendingChangeKind, target, username, passwordHash, preferredLanguage string) error {
-	allowed, err := s.registrationAllowedForEmail(ctx, target)
+	allowed, err := s.registrationAdmitted(ctx)
 	if err != nil {
 		return err
 	}

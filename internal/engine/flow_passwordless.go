@@ -59,7 +59,7 @@ type passwordlessChallenge struct {
 func (s *Engine) StartPasswordless(ctx context.Context, req authflow.PasswordlessStartRequest) (authflow.PasswordlessStartResult, error) {
 	if token := strings.TrimSpace(req.AccountInviteToken); token != "" {
 		var err error
-		ctx, err = s.proofContext(ctx, "registration-invite", secret.Hash(token))
+		ctx, err = s.proofContext(ctx, "invitation", secret.Hash(token))
 		if err != nil {
 			return authflow.PasswordlessStartResult{}, err
 		}
@@ -133,7 +133,7 @@ func (s *Engine) StartPasswordless(ctx context.Context, req authflow.Passwordles
 		if !s.passwordlessAutoRegistrationAllowed() {
 			return result, nil
 		}
-		allowed, err := s.registrationAllowedForEmail(ctx, identifier)
+		allowed, err := s.registrationAdmitted(ctx)
 		if err != nil {
 			return authflow.PasswordlessStartResult{}, err
 		}
