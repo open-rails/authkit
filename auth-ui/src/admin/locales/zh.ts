@@ -79,6 +79,8 @@ export const zh: AdminMessageTree = {
     sent: "已向 {email} 发送邀请。",
     notEmailed: "此服务器未配置邮件：请将下方链接发送给 {email}。",
     emailUnavailable: "此服务器未配置邮件：你将获得一个可分享的链接。",
+    handOver: "请私下转交此链接：最先使用它的人将以 {role} 身份加入。",
+    handOverAccount: "请私下转交此链接：最先使用它的人可以创建账户。",
     list: "已发送的邀请",
     empty: "还没有邀请。",
     recipient: "收件人",

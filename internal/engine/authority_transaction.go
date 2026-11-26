@@ -433,17 +433,6 @@ func (s *Engine) refuseSubjectOwnerLoss(ctx context.Context, st *permissionGroup
 	return nil
 }
 
-// assignInvitedRole lands an invitation's role with the account a new
-// registration created (landInvitedRole).
-func (s *Engine) assignInvitedRole(ctx context.Context, st *permissionGroupStore, gid string, persona iam.Persona, userID string, role iam.Role) error {
-	g, h := groupTarget{ID: gid, Persona: persona}, nativeHolder{s: s, id: userID}
-	old, err := h.held(ctx, st, g)
-	if err != nil {
-		return err
-	}
-	return s.landInvitedRole(ctx, st, g, h, old, role, "")
-}
-
 // A group deletion can also delete applications owning other groups. Check
 // the surviving groups after all cascades, so departing apps cannot count one
 // another as replacements. Caller already holds the authority transaction lock.

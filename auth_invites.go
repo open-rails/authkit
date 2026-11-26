@@ -11,14 +11,14 @@ import (
 // address that let it register. Each dies with its creator's authority.
 
 // CreateInvitation creates an invite link (n.Email empty) that grants n.Role
-// to the signed-in account redeeming it, or emails an invitation to n.Email
-// when email is available (InvitationCreated.Emailed); else the inviter shares
-// its URL.
+// to the account using it, or emails an invitation to n.Email when email is
+// available (InvitationCreated.Emailed, with no code: it went to the address
+// alone); else the inviter shares its URL. Either code admits a registration.
 // A link, and an email invitation carrying a role, need the group's
 // <persona>:members:manage and coverage of the role; a plain email invitation
 // (no role) is created in the root or owning tenant group and needs its
 // users:invite permission. Only a
-// user or the system issues credentials. The code is returned once.
+// user or the system issues credentials. A code is returned once.
 func (a *Client) CreateInvitation(ctx context.Context, who auth.Identity, ref iam.GroupRef, n iam.NewInvitation, opts ...Option) (iam.InvitationCreated, error) {
 	return a.ops.CreateInvitation(a.operationContext(ctx), who, ref, n, opts...)
 }

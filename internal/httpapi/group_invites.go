@@ -18,15 +18,18 @@ import (
 // groupInvitationCreate makes an invite link (no email), whose code is
 // answered once (201), or emails an invitation (202). The 202 is the same for
 // every address, so it never reveals whether an account holds it; the role
-// lands only when the recipient registers with it, or redeems it signed in to
-// the account that proved the address. Where email is unavailable nothing is
-// sent and the invitation is answered like a link (201), for the inviter to
-// share. On root, an email with no role invites someone to register
-// (root:users:invite).
+// lands only when someone registers with it, or the account that proved the
+// address redeems it signed in. Where email is unavailable nothing is sent and
+// the invitation is answered like a link (201), for the inviter to share. On
+// root, an email with no role invites someone to register (root:users:invite).
+// Each inviter has a budget of its own, beside the route's per-address one.
 func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, g iam.Group, who auth.Identity) {
 	var body InvitationCreateRequest
 	if err := decodeJSON(r, &body); err != nil {
 		s.fail(w, errmodel.CodeInvalidRequest)
+		return
+	}
+	if s.rateLimitedByCaller(w, r, RLInviteCreateAccount, who) {
 		return
 	}
 	n := iam.NewInvitation{ExpiresAt: body.ExpiresAt}
@@ -56,7 +59,7 @@ func (s *Service) groupInvitationCreate(w http.ResponseWriter, r *http.Request, 
 		s.writeError(w, err)
 		return
 	}
-	if s.rateLimitedByIdentifier(w, r, RLInviteCreate, n.Email) {
+	if s.rateLimitedByIdentifier(w, r, RLInviteCreateIdentifier, n.Email) {
 		return
 	}
 	created, err := s.svc.CreateInvitation(r.Context(), who, iam.GroupByID(g.ID), n)

@@ -627,6 +627,7 @@ export const ja: AuthUiMessageBundle = {
     accept: "招待を受け入れる",
     accepted: "招待を受け入れました",
     joinedAs: "{role} として参加しました。",
+    unproven: "{address} はまだ確認されていません。このサーバーは確認コードを送信できませんでした。後でアカウントから確認できます。",
     missingLink: "この招待リンクは不完全です。メールからもう一度開くか、新しいリンクを依頼してください。",
   },
   callback: {

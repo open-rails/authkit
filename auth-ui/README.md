@@ -392,11 +392,12 @@ import { SolanaSignInButton } from "@openrails/auth-ui/solana"
 - Sign-in link landing: on `/passwordless` beneath AuthKit's `FrontendURL`,
   `<PasswordlessLink token={readLinkFragment(location.hash)?.token} navigate={(to) => router.replace(to)} />`
   spends the emailed link once and finishes every later step in place.
-- Invitation landing: on `/invite` (an invite link's `#link_code=`, an email
-  invitation's `#invite_code=`),
+- Invitation landing: on `/invite` (an email invitation's `#invite_code=`, an
+  invite link's `#link_code=`; `readInvitation` answers `{ code, kind }`),
   `<AcceptInvitation invitation={readInvitation(location.hash)} onAccepted={(membership) => ...} />`
-  signs the visitor in, or up with an emailed invitation (which then holds
-  its role), and accepts it into a signed-in account.
+  signs the visitor up with the invitation, which then holds its role, or in,
+  and accepts it into a signed-in account. Where no code can be sent the
+  sign-up has no code step, and the page says the address is unverified.
 - First owner: on `/setup`, the single-use link the server logs while nobody
   administers it,
   `<OwnerSetup token={readSetupToken(location.hash)} navigate={(to) => router.replace(to)} />`
@@ -535,7 +536,8 @@ words under `admin`).
 
 The Users and Members invitation views read `invitations.enabled` from the same
 API mount's capabilities. Where email is unavailable (`channels.email`), the
-invite form says so and shows the invitation's link to share instead. When invitations are disabled, they show a disabled
+invite form says so and shows the invitation's link to share instead, to be
+handed over privately: whoever uses it first gets the role. When invitations are disabled, they show a disabled
 explanation and an inactive Invite button instead of loading or submitting
 invitations. The view waits for feature discovery and offers retry if it fails;
 role grants alone do not enable an application-disabled feature.

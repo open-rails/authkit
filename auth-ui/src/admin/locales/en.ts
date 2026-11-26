@@ -82,6 +82,10 @@ export const en = {
       "Email isn't set up on this server: copy the link below to {email}.",
     emailUnavailable:
       "Email isn't set up on this server: you'll get a link to share.",
+    handOver:
+      "Hand this link over privately: whoever uses it first joins as {role}.",
+    handOverAccount:
+      "Hand this link over privately: whoever uses it first can create an account.",
     list: "Sent invitations",
     empty: "No invitations yet.",
     recipient: "Recipient",

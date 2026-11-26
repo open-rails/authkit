@@ -82,6 +82,10 @@ export const ko: AdminMessageTree = {
       "이 서버에는 이메일이 설정되어 있지 않습니다. 아래 링크를 {email}에게 보내세요.",
     emailUnavailable:
       "이 서버에는 이메일이 설정되어 있지 않습니다. 공유할 링크가 표시됩니다.",
+    handOver:
+      "이 링크는 비공개로 전달하세요. 먼저 사용하는 사람이 {role}(으)로 참여합니다.",
+    handOverAccount:
+      "이 링크는 비공개로 전달하세요. 먼저 사용하는 사람이 계정을 만들 수 있습니다.",
     list: "보낸 초대",
     empty: "아직 초대가 없습니다.",
     recipient: "받는 사람",

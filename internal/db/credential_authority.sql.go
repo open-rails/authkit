@@ -9,24 +9,6 @@ import (
 	"context"
 )
 
-const accountInviteLiveID = `-- name: AccountInviteLiveID :one
-SELECT id FROM account_registration_invites
-WHERE tenant_id=nullif($1::text,'')::uuid AND code_hash=$2
- AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now()
-`
-
-type AccountInviteLiveIDParams struct {
-	TenantID string
-	CodeHash string
-}
-
-func (q *Queries) AccountInviteLiveID(ctx context.Context, arg AccountInviteLiveIDParams) (string, error) {
-	row := q.db.QueryRow(ctx, accountInviteLiveID, arg.TenantID, arg.CodeHash)
-	var id string
-	err := row.Scan(&id)
-	return id, err
-}
-
 const credentialAuthority = `-- name: CredentialAuthority :one
 WITH credential AS (
  SELECT l.permission_group_id AS group_id, l.role, coalesce(l.invited_by::text,'')::text AS creator,

@@ -431,7 +431,7 @@ function EnabledInvitations({
   const root = access.persona === "root"
   const [email, setEmail] = useState("")
   const [role, setRole] = useState("")
-  const [link, setLink] = useState<string | null>(null)
+  const [link, setLink] = useState<{ url: string; role: string } | null>(null)
   const [status, setStatus] = useState("")
   const [unsent, setUnsent] = useState(false)
   const [revoking, setRevoking] = useState<Invitation | null>(null)
@@ -457,7 +457,9 @@ function EnabledInvitations({
         const made = result as Awaited<
           ReturnType<typeof client.createInvitation>
         >
-        setLink(made?.url ?? null)
+        setLink(
+          made?.url ? { url: made.url, role: made.invitation.role } : null
+        )
         // An email invitation answered with its link was not sent.
         const sentTo = (data as { email: string }).email
         setUnsent(!!sentTo && !!made)
@@ -545,7 +547,16 @@ function EnabledInvitations({
             {status && (
               <Notice tone={unsent ? "warning" : "success"}>{status}</Notice>
             )}
-            {link && <SecretField label={t("invitations.link")} value={link} />}
+            {link && (
+              <>
+                <SecretField label={t("invitations.link")} value={link.url} />
+                <p className="text-sm text-muted-foreground">
+                  {link.role
+                    ? t("invitations.handOver", { role: roleTitle(link.role) })
+                    : t("invitations.handOverAccount")}
+                </p>
+              </>
+            )}
           </Body>
         </Section>
       )}

@@ -1,13 +1,13 @@
 package engine
 
 // Invitations: one resource over two stores. An invite link
-// (group_invite_links) is a single-use code for a group role that a
-// signed-in account redeems. An email invitation
-// (account_registration_invites) lets the invited address register, granting
-// its role, if any, on registration; an account that has verified the
-// address may redeem it instead. Issuance follows rule CRED
-// (credential_issuers.go): the creator is recorded, and the invitation dies
-// with the creator's authority.
+// (group_invite_links) is a single-use code for a group role. An email
+// invitation (account_registration_invites) is one sent to an address, with
+// or without a role. Either code admits a registration, which redeems it
+// (account_registration_invites.go); a signed-in account redeems a link, and
+// an account that has verified the address an email invitation. Issuance
+// follows rule CRED (credential_issuers.go): the creator is recorded, and the
+// invitation dies with the creator's authority.
 
 import (
 	"context"
@@ -29,7 +29,8 @@ import (
 )
 
 // CreateInvitation creates an invite link (n.Email empty), or emails an
-// invitation to n.Email when email is available (Emailed). A link, and an
+// invitation to n.Email when email is available (Emailed: its code went only
+// there, so the result carries none). A link, and an
 // email invitation carrying a role, need
 // CAP(<p>:members:manage) plus COVER(role) in ref; a plain email invitation
 // (no role) is issued in the root or owning tenant group and needs its users:invite permission.
@@ -160,10 +161,16 @@ func (s *Engine) createEmailInvitation(ctx context.Context, a auth.Identity, ref
 	if err := s.rememberProofRoute(ctx, "invitation", secret.Hash(out.Code), time.Until(expiresAt)); err != nil {
 		return iam.InvitationCreated{}, err
 	}
-	if err := s.rememberProofRoute(ctx, "registration-invite", secret.Hash(out.Code), time.Until(expiresAt)); err != nil {
-		return iam.InvitationCreated{}, err
+	if !s.sendAccountRegistrationInviteEmail(ctx, email, out.URL) {
+		return out, nil
 	}
-	out.Emailed = s.sendAccountRegistrationInviteEmail(ctx, email, out.URL)
+	// Recorded only once sent: the code then went to email alone, and
+	// registering email with it proves the address. Unrecorded, the invitee
+	// proves it with a code.
+	if err := s.q.AccountInviteEmailed(ctx, out.Invitation.ID); err != nil {
+		s.log.ErrorContext(ctx, "authkit: an emailed invitation was not recorded as emailed; its invitee will prove the address with a code", "error", err)
+	}
+	out.Emailed, out.Code, out.URL = true, "", ""
 	return out, nil
 }
 

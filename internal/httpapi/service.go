@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/open-rails/authkit/auth"
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
 	"github.com/open-rails/authkit/internal/dpop"
@@ -53,6 +54,17 @@ func (s *Service) rateLimited(w http.ResponseWriter, r *http.Request, bucket str
 func (s *Service) rateLimitedByIdentifier(w http.ResponseWriter, r *http.Request, bucket, identifier string) bool {
 	_, refused := s.spendByIdentifier(w, r, bucket, identifier)
 	return refused
+}
+
+// rateLimitedByCaller spends one request of bucket's budget for the
+// credential's subject, beside the route's per-address check: one budget per
+// account, API key or application, wherever it calls from.
+func (s *Service) rateLimitedByCaller(w http.ResponseWriter, r *http.Request, bucket string, who auth.Identity) bool {
+	st := state(who)
+	if st.IsZero() {
+		return false
+	}
+	return s.limited(w, r, bucket, bucket+":subject:"+string(st.SubjectKind())+":"+st.ID())
 }
 
 // spendByIdentifier is rateLimitedByIdentifier that also returns a refund of

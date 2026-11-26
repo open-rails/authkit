@@ -74,8 +74,10 @@ func (s *Engine) PasswordLogin(ctx context.Context, in authflow.PasswordLoginInp
 	}
 
 	// An account with an unproven contact is one a host operation created
-	// (CreateUser, an import, SCIM): every sign-up proves its contact before
-	// the account exists. It signs in by password, and stays unproven.
+	// (CreateUser, an import, SCIM, the setup link) or an invitation
+	// registered where no code could reach it: every other sign-up proves its
+	// contact before the account exists. It signs in by password, and stays
+	// unproven.
 
 	version, err := s.authenticatePassword(ctx, u, in.Password)
 	if errors.Is(err, password.ErrBusy) {

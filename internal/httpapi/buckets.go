@@ -46,6 +46,12 @@ const (
 	// Password sign-in per identifier, beside the route's per-address bucket.
 	RLPasswordLoginIdentifier = "password_login_identifier"
 
+	// Invitations per inviting credential and per invited address, beside
+	// the route's per-address bucket: an administrator invites a team at
+	// once, and nobody floods one address.
+	RLInviteCreateAccount    = "invite_create_account"
+	RLInviteCreateIdentifier = "invite_create_identifier"
+
 	// Codes and links sent per destination (an email or phone), beside the
 	// route's per-address bucket. Past one, the start sends nothing and
 	// answers as if it had: never a refusal another account's start can spend.
@@ -154,6 +160,12 @@ var buckets = map[string]ratelimit.Limit{
 
 	RLPasswordLoginIdentifier: {Limit: 20, Window: time.Hour},
 
+	// They create an invitation, emailed or not. Several administrators may
+	// share an address.
+	RLInviteCreate:           {Limit: 60, Window: 10 * time.Minute},
+	RLInviteCreateAccount:    {Limit: 20, Window: 10 * time.Minute},
+	RLInviteCreateIdentifier: {Limit: 20, Window: time.Hour, Cooldown: time.Minute},
+
 	// They send an email or SMS. /register and /passwordless/start also check
 	// an account invitation when one is presented.
 	RLRegisterCreate:       {Limit: 6, Window: time.Hour, Cooldown: time.Minute},
@@ -164,7 +176,6 @@ var buckets = map[string]ratelimit.Limit{
 	RLDeviceKeyEnrollBegin: {Limit: 15, Window: time.Hour, Cooldown: 30 * time.Second},
 	RL2FASetupSMS:          {Limit: 3, Window: 10 * time.Minute},
 	RL2FASetupEmail:        {Limit: 3, Window: 10 * time.Minute},
-	RLInviteCreate:         {Limit: 20, Window: time.Hour, Cooldown: time.Minute},
 	RLStepUp2FASend:        {Limit: 6, Window: 10 * time.Minute},
 	RLStepUpCodeSend:       {Limit: 6, Window: 10 * time.Minute},
 	// Per destination: at least twice what one address may send there, with

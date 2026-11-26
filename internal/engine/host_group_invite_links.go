@@ -1,11 +1,11 @@
 package engine
 
 // Invite links (#134/#147): a high-entropy, unbound, single-use code for a
-// group role. A signed-in user who redeems it gets the role; possession of the
-// link is the credential. The code is returned once; only its sha256 is
-// stored. Minting needs invited self-registration (externalInvitesEnabled): a
-// stranger can join only if they can obtain an account. Issuance follows rule
-// CRED (credential_issuers.go).
+// group role. A signed-in user who redeems it, or a sign-up presenting it,
+// gets the role; possession of the link is the credential. The code is
+// returned once; only its sha256 is stored. Minting needs invited
+// self-registration (externalInvitesEnabled): a stranger joins by signing up
+// with it. Issuance follows rule CRED (credential_issuers.go).
 
 import (
 	"context"

@@ -1,13 +1,18 @@
 package critical_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/httpapi"
 )
 
 // rootOwner is an account holding root's owner role, freshly signed in.
@@ -33,12 +38,23 @@ func fragmentValue(t *testing.T, link, name string) string {
 	return q.Get(name)
 }
 
+// registerWith registers identifier with an invitation's code.
+func (f *fixture) registerWith(t *testing.T, identifier, username, code string) response {
+	t.Helper()
+	return f.call(t, "POST", "/register", "", map[string]string{"identifier": identifier, "username": username, "password": authtest.Password, "invite_code": code})
+}
+
 // registerInvited registers identifier with an invitation's code, proves it,
 // and returns the session.
 func (f *fixture) registerInvited(t *testing.T, identifier, username, code string) iam.TokenSet {
 	t.Helper()
-	challenge := challengeOf(t, f.call(t, "POST", "/register", "", map[string]string{"identifier": identifier, "username": username, "password": authtest.Password, "invite_code": code}))
-	r := f.confirmCode(t, "/verify/confirm", "", codeProof{f.out.Last(t, iam.MessageVerification, identifier), challenge})
+	challenge := challengeOf(t, f.registerWith(t, identifier, username, code))
+	return signedUp(t, f.confirmCode(t, "/verify/confirm", "", codeProof{f.out.Last(t, iam.MessageVerification, identifier), challenge}))
+}
+
+// signedUp is the session r signed a new account in with.
+func signedUp(t *testing.T, r response) iam.TokenSet {
+	t.Helper()
 	r.want(t, http.StatusOK, "")
 	var out signInResult
 	decode(t, r.body, &out)
@@ -46,6 +62,34 @@ func (f *fixture) registerInvited(t *testing.T, identifier, username, code strin
 		t.Fatalf("invited registration did not sign in: %s", r.body)
 	}
 	return *out.Tokens
+}
+
+// invite creates an invitation to root with the role, by email when email is
+// set, answered with status.
+func (f *fixture) invite(t *testing.T, token, email string, role iam.Role, status int) iam.InvitationCreated {
+	t.Helper()
+	body := map[string]string{"role": role.String()}
+	if email != "" {
+		body["email"] = email
+	}
+	r := f.call(t, "POST", "/groups/root/invitations", token, body)
+	r.want(t, status, "")
+	var created iam.InvitationCreated
+	if status == http.StatusCreated {
+		decode(t, r.body, &created)
+	}
+	return created
+}
+
+// joinedOnly fails unless id's account holds role on root and no other role
+// anywhere.
+func (f *fixture) joinedOnly(t *testing.T, id string, role iam.Role) {
+	t.Helper()
+	page, err := f.auth.ListMemberships(t.Context(), iam.UserSubject(id), iam.PageRequest{})
+	noError(t, err)
+	if len(page.Items) != 1 || page.Items[0].Group.Persona != iam.RootPersona() || page.Items[0].Role != role {
+		t.Fatalf("the invitee holds %+v, want only %s on root", page.Items, role)
+	}
 }
 
 func TestCriticalTeam(t *testing.T) {
@@ -60,7 +104,7 @@ func TestCriticalTeam(t *testing.T) {
 			t.Errorf("an emailed invitation answered its code to the inviter: %s", r.body)
 		}
 		code := fragmentValue(t, f.out.Last(t, iam.MessageInvite, email).Link, "invite_code")
-		session := f.registerInvited(t, email, "teammate", code)
+		session := signedUp(t, f.registerWith(t, email, "teammate", code))
 		mate, err := f.auth.User(t.Context(), iam.UserByEmail(email))
 		noError(t, err)
 		if role := f.rootRole(t, mate.ID); role != f.rootReader {
@@ -151,6 +195,119 @@ func TestCriticalTeam(t *testing.T) {
 		f.call(t, "POST", "/invitations/redeem", f.signIn(t, stranger).AccessToken, map[string]string{"code": link.Code}).want(t, http.StatusBadRequest, "invitation_revoked")
 		if role := f.rootRole(t, stranger.ID); !role.IsZero() {
 			t.Fatalf("a revoked invitation granted %q", role)
+		}
+	})
+
+	t.Run("AK-J49-C03_without_email_an_invitation_registers_its_invitee_unproven_into_exactly_its_role_once", func(t *testing.T) {
+		f := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) { d.Email = nil }), authtest.WithConfig(func(c *authkit.Config) {
+			c.Registration = iam.RegistrationModeInviteOnly
+		}))
+		_, owner := f.rootOwner(t)
+		for _, kind := range []struct{ name, email, param string }{
+			{"link", "", "link_code"},
+			{"unsent", "unsent@example.com", "invite_code"},
+		} {
+			created := f.invite(t, owner.AccessToken, kind.email, f.rootReader, http.StatusCreated)
+			code := fragmentValue(t, created.URL, kind.param)
+			address := kind.email
+			if address == "" {
+				address = "linked@example.com"
+			}
+			// The code is the credential: no code is sent, and none can be.
+			session := signedUp(t, f.registerWith(t, address, kind.name+"invitee", code))
+			u, err := f.auth.User(t.Context(), iam.UserByEmail(address))
+			noError(t, err)
+			if u.EmailVerified {
+				t.Fatalf("%s: an invitation that was never emailed proved %s", kind.name, address)
+			}
+			f.joinedOnly(t, u.ID, f.rootReader)
+			f.call(t, "GET", "/admin/users", session.AccessToken, nil).want(t, http.StatusOK, "")
+
+			// Spent, the code admits nobody else.
+			second := "second-" + address
+			f.registerWith(t, second, kind.name+"second", code).want(t, http.StatusNotFound, "invitation_not_found")
+			f.noAccount(t, second)
+		}
+		if sent := f.out.Messages("", ""); len(sent) != 0 {
+			t.Fatalf("a deployment without email sent %d messages", len(sent))
+		}
+	})
+	t.Run("AK-J49-C04_an_emailed_invitation_registered_at_its_address_proves_it_without_a_second_code", func(t *testing.T) {
+		f := newFixture(t)
+		_, owner := f.rootOwner(t)
+		const email = "proven@example.com"
+		f.invite(t, owner.AccessToken, email, f.rootReader, http.StatusAccepted)
+		code := fragmentValue(t, f.out.Last(t, iam.MessageInvite, email).Link, "invite_code")
+		signedUp(t, f.registerWith(t, email, "proveninvitee", code))
+		if n := len(f.out.Messages(iam.MessageVerification, email)); n != 0 {
+			t.Fatalf("the emailed invitation's invitee was sent %d more codes", n)
+		}
+		u, err := f.auth.User(t.Context(), iam.UserByEmail(email))
+		noError(t, err)
+		if !u.EmailVerified {
+			t.Fatal("registering the invited address with its emailed code left it unproven")
+		}
+		f.joinedOnly(t, u.ID, f.rootReader)
+
+		// Its code reaches the address alone: a host's call gets none either.
+		created, err := f.auth.CreateInvitation(t.Context(), iam.SystemIdentity(), iam.RootGroup(), iam.NewInvitation{Email: "hosted@example.com", Role: f.rootReader})
+		noError(t, err)
+		if !created.Emailed || created.Code != "" || created.URL != "" {
+			t.Fatalf("an emailed invitation answered its code to its creator: %+v", created)
+		}
+
+		// Another address proves itself with a code.
+		f.invite(t, owner.AccessToken, "addressed@example.com", f.rootReader, http.StatusAccepted)
+		forwarded := fragmentValue(t, f.out.Last(t, iam.MessageInvite, "addressed@example.com").Link, "invite_code")
+		f.registerInvited(t, "forwarded@example.com", "forwardedinvitee", forwarded)
+	})
+	t.Run("AK-J49-C05_an_administrator_invites_a_team_at_once_under_a_budget_of_its_own", func(t *testing.T) {
+		f := newFixture(t, authtest.WithConfig(func(c *authkit.Config) {
+			config.Tune(c, func(tn *config.Tuning) { tn.NoRateLimits = false })
+		}))
+		_, owner := f.rootOwner(t)
+		_, other := f.rootOwner(t)
+		budget := httpapi.DefaultRateLimits()["invite_create_account"].Limit
+		if budget < 10 {
+			t.Fatalf("an inviter's budget of %d invitations does not invite a team", budget)
+		}
+		for i := range budget {
+			f.invite(t, owner.AccessToken, fmt.Sprintf("teammate%d@example.com", i), f.rootReader, http.StatusAccepted)
+		}
+		r := f.call(t, "POST", "/groups/root/invitations", owner.AccessToken, map[string]string{"email": "one-too-many@example.com", "role": f.rootReader.String()})
+		r.want(t, http.StatusTooManyRequests, "rate_limited")
+		var env iam.ErrorEnvelope
+		decode(t, r.body, &env)
+		if env.Error.Metadata["action"] != "invite_create_account" || r.header.Get("Retry-After") == "" {
+			t.Fatalf("the refusal is not the inviter's own budget: %s", r.body)
+		}
+		// Another administrator at the same address keeps a budget of its own.
+		f.invite(t, other.AccessToken, "one-too-many@example.com", f.rootReader, http.StatusAccepted)
+	})
+	t.Run("AK-J49-C06_an_expired_or_revoked_invitation_registers_nobody", func(t *testing.T) {
+		f := newFixture(t, authtest.WithDeps(func(d *authkit.Deps) { d.Email = nil }))
+		_, owner := f.rootOwner(t)
+		revoke := func(_ string, inv iam.InvitationCreated) {
+			f.call(t, "DELETE", "/groups/root/invitations/"+inv.Invitation.ID, owner.AccessToken, nil).want(t, http.StatusNoContent, "")
+		}
+		expire := func(table string, inv iam.InvitationCreated) {
+			_, err := f.pool.Exec(t.Context(), "UPDATE "+pgx.Identifier{f.schema, table}.Sanitize()+" SET expires_at=statement_timestamp()-interval '1 second' WHERE id=$1", inv.Invitation.ID)
+			noError(t, err)
+		}
+		for i, c := range []struct {
+			email, table, refusal string
+			spoil                 func(string, iam.InvitationCreated)
+		}{
+			{"", "group_invite_links", "invitation_revoked", revoke},
+			{"", "group_invite_links", "invitation_expired", expire},
+			{"revoked@example.com", "account_registration_invites", "invitation_revoked", revoke},
+			{"expired@example.com", "account_registration_invites", "invitation_expired", expire},
+		} {
+			inv := f.invite(t, owner.AccessToken, c.email, f.rootReader, http.StatusCreated)
+			c.spoil(c.table, inv)
+			address := fmt.Sprintf("spoiled%d@example.com", i)
+			f.registerWith(t, address, fmt.Sprintf("spoiled%d", i), inv.Code).want(t, http.StatusBadRequest, c.refusal)
+			f.noAccount(t, address)
 		}
 	})
 }

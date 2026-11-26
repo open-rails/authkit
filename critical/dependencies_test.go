@@ -263,6 +263,20 @@ var innerBuckets = map[string]func(t *testing.T, g *fixture){
 			return g.call(t, "POST", "/device-keys/enroll/begin", "", map[string]string{"email": u.Email, "public_key": base64.RawURLEncoding.EncodeToString(pub), "label": "bucket"})
 		})
 	},
+	// Per inviting account, and per invited address whoever invites.
+	"invite_create_account": func(t *testing.T, g *fixture) {
+		token, path := inviter(t, g)
+		link := map[string]string{"role": "shop:reader"}
+		g.call(t, "POST", path, token, link).want(t, http.StatusCreated, "")
+		limitedBy(t, g.call(t, "POST", path, token, link))
+	},
+	"invite_create_identifier": func(t *testing.T, g *fixture) {
+		emailed := map[string]string{"email": "bucket-invitee@example.com", "role": "shop:reader"}
+		token, path := inviter(t, g)
+		g.call(t, "POST", path, token, emailed).want(t, http.StatusAccepted, "")
+		token, path = inviter(t, g)
+		limitedBy(t, g.call(t, "POST", path, token, emailed))
+	},
 	"2fa_setup_totp": func(t *testing.T, g *fixture) {
 		token := g.signIn(t, g.user(t)).AccessToken
 		g.call(t, "POST", "/me/2fa/setup", token, map[string]string{"method": "totp"}).want(t, http.StatusOK, "")
@@ -313,6 +327,20 @@ var innerBuckets = map[string]func(t *testing.T, g *fixture){
 		challengeOf(t, smsStart(t, g, "+12025660147", client))
 		limitedBy(t, smsStart(t, g, "+12025670147", client))
 	},
+}
+
+// inviter is a signed-in account's session and the invitations path of a
+// shop group it owns.
+func inviter(t *testing.T, g *fixture) (string, string) {
+	t.Helper()
+	u := g.user(t)
+	token := g.signIn(t, u).AccessToken
+	persona, err := g.auth.Persona("shop")
+	noError(t, err)
+	owner := iam.UserSubject(u.ID)
+	group, err := g.auth.CreateGroup(t.Context(), iam.NewGroup{Persona: persona, Owner: &owner})
+	noError(t, err)
+	return token, "/groups/" + group.ID + "/invitations"
 }
 
 // smsStart starts a code sign-in by text to number.

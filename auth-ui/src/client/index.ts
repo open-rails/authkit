@@ -11,6 +11,7 @@ export type {
   AuthSession,
   ContactProofHandler,
   ContactProofRequest,
+  InvitationLink,
   LinkFragment,
   PopupResult,
   RedirectResult,
