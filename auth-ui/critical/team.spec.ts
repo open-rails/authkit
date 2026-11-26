@@ -157,7 +157,10 @@ test("AK-UI-23: the Team page invites by email, the invitee signs up into the ro
     )
 
     // The inviter sees the member, changes the role, then removes it.
-    await page.getByRole("link", { name: "Members", exact: true }).click()
+    await page
+      .getByLabel("Members and invitations")
+      .getByRole("link", { name: "Members", exact: true })
+      .click()
     const role = page.getByRole("combobox", {
       name: `Role of ${invitee.username}`,
     })

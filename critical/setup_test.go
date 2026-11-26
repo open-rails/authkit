@@ -195,12 +195,21 @@ func TestCriticalFirstAdministrator(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				r, err := f.request(t.Context(), "POST", "/setup", "", map[string]string{"token": token, "email": name + "@example.com", "username": name, "password": authtest.Password})
-				if err != nil {
-					t.Errorf("setup %d: %v", i, err)
-					return
+				// A full password-hashing budget answers server_busy; a
+				// client retries it, so only the link decides the race.
+				for range 10 {
+					r, err := f.request(t.Context(), "POST", "/setup", "", map[string]string{"token": token, "email": name + "@example.com", "username": name, "password": authtest.Password})
+					if err != nil {
+						t.Errorf("setup %d: %v", i, err)
+						return
+					}
+					if r.status != http.StatusServiceUnavailable {
+						statuses <- r.status
+						return
+					}
+					time.Sleep(time.Second)
 				}
-				statuses <- r.status
+				t.Errorf("setup %d stayed busy", i)
 			}()
 		}
 		wg.Wait()
