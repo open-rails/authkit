@@ -76,7 +76,7 @@ func TestCriticalTenancy(t *testing.T) {
 
 		// Restarts, explicit migrations and the tenant named explicitly keep it.
 		noError(t, authkit.Migrate(t.Context(), f.pool, f.cfg.Database))
-		noError(t, authkit.Migrate(t.Context(), f.pool, f.cfg.Database, authkit.MigrationOptions{LegacyTenantID: sole}))
+		noError(t, authkit.Migrate(t.Context(), f.pool, f.cfg.Database, authkit.MigrationOptions{TenantID: sole}))
 		replica := authtest.Replica(t, f.auth)
 		got, err := replica.User(t.Context(), iam.UserByID(u.ID))
 		noError(t, err)

@@ -46,8 +46,8 @@ func validateMigrations(ctx context.Context, log *slog.Logger, pool *pgxpool.Poo
 	if err := m.ValidateAllApplied(ctx, chain); err != nil {
 		return migrationValidationError(err)
 	}
-	// A reused sequence number is not proof that this lineage was applied.
-	// Older ledgers without names retain MigrateKit's existing compatibility.
+	// A reused sequence number is not proof that this lineage was applied,
+	// and an applied migration never changes.
 	applied, err := m.AppliedRecords(ctx)
 	if err != nil {
 		return migrationValidationError(err)
@@ -56,6 +56,9 @@ func validateMigrations(ctx context.Context, log *slog.Logger, pool *pgxpool.Poo
 		record := applied[migratekit.Prefix(migration.Name)]
 		if record.Filename != "" && record.Filename != migration.Name {
 			return migrationValidationError(fmt.Errorf("schema %q has migration %q where %q is required", schema, record.Filename, migration.Name))
+		}
+		if record.Digest != "" && record.Digest != migratekit.ContentDigest(migration.Content) {
+			return fmt.Errorf("%w: %w", ErrMigrationsRequired, rebuild(schema, fmt.Errorf("%w: %s", migratekit.ErrMigrationEdited, migration.Name)))
 		}
 	}
 	if err := riverhelpers.ValidateMigrations(ctx, pool, riverhelpers.MigrationOptions{Schema: riverSchema, Logger: log}); err != nil {

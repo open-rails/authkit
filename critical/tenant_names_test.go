@@ -54,12 +54,12 @@ func TestCriticalTenantNames(t *testing.T) {
 	aliases := pgx.Identifier{f.schema, "tenant_slug_aliases"}.Sanitize()
 
 	t.Run("AK-J37-C01_create_requires_one_valid_unique_name", func(t *testing.T) {
-		// Migration 0026 named the tenant migration 0018 adopted for this
-		// deployment's default directory.
-		adopted, err := f.auth.Tenant(ctx, f.tenant)
+		// Migrate created the deployment's default tenant, under a
+		// placeholder name.
+		created, err := f.auth.Tenant(ctx, f.tenant)
 		noError(t, err)
-		if want := "tenant-" + strings.ReplaceAll(f.tenant.String(), "-", ""); adopted.Slug != want || adopted.SlugChangedAt != nil {
-			t.Fatalf("adopted tenant named %q (changed %v), want placeholder %q", adopted.Slug, adopted.SlugChangedAt, want)
+		if want := "tenant-" + strings.ReplaceAll(f.tenant.String(), "-", ""); created.Slug != want || created.SlugChangedAt != nil {
+			t.Fatalf("created tenant named %q (changed %v), want placeholder %q", created.Slug, created.SlugChangedAt, want)
 		}
 		id := iam.NewTenantID()
 		noError(t, f.auth.CreateTenant(ctx, iam.Tenant{ID: id, Slug: "  Acme-Shop "}))

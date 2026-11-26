@@ -5,12 +5,13 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/open-rails/migratekit"
 )
 
-// Validate verifies the notification ledger and required columns using reads
-// only. It neither creates the schema nor runs pending migrations. Newer
-// additive migrations are accepted when every migration this reader needs is
-// present; an incomplete older ledger is not accepted.
+// Validate verifies the inbox's migration ledger using reads only. It neither
+// creates the schema nor runs pending migrations. Newer migrations are
+// accepted when every migration this reader needs is applied unchanged.
 func Validate(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	if ctx == nil {
 		return fmt.Errorf("notify: context is required")
@@ -18,47 +19,25 @@ func Validate(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	if pool == nil {
 		return fmt.Errorf("notify: pool is required")
 	}
-	name, err := schemaName(schema)
+	list, err := chain(schema)
 	if err != nil {
 		return err
 	}
-	needed := func(err error) error {
+	db := stdlib.OpenDBFromPool(pool)
+	defer db.Close()
+	m := migratekit.NewPostgres(db, app).WithSchema(schema)
+	if err := m.ValidateAllApplied(ctx, list); err != nil {
 		return fmt.Errorf("notify: schema %q requires migration; run postgres.Migrate: %w", schema, err)
 	}
-	rows, err := pool.Query(ctx, `SELECT version FROM `+name+`.notify_migrations`)
+	records, err := m.AppliedRecords(ctx)
 	if err != nil {
-		return needed(err)
+		return fmt.Errorf("notify: read the migrations of schema %q: %w", schema, err)
 	}
-	applied := map[int]bool{}
-	for rows.Next() {
-		var version int
-		if err := rows.Scan(&version); err != nil {
-			rows.Close()
-			return needed(err)
+	for _, migration := range list {
+		record := records[migratekit.Prefix(migration.Name)]
+		if record.Filename != migration.Name || record.Digest != "" && record.Digest != migratekit.ContentDigest(migration.Content) {
+			return fmt.Errorf("notify: schema %q ran %s with other content; an applied migration never changes, so rebuild the inbox: %w", schema, migration.Name, migratekit.ErrMigrationEdited)
 		}
-		applied[version] = true
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return needed(err)
-	}
-	for i := range migrationPaths {
-		if !applied[i+1] {
-			return needed(fmt.Errorf("missing migration %d", i+1))
-		}
-	}
-	if _, err := pool.Exec(ctx, `SELECT `+columns+` FROM `+name+`.notify_items LIMIT 0`); err != nil {
-		return needed(err)
-	}
-	if _, err := pool.Exec(ctx, `SELECT producer_hash FROM `+name+`.notify_items LIMIT 0`); err != nil {
-		return needed(err)
-	}
-	if _, err := pool.Exec(ctx, `SELECT scope,audience,recipient,erased_at FROM `+name+`.notify_recipients LIMIT 0`); err != nil {
-		return needed(err)
-	}
-	if _, err := pool.Exec(ctx, `SELECT scope,audience,recipient,app_id,source,source_scope FROM `+name+`.notify_app_erasures LIMIT 0`); err != nil {
-		return needed(err)
 	}
 	return nil
 }

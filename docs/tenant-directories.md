@@ -21,13 +21,13 @@ storage path, role or authentication credential.
 An app serving one business sets nothing: no tenant ID, no `CreateTenant` call (one for its own tenant is a harmless no-op). `Migrate` (and `New`, which runs it) gives a fresh database its one tenant, a new UUIDv7 with its canonical permission group, and adopts the tenant an existing database already holds. Every account operation acts in it, and `Client.TenantID` reports it, for example to hand to ContentKit or OpenRails.
 
 - `DefaultTenantID`, `OAuthClientConfig.TenantID` and `ProvisioningTarget.TenantID` are multi-tenant only: a single-tenant Config that sets one is refused.
-- A fresh database whose tenant ID must match another system's (a ContentKit business UUID) runs `Migrate` first with `MigrationOptions.LegacyTenantID`: the tenant is created under that ID.
+- A fresh database whose tenant ID must match another system's (a ContentKit business UUID) runs `Migrate` first with `MigrationOptions.TenantID`: the tenant is created under that ID.
 - A database holding more than one tenant refuses to start and to migrate: the data contradicts the mode. Such a deployment is multi-tenant.
 - `CreateTenant` of another ID is refused with `iam.ErrSingleTenant` (HTTP 403 `single_tenant`); of the deployment's own ID it is the idempotent no-op matching provisioning always is. `ForTenant` or `Deps.RequestTenant` selects only the deployment's tenant.
 
 ### Multi-tenant
 
-A deployment serving several businesses sets `Tenancy: authkit.TenancyMulti`, also in `MigrationOptions.Tenancy` when it runs `Migrate` itself. `DefaultTenantID` is optional: when set, it names an existing tenant that operations selecting none act in; when zero, such operations are refused with `iam.ErrTenantRequired` and write nothing, never falling back to some tenant. Create tenants explicitly and select one for each operation:
+A deployment serving several businesses sets `Tenancy: authkit.TenancyMulti`, also in `MigrationOptions.Tenancy` when it runs `Migrate` itself. `DefaultTenantID` is optional: when set, it names the tenant that operations selecting none act in, which `New` creates in a database holding no tenant; when zero, such operations are refused with `iam.ErrTenantRequired` and write nothing, never falling back to some tenant. Create tenants explicitly and select one for each operation:
 
 ```go
 tenantID := iam.NewTenantID() // store it: it is the business's identity
@@ -126,9 +126,10 @@ The old name becomes a former name: it keeps resolving to the tenant, and no oth
 
 `root:tenants:read` and `root:tenants:manage` gate the same operations over HTTP: `POST /admin/tenants`, `GET` and `PATCH /admin/tenants/{tenant_id}`, and `GET /admin/tenants/by-slug/{slug}`. The writes (`POST`, `PATCH`) are for a person who signed in within 15 minutes, like the user directory's: a stale session gets `step_up_required`, and API keys and personal access tokens are refused. The reads admit any credential holding `root:tenants:read`.
 
-Migration 0026 names each existing tenant `tenant-<its UUID's 32 hex digits>`.
-Rename it to its real name once; the placeholder then forwards like any
-former name.
+A tenant `Migrate` creates (the single-tenant deployment's, or a multi-tenant
+deployment's `DefaultTenantID` in a database with none) is named
+`tenant-<its UUID's 32 hex digits>`. Rename it to its real name once; the
+placeholder then forwards like any former name.
 
 ## Permissions and ownership
 
@@ -200,27 +201,7 @@ events have a zero tenant rather than inheriting a worker's default directory.
 The event's subject and invoker fields still identify the acting operator;
 they must not be substituted for the affected tenant.
 
-## Upgrade a directory from before tenants
-
-This concerns a database last migrated by AuthKit before v1.30, whose accounts have no tenant. Take a verified backup and coordinate the writer upgrade first. Migration adds
-non-null tenant ownership and tenant-scoped uniqueness; old unscoped writers
-must be retired before serving the upgraded schema or provisioning additional
-businesses.
-
-A single-tenant deployment gives the accounts a new tenant. To choose its ID,
-or for a multi-tenant deployment, which refuses a populated directory without
-that choice, pass it to the migration entry point:
-
-```go
-err := authkit.Migrate(ctx, pool, database, authkit.MigrationOptions{
-	LegacyTenantID: tenantID,
-})
-```
-
-It preserves account and group IDs, password hashes, enrolled factors and
-existing role/key bindings. Repeating the same migration is safe. Hosts running
-migrations through a separate command set `Database.SkipMigrations = true` for
-normal startup.
+## Persona transitions
 
 Account ownership and permission-persona names are separate changes. The SQL
 migration does not silently rename a legacy app or tenant group. During an

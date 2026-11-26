@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	stdlog "log"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/open-rails/authkit"
 	"github.com/open-rails/authkit/authtest"
@@ -30,6 +32,7 @@ import (
 	"github.com/open-rails/authkit/keys"
 	"github.com/open-rails/authkit/verify"
 	riverkit "github.com/open-rails/helpers/river"
+	"github.com/open-rails/migratekit"
 	"github.com/redis/go-redis/v9"
 	"github.com/riverqueue/river"
 )
@@ -121,6 +124,38 @@ func TestCriticalRuntime(t *testing.T) {
 		}
 		noError(t, restarted.Start(context.Background()))
 		noError(t, restarted.Ready(t.Context()))
+	})
+	t.Run("AK-J01-C09_a_schema_an_earlier_chain_built_is_refused", func(t *testing.T) {
+		f := newFixture(t)
+		u := f.user(t)
+		noError(t, f.auth.Close(t.Context()))
+		// Every schema built before v1.58.0 ran a 0001 with other content.
+		tag, err := f.pool.Exec(t.Context(), `UPDATE public.migrations SET content_sha256 = md5(content_sha256) WHERE app = 'authkit' AND schema = $1 AND sequence = 1`, f.schema)
+		noError(t, err)
+		if tag.RowsAffected() != 1 {
+			t.Fatalf("the ledger holds %d records of the schema's 0001", tag.RowsAffected())
+		}
+		const rebuild = "a database built before v1.58.0 is rebuilt"
+		err = authkit.Migrate(t.Context(), f.pool, f.cfg.Database)
+		if !errors.Is(err, migratekit.ErrMigrationEdited) || !strings.Contains(err.Error(), rebuild) {
+			t.Fatalf("Migrate = %v, want the edited migration refused, naming the rebuild", err)
+		}
+		startRefused(t, f.cfg, f.deps, rebuild)
+		validating := f.cfg
+		validating.Database.SkipMigrations = true
+		client, err := authkit.New(t.Context(), validating, f.deps)
+		if client != nil {
+			_ = client.Close(context.Background())
+		}
+		if !errors.Is(err, authkit.ErrMigrationsRequired) || !errors.Is(err, migratekit.ErrMigrationEdited) || !strings.Contains(err.Error(), rebuild) {
+			t.Fatalf("a validating start = %v, want the edited migration refused, naming the rebuild", err)
+		}
+		// Nothing was applied or removed.
+		var accounts int
+		noError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM `+pgx.Identifier{f.schema, "users"}.Sanitize()+` WHERE id = $1`, u.ID).Scan(&accounts))
+		if accounts != 1 {
+			t.Fatal("a refused migration changed the schema")
+		}
 	})
 	t.Run("AK-J01-C03_missing_signer_or_database_fails_closed", func(t *testing.T) {
 		f := newFixture(t)

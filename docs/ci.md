@@ -21,7 +21,7 @@ Drafts run nothing: stay draft until the final commit, then mark ready once. Eac
 
 ## Suites
 
-- **Root:** `scripts/check.sh workflows`, `scripts/check.sh contracts`, and `Required Security`. `workflows` runs every Go package's tests with `-race` against real PostgreSQL/Redis and requires every named [critical scenario](../critical/README.md) to pass, with zero skipped tests anywhere. `contracts` runs the static checks (logging; `scripts/criticalcheck`: every scenario can fail; `go vet`), sqlc generation and validation against a migrated schema, and the released-migration check. `Required Security` runs govulncheck and Trivy.
+- **Root:** `scripts/check.sh workflows`, `scripts/check.sh contracts`, and `Required Security`. `workflows` runs every Go package's tests with `-race` against real PostgreSQL/Redis and requires every named [critical scenario](../critical/README.md) to pass, with zero skipped tests anywhere. `contracts` runs the static checks (logging; `scripts/criticalcheck`: every scenario can fail; `go vet`), sqlc generation and validation against a migrated schema, and the released-migration check (`scripts/check-released-migrations.sh`: every migration the latest release from v1.58.0 on shipped is unchanged, and a new one is numbered after them). `Required Security` runs govulncheck and Trivy.
 - **UI:** auth-ui's generated-contract check, typecheck, lint and real Playwright suite, through the reusable auth-ui workflow.
 
 `scripts/check.sh light` is the service-free subset (static checks, every module compiles, released migrations) to run before pushing.

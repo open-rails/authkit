@@ -18,14 +18,6 @@ type Mutation struct {
 	Withdrawn bool  `json:"withdrawn,omitempty"`
 }
 
-// Adoption maps exact legacy origins for Current's recipient to one current
-// producer identity during an explicit, stopped-writer migration. The host
-// authorizes the mapping; it never means a prefix, range or inbox search.
-type Adoption struct {
-	Previous []Origin `json:"previous"`
-	Current  Mutation `json:"current"`
-}
-
 // ValidateMutation validates and normalizes one producer mutation. Withdrawal
 // needs only recipient, origin and visibility; payload fields are ignored.
 func ValidateMutation(in Mutation) (Mutation, error) {
