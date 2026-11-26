@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Breaking:** `readInvitation` answers `{ code, kind: "email" | "link" }` (`InvitationLink`, was `{ code, registers }`), which `AcceptInvitation`'s `invitation` takes. Either kind's code signs its holder up.
+- `AcceptInvitation` signs the visitor up with either kind of invitation; a sign-up the server answers at once (no email, or an emailed invitation registered at its own address) has no code step, and the page says when the new address is unverified. `MembersAdmin` says a link not sent by email is handed over privately: whoever uses it first gets the role.
 - `OwnerSetup` is the first administrator's page (`/setup` beneath AuthKit's `FrontendURL`): it spends the setup link the server logged (`readSetupToken(location.hash)`, `AuthClient.completeSetup`) on the owner account, then finishes the second-factor enrollment the owner role needs in place.
 - `AcceptInvitation` is the invitation landing page (`/invite`, `readInvitation(location.hash)`, reading an invite link's `#link_code=` or an email invitation's `#invite_code=`): signed out, it signs in, or up with an emailed invitation, which then holds its role; signed in, it accepts the invitation (`redeemInvitation`).
 - `MembersAdmin`'s invite form says when email is unavailable and shows an email invitation's link to share; `AuthAdmin` leaves out sections whose routes the server does not serve (`/capabilities` `route_groups`).

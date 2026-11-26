@@ -658,6 +658,8 @@ export const de: AuthUiMessageBundle = {
     accept: "Einladung annehmen",
     accepted: "Einladung angenommen",
     joinedAs: "Sie sind als {role} beigetreten.",
+    unproven:
+      "{address} ist noch nicht bestätigt: Dieser Server konnte keinen Code dorthin senden. Sie können die Adresse später in Ihrem Konto bestätigen.",
     missingLink:
       "Dieser Einladungslink ist unvollständig. Öffnen Sie ihn erneut aus Ihrer E-Mail oder bitten Sie um einen neuen.",
   },

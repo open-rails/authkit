@@ -410,7 +410,7 @@ func normalizeHTTP(h *HTTPConfig, c Config, d Deps, degrade func(error)) error {
 	}
 
 	if d.Email == nil && d.SMS == nil {
-		degrade(errors.New("authkit: no email or SMS sender is configured, so sign-ups and codes answer email_unavailable until one is"))
+		degrade(errors.New("authkit: no email or SMS sender is configured, so codes, and sign-ups without an invitation, answer email_unavailable until one is"))
 	}
 	for _, cl := range c.AuthorizationServer.Clients {
 		if len(cl.AuthorizationDetailsTypes) > 0 && d.OAuthGrants == nil {

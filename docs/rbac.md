@@ -26,7 +26,7 @@ A deployment that signs its own staff in needs its first administrator without a
 - `Client.IssueSetupLink` is the break-glass: a host command run from the server's shell issues a fresh link, replacing a live one, that creates an owner even while administrators exist. To invite instead, `Client.CreateInvitation` with `iam.SystemIdentity()` on `iam.RootGroup()`.
 - In a multi-tenant deployment the owner is created in the request's tenant, so set `DefaultTenantID`.
 
-Then the owner adds the team from the members routes below (auth-ui's `MembersAdmin` on `root`): an invitation by email lands its role when the invitee signs up with it; where email is unavailable, the invitation is answered with its link for the inviter to share. Every change on root needs a recent sign-in.
+Then the owner adds the team from the members routes below (auth-ui's `MembersAdmin` on `root`): an invitation lands its role when the invitee signs up with it. Where email is unavailable, the invitation is answered with its link for the inviter to hand over privately, since whoever uses it first gets the role, and the invitee signs up without a code, the address unproven ([registration](identity.md#registration)). Every change on root needs a recent sign-in.
 
 ### Root roles reach every group
 

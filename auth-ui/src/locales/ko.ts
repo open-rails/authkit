@@ -620,6 +620,7 @@ export const ko: AuthUiMessageBundle = {
     accept: "초대 수락",
     accepted: "초대를 수락했습니다",
     joinedAs: "{role}(으)로 참여했습니다.",
+    unproven: "{address}은(는) 아직 인증되지 않았습니다. 이 서버가 인증 코드를 보낼 수 없었습니다. 나중에 계정에서 인증할 수 있습니다.",
     missingLink: "이 초대 링크가 완전하지 않습니다. 이메일에서 다시 열거나 새 링크를 요청하세요.",
   },
   callback: {

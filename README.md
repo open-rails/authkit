@@ -359,7 +359,7 @@ adding a verified replacement first permits removing the old factor.
 | `GET /auth/v1/groups/{group_id}/roles` | the roles this group has |
 | `GET /auth/v1/groups/{group_id}/roles/{role}` | one of them, and what it grants |
 | `GET /auth/v1/groups/{group_id}/invitations` | its invitations |
-| `POST /auth/v1/groups/{group_id}/invitations` | invite someone with a link, or by email (where email is unavailable, answered with its link to share) |
+| `POST /auth/v1/groups/{group_id}/invitations` | invite someone with a link, or by email (where email is unavailable, answered with its link to share); either code signs its invitee up into the role |
 | `DELETE /auth/v1/groups/{group_id}/invitations/{id}` | revoke one |
 
 **Site admins** (need the matching `root:` permission, and a recent sign-in for account changes; staff change only accounts they outrank, so demote a peer first. Bans, deletions, sign-outs and contact changes are recorded with who made them in `Client.ListEvents`, for your audit log.)

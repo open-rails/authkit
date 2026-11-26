@@ -14,7 +14,7 @@ import (
 // issuePendingRegistration holds target and username for a sign-up pending its
 // proof and sends the first code, answering its challenge.
 func (s *Engine) issuePendingRegistration(ctx context.Context, kind pendingChangeKind, target, username, passwordHash, preferredLanguage string) (string, error) {
-	allowed, err := s.registrationAllowedForEmail(ctx, target)
+	allowed, err := s.registrationAdmitted(ctx)
 	if err != nil {
 		return "", err
 	}

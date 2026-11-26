@@ -2,32 +2,33 @@ package engine
 
 import (
 	"context"
+	"errors"
 
 	"github.com/open-rails/authkit/iam"
+	"github.com/open-rails/authkit/internal/errmodel"
 )
 
-// registrationAllowedForEmail is the SINGLE email-aware chokepoint for public
-// self-registration policy (#147). Public-registration gates that have the
-// registrant's email route through it instead of threading invite-awareness
-// through ~10 divergent call sites (PublicNativeUserRegistrationEnabled() takes no
-// email, which is exactly why this email-aware helper exists):
-//
-//	Open       — always true.
-//	Closed      — always false.
-//	InviteOnly — true iff a valid, unconsumed, unexpired account-registration invite
-//	             CODE is presented on ctx (#147 FINAL: the stranger invite is UNBOUND;
-//	             the single-use code is the credential, not the email).
-func (s *Engine) registrationAllowedForEmail(ctx context.Context, email string) (bool, error) {
+// registrationAdmitted is the one public self-registration policy check:
+// open admits every sign-up, invite_only one whose context carries a live
+// invitation's code (an invite link or an email invitation: the code is the
+// credential, never the address), closed none.
+func (s *Engine) registrationAdmitted(ctx context.Context) (bool, error) {
 	switch s.cfg.Registration {
 	case iam.RegistrationModeOpen:
 		return true, nil
 	case iam.RegistrationModeInviteOnly:
-		return s.hasValidAccountRegistrationInvite(ctx, email)
+		invite, err := s.presentedInvite(ctx, accountRegistrationInviteTokenFromContext(ctx))
+		if refusedInvitation(err) {
+			return false, nil
+		}
+		return invite != nil, err
 	default: // Closed, and any unrecognized value: fail closed.
 		return false, nil
 	}
 }
 
-// hasValidAccountRegistrationInvite is implemented in
-// account_registration_invites.go. It requires a valid single-use account-invite
-// code on ctx (UNBOUND — no email match); group invite tokens are a separate code.
+// refusedInvitation reports whether err refuses a presented invitation.
+func refusedInvitation(err error) bool {
+	return errors.Is(err, iam.ErrInvitationNotFound) || errors.Is(err, errmodel.ErrInvitationRevoked) ||
+		errors.Is(err, errmodel.ErrInvitationExpired) || errors.Is(err, iam.ErrInvitationsDisabled)
+}

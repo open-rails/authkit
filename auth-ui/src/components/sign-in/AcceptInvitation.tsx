@@ -6,7 +6,8 @@ import {
 import { cn } from "cn"
 import { useRef, useState, type ReactNode } from "react"
 
-import type { Membership } from "#authui/client/generated/wire"
+import type { InvitationLink } from "#authui/client/client"
+import type { Membership, UserProfile } from "#authui/client/generated/wire"
 import { useMessages } from "#authui/i18n/context"
 import { useAuthClient } from "#authui/react/context"
 import { useTask } from "#authui/react/task"
@@ -23,7 +24,7 @@ export type AcceptInvitationProps = Omit<
   "inviteCode" | "initialTab"
 > & {
   // From the invitation link: readInvitation(location.hash).
-  invitation?: { code: string; registers: boolean } | null
+  invitation?: InvitationLink | null
   // The group and role joined; null when signing up with the invitation
   // accepted it.
   onAccepted?: (membership: Membership | null) => void
@@ -33,9 +34,20 @@ export type AcceptInvitationProps = Omit<
 // A role in words: `root:admin` is "admin".
 const roleName = (role: string) => role.slice(role.indexOf(":") + 1)
 
+// The contact a sign-up left unproven: one no code could reach.
+const unproven = (user: UserProfile | null) =>
+  !user
+    ? null
+    : user.email && !user.email_verified
+      ? user.email
+      : user.phone_number && !user.phone_verified
+        ? user.phone_number
+        : null
+
 // The invitation landing page (Frontend.InvitePath). Signed out, it signs in,
-// or signs up with an email invitation, which then holds its role; signed
-// in, it accepts the invitation into the account.
+// or signs up with the invitation, which then holds its role: at once where
+// no code can be sent, the address left unproven. Signed in, it accepts the
+// invitation into the account.
 export function AcceptInvitation({
   invitation,
   onAccepted,
@@ -44,12 +56,12 @@ export function AcceptInvitation({
 }: AcceptInvitationProps) {
   const { t, error: describe } = useMessages()
   const client = useAuthClient()
-  const { status } = useAuth()
+  const { status, user } = useAuth()
   const { busy, error, run } = useTask()
   const [accepted, setAccepted] = useState<{
     membership: Membership | null
   } | null>(null)
-  // The entry the visitor last used: a sign-up with an email invitation has
+  // The entry the visitor last used: a sign-up with the invitation has
   // accepted it already.
   const entry = useRef<SignInStep | null>(null)
   const accept = (membership: Membership | null) => {
@@ -86,8 +98,10 @@ export function AcceptInvitation({
     )
   if (accepted) {
     const role = accepted.membership?.role
+    // Signed up with the invitation where no code could be sent.
+    const address = accepted.membership ? null : unproven(user)
     return card(
-      <div role="status">
+      <div role="status" className="flex flex-col gap-3">
         <StepHeader
           icon={CheckmarkCircle02Icon}
           title={t("invitation.accepted")}
@@ -97,6 +111,11 @@ export function AcceptInvitation({
               : undefined
           }
         />
+        {address && (
+          <p className="text-muted-foreground">
+            {t("invitation.unproven", { address })}
+          </p>
+        )}
       </div>
     )
   }
@@ -136,21 +155,25 @@ export function AcceptInvitation({
       className={className}
       title={t("invitation.title")}
       description={
-        invitation.registers
+        invitation.kind === "email"
           ? t("invitation.signUpDescription")
           : t("invitation.signInDescription")
       }
-      inviteCode={invitation.registers ? invitation.code : undefined}
-      initialTab={invitation.registers ? "register" : "login"}
+      inviteCode={invitation.code}
+      initialTab={invitation.kind === "email" ? "register" : "login"}
       onStepChange={(step) => {
-        if (isEntryStep(step)) entry.current = step
-        else if (step !== "done") setSigningIn(true)
+        // A sign-up accepts the invitation, at once when no code is sent:
+        // stay here until it lands rather than offer to accept it again.
+        if (isEntryStep(step)) {
+          entry.current = step
+          setSigningIn(step === "register")
+        } else if (step !== "done") setSigningIn(true)
         if (step === "verify_registration") entry.current = "register"
         flow.onStepChange?.(step)
       }}
       onSignedIn={(result) => {
         setSigningIn(false)
-        if (invitation.registers && entry.current === "register") accept(null)
+        if (entry.current === "register") accept(null)
         flow.onSignedIn?.(result)
       }}
     />

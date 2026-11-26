@@ -634,6 +634,8 @@ export const en = {
     accept: "Accept invitation",
     accepted: "Invitation accepted",
     joinedAs: "You joined as {role}.",
+    unproven:
+      "{address} isn't verified yet: this server couldn't send it a code. You can verify it from your account later.",
     missingLink:
       "This invitation link is incomplete. Open it again from your email, or ask for a new one.",
   },

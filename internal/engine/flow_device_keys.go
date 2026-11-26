@@ -382,7 +382,7 @@ func (s *Engine) enrollDeviceKey(ctx context.Context, record deviceKeyEnrollment
 			return iam.DeviceKey{}, "", false, err
 		}
 	} else {
-		allowed, err := s.registrationAllowedForEmail(ctx, record.Email)
+		allowed, err := s.registrationAdmitted(ctx)
 		if err != nil {
 			return iam.DeviceKey{}, "", false, err
 		}

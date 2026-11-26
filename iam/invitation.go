@@ -13,11 +13,12 @@ var ErrInvitationNotFound Error = errmodel.E(errmodel.CodeInvitationNotFound)
 // NewInvitation is the input of CreateInvitation.
 //
 // Without Email it is an invite link: a single-use code granting Role (which
-// it needs) to the signed-in account that redeems it. With Email, AuthKit
-// emails a registration invite to that address: with Role, registering also
-// grants it, and an existing account that has verified the address may
-// redeem it instead; without Role, in the root or owning tenant group, it only
-// lets the address register (the corresponding users:invite permission).
+// it needs) to the account that uses it, signed in or signing up with it. With
+// Email, AuthKit emails an invitation to that address: with Role, registering
+// with its code grants it, and an existing account that has verified the
+// address may redeem it instead; without Role, in the root or owning tenant
+// group, it only admits a registration (the corresponding users:invite
+// permission). Either code admits a registration under invite_only.
 //
 // ExpiresAt nil is the default lifetime: 72 hours for a link, 7 days for an
 // email invite. A link lives at most 30 days.
@@ -44,8 +45,10 @@ type Invitation struct {
 
 // InvitationCreated is a new invitation with its code and link, shown this
 // once; only the code's hash is stored. Emailed reports that an email
-// invitation was sent; when email is unavailable it is not, and the inviter
-// shares URL instead.
+// invitation was sent: its code went to the address alone, so Code and URL
+// are empty, and registering that address with it proves the address.
+// Otherwise (a link, or email unavailable) the inviter shares URL privately:
+// whoever uses it first gets the role.
 type InvitationCreated struct {
 	Invitation Invitation `json:"invitation"`
 	Code       string     `json:"code"`

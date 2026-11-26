@@ -84,6 +84,10 @@ export const de: AdminMessageTree = {
       "E-Mail ist auf diesem Server nicht eingerichtet: Senden Sie {email} den Link unten.",
     emailUnavailable:
       "E-Mail ist auf diesem Server nicht eingerichtet: Sie erhalten einen Link zum Weitergeben.",
+    handOver:
+      "Geben Sie diesen Link nur privat weiter: Wer ihn zuerst verwendet, tritt als {role} bei.",
+    handOverAccount:
+      "Geben Sie diesen Link nur privat weiter: Wer ihn zuerst verwendet, kann ein Konto anlegen.",
     list: "Gesendete Einladungen",
     empty: "Noch keine Einladungen.",
     recipient: "Empfänger",

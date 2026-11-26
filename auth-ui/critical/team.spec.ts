@@ -1,7 +1,6 @@
 import { test } from "./browser"
 import { expect } from "@playwright/test"
 import {
-  code,
   deliveries,
   enrollRequired,
   identity,
@@ -137,7 +136,8 @@ test("AK-UI-23: the Team page invites by email, the invitee signs up into the ro
     methods.add(method)
   })
   try {
-    // The invitee signs up with the emailed link and holds its role.
+    // The invitee signs up with the emailed link and holds its role; the
+    // link proved the address, so no second code is sent.
     await guest.goto(`/invite?accept-invitation${new URL(emailed!).hash}`)
     await expect(
       guest.getByRole("heading", { name: "You're invited", exact: true })
@@ -146,15 +146,18 @@ test("AK-UI-23: the Team page invites by email, the invitee signs up into the ro
     await guest.locator('input[name="username"]').fill(invitee.username)
     await guest.locator('input[name="new-password"]').fill(invitee.password)
     await guest.getByRole("button", { name: "Register", exact: true }).click()
-    await guest
-      .locator('input[autocomplete="one-time-code"]')
-      .fill(await code(request, invitee.email))
     await expect(
       guest.getByText("Invitation accepted", { exact: true })
     ).toBeVisible()
     await expect(guest.getByTestId("session-status")).toHaveText(
       "authenticated"
     )
+    await expect(guest.getByText(/isn't verified yet/)).toHaveCount(0)
+    expect(
+      (await deliveries(request, invitee.email)).filter(
+        (m) => m.kind === "verification"
+      )
+    ).toEqual([])
 
     // The inviter sees the member, changes the role, then removes it.
     await page
@@ -212,6 +215,117 @@ test("AK-UI-23: the Team page invites by email, the invitee signs up into the ro
   } finally {
     await context.close()
   }
+  await info.attach("public-client-invocations", {
+    body: JSON.stringify({ methods: [...methods].sort() }),
+    contentType: "application/json",
+  })
+})
+
+test("AK-UI-24: without email, the Team page hands over an invitation link, which signs its invitee up at once, unverified, into the role, once", async ({
+  page,
+  browser,
+  request,
+}, info) => {
+  const operator = await seed(request, {
+    rootRole: "operator",
+    profile: "noemail",
+  })
+  await open(page, "?noemail&admin-group=root")
+  const signedIn = await login(page, operator)
+  expect(signedIn.status).toBe("enrollment_required")
+  if (signedIn.status !== "enrollment_required")
+    throw new Error("operator needs MFA")
+  await enrollRequired(page, signedIn.enrollment.token_set)
+
+  await page.getByRole("link", { name: "Invitations", exact: true }).click()
+  await expect(
+    page.getByText(
+      "Email isn't set up on this server: you'll get a link to share.",
+      { exact: true }
+    )
+  ).toBeVisible()
+  const invitee = identity()
+  await page
+    .getByRole("textbox", { name: "Email", exact: true })
+    .fill(invitee.email)
+  await page
+    .getByRole("combobox", { name: "Role", exact: true })
+    .selectOption("root:reader")
+  await page.getByRole("button", { name: "Invite", exact: true }).click()
+  await expect(
+    page.getByText(
+      "Hand this link over privately: whoever uses it first joins as Reader.",
+      { exact: true }
+    )
+  ).toBeVisible()
+  const shared = page.getByRole("textbox", {
+    name: "Invitation link",
+    exact: true,
+  })
+  await expect(shared).not.toHaveValue("")
+  const hash = new URL(await shared.inputValue()).hash
+
+  const context = await browser.newContext({
+    baseURL: process.env.E2E_BASE_URL,
+  })
+  const guest = await context.newPage()
+  const methods = new Set<string>()
+  await guest.exposeFunction("__criticalMethod", (method: string) => {
+    methods.add(method)
+  })
+  try {
+    // No code step: the invitation is the credential.
+    await guest.goto(`/invite?noemail&accept-invitation${hash}`)
+    await guest.locator('input[name="email"]').fill(invitee.email)
+    await guest.locator('input[name="username"]').fill(invitee.username)
+    await guest.locator('input[name="new-password"]').fill(invitee.password)
+    await guest.getByRole("button", { name: "Register", exact: true }).click()
+    await expect(
+      guest.getByText("Invitation accepted", { exact: true })
+    ).toBeVisible()
+    await expect(guest.getByTestId("session-status")).toHaveText(
+      "authenticated"
+    )
+    await expect(
+      guest.getByText(
+        `${invitee.email} isn't verified yet: this server couldn't send it a code. You can verify it from your account later.`,
+        { exact: true }
+      )
+    ).toBeVisible()
+
+    // Spent, the link signs nobody else up.
+    await guest.getByRole("button", { name: "Sign out", exact: true }).click()
+    await expect(guest.getByTestId("session-status")).toHaveText("anonymous")
+    const code = new URLSearchParams(hash.slice(1)).get("invite_code")!
+    const second = identity()
+    const again = await guest.evaluate(
+      ({ second, code }) =>
+        window.ak.client
+          .register({
+            identifier: second.email,
+            username: second.username,
+            password: second.password,
+            inviteCode: code,
+          })
+          .then(
+            () => null,
+            (err: { code?: string }) => err.code
+          ),
+      { second, code }
+    )
+    expect(again).toBe("invitation_not_found")
+  } finally {
+    await context.close()
+  }
+
+  // The inviter sees the member in the role.
+  await page
+    .getByLabel("Members and invitations")
+    .getByRole("link", { name: "Members", exact: true })
+    .click()
+  await expect(
+    page.getByRole("combobox", { name: `Role of ${invitee.username}` })
+  ).toHaveValue("root:reader")
   await info.attach("public-client-invocations", {
     body: JSON.stringify({ methods: [...methods].sort() }),
     contentType: "application/json",

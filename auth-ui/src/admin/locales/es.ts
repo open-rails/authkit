@@ -82,6 +82,10 @@ export const es: AdminMessageTree = {
       "El correo no está configurado en este servidor: envía a {email} el enlace de abajo.",
     emailUnavailable:
       "El correo no está configurado en este servidor: obtendrás un enlace para compartir.",
+    handOver:
+      "Comparte este enlace en privado: quien lo use primero se une como {role}.",
+    handOverAccount:
+      "Comparte este enlace en privado: quien lo use primero puede crear una cuenta.",
     list: "Invitaciones enviadas",
     empty: "Todavía no hay invitaciones.",
     recipient: "Destinatario",

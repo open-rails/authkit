@@ -586,6 +586,7 @@ export const zh: AuthUiMessageBundle = {
     accept: "接受邀请",
     accepted: "已接受邀请",
     joinedAs: "你已以 {role} 身份加入。",
+    unproven: "{address} 尚未验证：此服务器无法向其发送验证码。你可以稍后在账户中验证。",
     missingLink: "此邀请链接不完整。请从邮件中重新打开，或请求新的链接。",
   },
   callback: {

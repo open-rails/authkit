@@ -68,6 +68,9 @@ func (s *Engine) registerAccountOnce(ctx context.Context, in accountRegistration
 	if err != nil {
 		return registeredAccount{}, err
 	}
+	if invite.proves(in.User.Email) {
+		in.User.EmailVerified = true
+	}
 	q := s.qtx(tx)
 	user, err := s.importUser(ctx, q, in.User)
 	if err != nil {

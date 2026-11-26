@@ -1,5 +1,10 @@
 package engine
 
+// A sign-up's invitation: an invite link or an email invitation. Its code is
+// the credential that admits the registration, under invite_only too, and the
+// registration redeems it in its own transaction, landing the role. An email
+// invitation whose code went only to its address proves that address.
+
 import (
 	"context"
 	"errors"
@@ -11,6 +16,7 @@ import (
 
 	"github.com/open-rails/authkit/iam"
 	"github.com/open-rails/authkit/internal/config"
+	"github.com/open-rails/authkit/internal/contact"
 	"github.com/open-rails/authkit/internal/db"
 	"github.com/open-rails/authkit/internal/errmodel"
 	"github.com/open-rails/authkit/internal/ident"
@@ -71,27 +77,37 @@ func (s *Engine) sendAccountRegistrationInviteEmail(ctx context.Context, email, 
 	return true
 }
 
-func (s *Engine) hasValidAccountRegistrationInvite(ctx context.Context, email string) (bool, error) {
-	// #147 FINAL: the stranger invite is UNBOUND — the single-use code is the
-	// credential, not the address it was delivered to. We check only that a valid,
-	// unconsumed, unexpired code is presented; `email` (the registrant's chosen
-	// address) is irrelevant to authorization. Whoever holds the link may register.
-	token := accountRegistrationInviteTokenFromContext(ctx)
-	if token == "" || s.pg == nil {
-		return false, nil
-	}
-	_ = email
-	id, err := s.q.AccountInviteLiveID(ctx, db.AccountInviteLiveIDParams{TenantID: s.tenantKey(ctx), CodeHash: secret.Hash(token)})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return s.credentialUseStands(ctx, s.groupStore(), "account_registration_invites", id, "")
+// signUpInvite is a live invitation presented at sign-up.
+type signUpInvite struct {
+	invitation
+	email   string // the invited address; "" for a link
+	emailed bool   // its code went to email and nowhere else
 }
 
-func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*db.AccountInviteForUpdateRow, error) {
+// proves reports whether registering address with the invitation proves it:
+// the code was emailed there and to no one else.
+func (i *signUpInvite) proves(address string) bool {
+	return i != nil && i.emailed && address != "" && contact.NormalizeEmail(address) == contact.NormalizeEmail(i.email)
+}
+
+// presentedInvite is the live invitation whose code is token, nil for no
+// token. A code that is not live is refused: unknown or used
+// (ErrInvitationNotFound), revoked, or expired.
+func (s *Engine) presentedInvite(ctx context.Context, token string) (*signUpInvite, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, nil
+	}
+	if err := s.requirePG(); err != nil {
+		return nil, err
+	}
+	return s.liveInvite(ctx, s.groupStore(), token)
+}
+
+// lockRegistrationInvite admits a registration in tx, the authority
+// transaction that creates the account: closed admits none, invite_only only
+// one presenting a live invitation, which it locks for redeeming.
+func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token string) (*signUpInvite, error) {
 	mode := s.cfg.Registration
 	if mode == iam.RegistrationModeClosed {
 		return nil, errmodel.ErrRegistrationDisabled
@@ -103,76 +119,74 @@ func (s *Engine) lockRegistrationInvite(ctx context.Context, tx pgx.Tx, token st
 		}
 		return nil, nil
 	}
-	if !config.InvitationsOn(s.cfg) {
-		return nil, iam.ErrInvitationsDisabled
+	if err := s.invitationsOn(); err != nil {
+		return nil, err
 	}
 	if err := s.lockAuthority(ctx, tx); err != nil {
 		return nil, err
 	}
+	st := s.groupStoreFor(tx)
 	q := db.New(tx)
-	codeHash := secret.Hash(token)
-	groupID, err := q.AccountInviteGroupLive(ctx, db.AccountInviteGroupLiveParams{TenantID: s.tenantKey(ctx), CodeHash: codeHash})
+	found, err := q.InvitationByCode(ctx, db.InvitationByCodeParams{TenantID: s.tenantKey(ctx), CodeHash: secret.Hash(token)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, iam.ErrInvitationNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if groupID != nil {
-		if err := lockPermissionGroup(ctx, tx, *groupID); err != nil {
+	// The group before the invitation, as every authority change locks them.
+	if found.GroupID != "" {
+		if err := lockPermissionGroup(ctx, tx, found.GroupID); err != nil {
 			return nil, err
 		}
 	}
-	invite, err := q.AccountInviteForUpdate(ctx, db.AccountInviteForUpdateParams{TenantID: s.tenantKey(ctx), CodeHash: codeHash, GroupID: groupID})
+	if found.Kind == "group_invite_links" {
+		err = q.InviteLinkLock(ctx, found.ID)
+	} else {
+		err = q.AccountInviteLock(ctx, found.ID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.liveInvite(ctx, st, token)
+}
+
+// liveInvite reads the invitation whose code is token and refuses it unless
+// it is live.
+func (s *Engine) liveInvite(ctx context.Context, st *permissionGroupStore, token string) (*signUpInvite, error) {
+	if err := s.invitationsOn(); err != nil {
+		return nil, err
+	}
+	row, err := db.New(st.q).InvitationByCode(ctx, db.InvitationByCodeParams{TenantID: s.tenantKey(ctx), CodeHash: secret.Hash(token)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, iam.ErrInvitationNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requireCredentialUse(ctx, s.groupStoreFor(tx), "account_registration_invites", invite.ID, "", iam.ErrInvitationNotFound); err != nil {
+	inv := &signUpInvite{
+		invitation: invitation{
+			table: row.Kind, id: row.ID, group: groupTarget{ID: row.GroupID, Persona: ident.Persona(row.Persona)}, role: ident.RoleText(row.Role),
+			used: row.UsedAt != nil, revoked: row.RevokedAt != nil, issuerLive: row.IssuerLive, expiresAt: row.ExpiresAt,
+		},
+		email: row.Email, emailed: row.Emailed,
+	}
+	if err := s.standingInvitation(ctx, st, inv.invitation); err != nil {
 		return nil, err
 	}
-	return &invite, nil
+	if inv.used {
+		return nil, iam.ErrInvitationNotFound
+	}
+	return inv, nil
 }
 
-func (s *Engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite *db.AccountInviteForUpdateRow, userID string) error {
+// applyRegistrationInvite redeems invite for userID, the account its
+// registration just created in tx, landing its role.
+func (s *Engine) applyRegistrationInvite(ctx context.Context, tx pgx.Tx, invite *signUpInvite, userID string) error {
 	if invite == nil {
 		return nil
 	}
-	if err := db.New(tx).AccountInviteConsume(ctx, invite.ID); err != nil {
-		return err
-	}
-	if invite.PermissionGroupID != nil && invite.Role != nil {
-		var persona iam.Persona
-		if invite.Persona != nil {
-			persona = ident.Persona(*invite.Persona)
-		}
-		st := s.groupStoreFor(tx)
-		st.who = iam.UserIdentity(userID)
-		return s.assignInvitedRole(ctx, st, *invite.PermissionGroupID, persona, userID, ident.RoleText(*invite.Role))
-	}
-	return nil
-}
-
-func (s *Engine) consumeAccountRegistrationInvite(ctx context.Context, _ string, userID string) error {
-	if strings.TrimSpace(userID) == "" {
-		return errors.New("invalid_user")
-	}
-	if err := s.requirePG(); err != nil {
-		return err
-	}
-	tx, err := s.beginAuthorityTransaction(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	invite, err := s.lockRegistrationInvite(ctx, tx, accountRegistrationInviteTokenFromContext(ctx))
-	if err != nil {
-		return err
-	}
-	if err := s.applyRegistrationInvite(ctx, tx, invite, userID); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	st := s.groupStoreFor(tx)
+	st.who = iam.UserIdentity(userID)
+	return s.redeemInvitation(ctx, st, invite.invitation, nativeHolder{s: s, id: userID})
 }

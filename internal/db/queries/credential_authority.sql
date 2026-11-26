@@ -18,8 +18,3 @@ SELECT c.group_id::text AS group_id, g.persona, g.tenant_id, c.role, c.creator, 
 FROM credential c JOIN permission_groups g ON g.id=c.group_id AND g.deleted_at IS NULL
 WHERE (c.catalog_issuer IS NULL OR c.catalog_issuer=sqlc.arg(issuer)::text)
  AND (sqlc.arg(group_id)::text='' OR c.group_id=nullif(sqlc.arg(group_id)::text,'')::uuid);
-
--- name: AccountInviteLiveID :one
-SELECT id FROM account_registration_invites
-WHERE tenant_id=nullif(sqlc.arg(tenant_id)::text,'')::uuid AND code_hash=sqlc.arg(code_hash)
- AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at>now();

@@ -51,11 +51,10 @@ type roleHolder interface {
 	assign(ctx context.Context, st *permissionGroupStore, g groupTarget, role iam.Role, invitationID string) error
 }
 
-// redeemInvitation gives h inv's role and uses inv up. inv must be live (not
-// revoked, expired or used) and its inviter live, still holding authority
-// over it in this application's catalog; h must be live. A holder already
-// holding the role succeeds without using inv.
-func (s *Engine) redeemInvitation(ctx context.Context, st *permissionGroupStore, inv invitation, h roleHolder) error {
+// standingInvitation refuses inv when it is revoked or expired, or its
+// inviter is gone or no longer holds authority over it in this application's
+// catalog.
+func (s *Engine) standingInvitation(ctx context.Context, st *permissionGroupStore, inv invitation) error {
 	if inv.revoked || !inv.issuerLive {
 		return errmodel.ErrInvitationRevoked
 	}
@@ -64,6 +63,16 @@ func (s *Engine) redeemInvitation(ctx context.Context, st *permissionGroupStore,
 	}
 	if inv.expiresAt != nil && !inv.expiresAt.After(time.Now().UTC()) {
 		return errmodel.ErrInvitationExpired
+	}
+	return nil
+}
+
+// redeemInvitation gives h inv's role and uses inv up. inv must stand
+// (standingInvitation) and be unused, and h must be live. A holder already
+// holding the role succeeds without using inv.
+func (s *Engine) redeemInvitation(ctx context.Context, st *permissionGroupStore, inv invitation, h roleHolder) error {
+	if err := s.standingInvitation(ctx, st, inv); err != nil {
+		return err
 	}
 	live, err := h.live(ctx, st)
 	if err != nil {
